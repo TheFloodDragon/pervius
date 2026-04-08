@@ -97,7 +97,7 @@ fn caption_button(ui: &mut egui::Ui, icon: CaptionIcon) -> bool {
     let ic = if hovered && is_close {
         egui::Color32::WHITE
     } else {
-        theme::TEXT_DIM
+        theme::TEXT_SECONDARY
     };
     let glyph = match icon {
         CaptionIcon::Minimize => codicon::CHROME_MINIMIZE,
