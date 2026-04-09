@@ -77,23 +77,6 @@ where
         native,
         Box::new(move |cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
-            // 覆盖 Window 相关 visuals，使 egui::Window 匹配深色主题
-            cc.egui_ctx.style_mut(|style| {
-                style.visuals.window_fill = egui::Color32::from_rgb(17, 17, 18);
-                style.visuals.window_stroke =
-                    egui::Stroke::new(1.0, egui::Color32::from_rgb(58, 58, 61));
-                style.visuals.window_shadow = egui::Shadow {
-                    spread: 0,
-                    blur: 16,
-                    offset: [0, 4],
-                    color: egui::Color32::from_black_alpha(50),
-                };
-                style.visuals.window_corner_radius = egui::CornerRadius::same(8);
-                // 禁用 egui::Window 的 resize 边缘 hover/drag 高亮 (默认 from_gray(150))
-                let subtle_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 46, 48));
-                style.visuals.widgets.hovered.bg_stroke = subtle_stroke;
-                style.visuals.widgets.active.bg_stroke = subtle_stroke;
-            });
             fonts::setup(&cc.egui_ctx);
             let content = create(cc);
             Ok(Box::new(ShellApp {

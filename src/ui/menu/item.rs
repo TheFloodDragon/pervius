@@ -2,9 +2,15 @@
 //!
 //! @author sky
 
-use crate::shell::theme;
+use crate::shell::{codicon, theme};
 use eframe::egui;
 use egui_keybind::KeyBind;
+
+/// 菜单项内容最小宽度上下文 key
+///
+/// `menu_submenu` 在渲染子菜单前将上一帧的内容宽度写入此 key，
+/// `menu_item_raw` 读取后用作分配宽度下限，使所有项等宽。
+const MENU_FILL_WIDTH: &str = "__menu_fill_w";
 
 /// 菜单项：label 靠左，快捷键靠右（从 KeyBind 取标签）
 pub fn menu_item(ui: &mut egui::Ui, label: &str, keybind: Option<&KeyBind>) -> bool {
@@ -32,10 +38,13 @@ pub fn menu_item_raw(ui: &mut egui::Ui, label: &str, shortcut: &str) -> bool {
     };
     let content_w =
         label_galley.size().x + gap + shortcut_galley.as_ref().map_or(0.0, |g| g.size().x);
-    let (rect, resp) = ui.allocate_at_least(
-        egui::vec2(content_w + padding * 2.0, height),
-        egui::Sense::click(),
-    );
+    let content_min = content_w + padding * 2.0;
+    // 如果上层 menu_submenu 设置了填充宽度，用它作为下限（让所有项等宽）
+    let fill: f32 = ui
+        .ctx()
+        .data(|d| d.get_temp(egui::Id::new(MENU_FILL_WIDTH)).unwrap_or(0.0));
+    let desired_w = content_min.max(fill);
+    let (rect, resp) = ui.allocate_at_least(egui::vec2(desired_w, height), egui::Sense::click());
     let painter = ui.painter();
     if resp.hovered() {
         painter.rect_filled(rect, egui::CornerRadius::same(3), theme::BG_HOVER);
@@ -55,4 +64,76 @@ pub fn menu_item_raw(ui: &mut egui::Ui, label: &str, shortcut: &str) -> bool {
         );
     }
     resp.clicked()
+}
+
+/// 带子菜单的菜单项：label 靠左，右侧 chevron，hover 时展开子菜单
+pub fn menu_submenu(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
+    let label_font = egui::FontId::proportional(12.0);
+    let chevron_font = egui::FontId::new(10.0, codicon::family());
+    let padding = 8.0;
+    let height = 22.0;
+    let label_galley =
+        ui.painter()
+            .layout_no_wrap(label.to_owned(), label_font, theme::TEXT_PRIMARY);
+    let chevron_galley = ui.painter().layout_no_wrap(
+        codicon::CHEVRON_RIGHT.to_owned(),
+        chevron_font,
+        theme::TEXT_MUTED,
+    );
+    let content_w = label_galley.size().x + 24.0 + chevron_galley.size().x;
+    let desired_w = content_w + padding * 2.0;
+    let (rect, resp) = ui.allocate_at_least(egui::vec2(desired_w, height), egui::Sense::hover());
+    let painter = ui.painter();
+    if resp.hovered() {
+        painter.rect_filled(rect, egui::CornerRadius::same(3), theme::BG_HOVER);
+    }
+    let label_y = rect.center().y - label_galley.size().y / 2.0;
+    painter.galley(
+        egui::pos2(rect.left() + padding, label_y),
+        label_galley,
+        theme::TEXT_PRIMARY,
+    );
+    let cy = rect.center().y - chevron_galley.size().y / 2.0;
+    painter.galley(
+        egui::pos2(rect.right() - padding - chevron_galley.size().x, cy),
+        chevron_galley,
+        theme::TEXT_MUTED,
+    );
+    // 子菜单弹出
+    let sub_id = ui.id().with(label).with("_sub");
+    let was_open: bool = ui.data(|d| d.get_temp(sub_id).unwrap_or(false));
+    if resp.hovered() || was_open {
+        // 上一帧子菜单内容宽度（第一帧为 0，项按自身内容宽度分配）
+        let width_id = sub_id.with("_w");
+        let cached_width: f32 = ui.ctx().data(|d| d.get_temp(width_id).unwrap_or(0.0));
+        let fill_key = egui::Id::new(MENU_FILL_WIDTH);
+        ui.ctx().data_mut(|d| d.insert_temp(fill_key, cached_width));
+        let popup_pos = egui::pos2(rect.right(), rect.top());
+        let frame = egui::Frame::popup(ui.style());
+        let area_resp = egui::Area::new(sub_id)
+            .order(egui::Order::Foreground)
+            .fixed_pos(popup_pos)
+            .show(ui.ctx(), |ui| {
+                frame.show(ui, |ui| {
+                    ui.style_mut().visuals.widgets.hovered.bg_fill = theme::BG_HOVER;
+                    add_contents(ui);
+                    // 缓存本帧内容宽度供下一帧使用
+                    let w = ui.min_rect().width();
+                    ui.ctx().data_mut(|d| d.insert_temp(width_id, w));
+                });
+            });
+        // 清除全局 key，不影响其他菜单
+        ui.ctx().data_mut(|d| d.insert_temp(fill_key, 0.0f32));
+        // trigger 或 popup 任一区域有 hover 就保持打开
+        let popup_rect = area_resp.response.rect;
+        let hover_zone = rect.union(popup_rect).expand(4.0);
+        let still_hovering = ui.ctx().input(|i| {
+            i.pointer
+                .hover_pos()
+                .is_some_and(|p| hover_zone.contains(p))
+        });
+        ui.data_mut(|d| d.insert_temp(sub_id, still_hovering));
+    } else {
+        ui.data_mut(|d| d.insert_temp::<bool>(sub_id, false));
+    }
 }

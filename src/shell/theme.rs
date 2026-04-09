@@ -116,9 +116,9 @@ pub fn verdigris_alpha(alpha: u8) -> egui::Color32 {
 pub fn window_theme() -> egui_window::WindowTheme {
     egui_window::WindowTheme {
         frame: egui::Frame {
-            fill: BG_MEDIUM,
+            fill: BG_GUTTER,
             corner_radius: egui::CornerRadius::same(8),
-            stroke: egui::Stroke::new(1.0, BORDER_LIGHT),
+            stroke: egui::Stroke::new(1.0, BORDER),
             inner_margin: egui::Margin::same(0),
             shadow: egui::Shadow {
                 spread: 2,

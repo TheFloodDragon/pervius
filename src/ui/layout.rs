@@ -6,6 +6,7 @@ mod handler;
 mod island;
 
 use super::editor::EditorArea;
+use super::explorer::tree;
 use super::explorer::FilePanel;
 use super::search::SearchDialog;
 use super::settings::SettingsDialog;
@@ -239,7 +240,9 @@ impl Layout {
     fn sync_explorer_selection(&mut self) {
         if let Some(path) = self.editor.focused_entry_path() {
             if self.file_panel.selected.as_ref() != Some(&path) {
+                tree::reveal(&mut self.file_panel.roots, &path);
                 self.file_panel.selected = Some(path);
+                self.file_panel.scroll_to_selected = true;
             }
         }
     }

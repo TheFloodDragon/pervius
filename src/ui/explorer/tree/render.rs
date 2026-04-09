@@ -36,6 +36,7 @@ pub fn render_tree(
     selected: &Option<String>,
     filter: &str,
     reveal: &mut Option<String>,
+    scroll: bool,
 ) -> Option<String> {
     let filtering = !filter.is_empty();
     let mut clicked = None;
@@ -45,7 +46,7 @@ pub fn render_tree(
             continue;
         }
         let is_selected = selected.as_ref().is_some_and(|s| s == &node.path);
-        let (single, double) = render_row(ui, node, depth, is_selected, reveal);
+        let (single, double) = render_row(ui, node, depth, is_selected, reveal, scroll);
         if node.is_folder {
             if single {
                 node.expanded = !node.expanded;
@@ -66,9 +67,15 @@ pub fn render_tree(
         // 过滤模式自动展开所有匹配路径，正常模式遵循 expanded
         let show_children = node.has_children() && (filtering || node.expanded);
         if show_children {
-            if let Some(path) =
-                render_tree(ui, &mut node.children, depth + 1, selected, filter, reveal)
-            {
+            if let Some(path) = render_tree(
+                ui,
+                &mut node.children,
+                depth + 1,
+                selected,
+                filter,
+                reveal,
+                scroll,
+            ) {
                 clicked = Some(path);
             }
         }
@@ -83,6 +90,7 @@ fn render_row(
     depth: u8,
     selected: bool,
     reveal: &mut Option<String>,
+    scroll: bool,
 ) -> (bool, bool) {
     let row_h = 22.0;
     let indent_px = 8.0 + depth as f32 * 16.0;
@@ -91,6 +99,9 @@ fn render_row(
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, 4.0, theme::verdigris_alpha(38));
+        if scroll {
+            response.scroll_to_me(Some(egui::Align::Center));
+        }
     } else if response.hovered() {
         painter.rect_filled(rect, 4.0, theme::BG_HOVER);
     }

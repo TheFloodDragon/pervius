@@ -2,8 +2,7 @@
 //!
 //! @author sky
 
-use super::item::{menu_item, menu_item_raw};
-use crate::shell::theme;
+use super::item::{menu_item, menu_item_raw, menu_submenu};
 use crate::ui::keybindings;
 use crate::ui::layout::Layout;
 use eframe::egui;
@@ -17,15 +16,14 @@ pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
     let recent = layout.settings.recent.clone();
     let mut open_path: Option<PathBuf> = None;
     let mut clear = false;
-    ui.menu_button(egui::RichText::new("Open Recent").size(12.0), |ui| {
-        ui.style_mut().visuals.widgets.hovered.bg_fill = theme::BG_HOVER;
+    menu_submenu(ui, "Open Recent", |ui| {
         if recent.is_empty() {
             ui.add_enabled(
                 false,
                 egui::Label::new(
                     egui::RichText::new("No Recent Files")
                         .size(12.0)
-                        .color(theme::TEXT_MUTED),
+                        .color(egui::Color32::from_rgb(100, 100, 100)),
                 ),
             );
         } else {
