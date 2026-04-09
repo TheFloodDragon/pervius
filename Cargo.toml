@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/egui-hex-view", "crates/egui-keybind", "crates/egui-shell"]
+members = [".", "crates/egui-hex-view", "crates/egui-keybind", "crates/egui-shell", "crates/egui-window"]
 
 [package]
 name = "pervius"
@@ -15,6 +15,9 @@ egui-notify = "0.22"
 egui-hex-view = { path = "crates/egui-hex-view" }
 egui-keybind = { path = "crates/egui-keybind" }
 egui-shell = { path = "crates/egui-shell" }
+egui-window = { path = "crates/egui-window" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 zip = "2"
 rfd = "0.15"
 encoding_rs = "0.8"
@@ -26,6 +29,9 @@ tree-sitter-yaml = "0.7"
 tree-sitter-json = "0.24"
 tree-sitter-html = "0.23"
 tree-sitter-sequel = "0.3"
+tree-sitter-kotlin-sg = "0.4.0"
+sha2 = "0.10"
+dirs = "6"
 
 [patch.crates-io]
 egui_dock = { path = "crates/egui-dock-patch" }
