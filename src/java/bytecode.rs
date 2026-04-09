@@ -137,39 +137,7 @@ fn format_constant(c: &Constant, cp: &ConstantPool, idx: u16) -> (&'static str, 
                 .unwrap_or_default();
             ("Package", val)
         }
-        _ => ("Unknown", String::new()),
     }
-}
-
-/// 常量池条目（用于 UI 展示）
-pub struct CpEntry {
-    pub index: u16,
-    pub tag: &'static str,
-    pub value: String,
-}
-
-/// 从 .class 字节提取常量池条目列表
-pub fn extract_constant_pool(bytes: &[u8]) -> Vec<CpEntry> {
-    let cf = match ClassFile::from_bytes(bytes) {
-        Ok(cf) => cf,
-        Err(_) => return Vec::new(),
-    };
-    let cp = &cf.constant_pool;
-    let mut entries = Vec::new();
-    for idx in 1..=cp.len() {
-        let idx = idx as u16;
-        let constant = match cp.try_get(idx) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        let (tag, value) = format_constant(constant, cp, idx);
-        entries.push(CpEntry {
-            index: idx,
-            tag,
-            value,
-        });
-    }
-    entries
 }
 
 // ── class info ──
@@ -235,23 +203,6 @@ fn extract_class_info(cf: &ClassFile, cp: &ConstantPool, bytes: &[u8]) -> ClassI
             _ => {}
         }
     }
-    let declaration = {
-        let mut d = String::new();
-        if !access.is_empty() {
-            d.push_str(&access);
-            d.push(' ');
-        }
-        d.push_str(&name);
-        if !super_class.is_empty() && super_class != "java/lang/Object" {
-            d.push_str(" extends ");
-            d.push_str(&super_class);
-        }
-        if !interfaces.is_empty() {
-            d.push_str(" implements ");
-            d.push_str(&interfaces.join(", "));
-        }
-        d
-    };
     ClassInfo {
         version,
         access,
@@ -262,7 +213,6 @@ fn extract_class_info(cf: &ClassFile, cp: &ConstantPool, bytes: &[u8]) -> ClassI
         source_file,
         annotations,
         is_deprecated,
-        declaration,
     }
 }
 
@@ -318,21 +268,6 @@ fn extract_field(field: &ristretto_classfile::Field, cp: &ConstantPool) -> Field
             _ => {}
         }
     }
-    let declaration = {
-        let mut d = String::new();
-        if !access.is_empty() {
-            d.push_str(&access);
-            d.push(' ');
-        }
-        d.push_str(&name);
-        d.push(' ');
-        d.push_str(&descriptor);
-        if let Some(cv) = &constant_value {
-            d.push_str(" = ");
-            d.push_str(cv);
-        }
-        d
-    };
     FieldInfo {
         access,
         name,
@@ -342,7 +277,6 @@ fn extract_field(field: &ristretto_classfile::Field, cp: &ConstantPool) -> Field
         annotations,
         is_deprecated,
         is_synthetic,
-        declaration,
     }
 }
 
@@ -419,20 +353,6 @@ fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> Me
             _ => {}
         }
     }
-    let declaration = {
-        let mut d = String::new();
-        if !access.is_empty() {
-            d.push_str(&access);
-            d.push(' ');
-        }
-        d.push_str(&name);
-        d.push_str(&descriptor);
-        if !exceptions.is_empty() {
-            d.push_str(" throws ");
-            d.push_str(&exceptions.join(", "));
-        }
-        d
-    };
     MethodInfo {
         access,
         name,
@@ -442,7 +362,6 @@ fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> Me
         annotations,
         is_deprecated,
         is_synthetic,
-        declaration,
         bytecode,
         has_code,
     }

@@ -7,16 +7,18 @@ use std::io::BufRead;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt as _;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 
 use rust_i18n::t;
 
 /// 反编译进度（跨线程共享）
 pub struct DecompileProgress {
+    /// Decompiling 阶段已处理类数
     pub current: AtomicU32,
+    /// Preprocessing 阶段统计的根类总数（动态累加）
     pub total: AtomicU32,
-    /// 已完成反编译的类路径（不含 `.class` 后缀）及其文件夹前缀
+    /// 已完成反编译的类路径及其文件夹前缀
     pub decompiled: Mutex<HashSet<String>>,
 }
 
@@ -239,7 +241,7 @@ pub fn start(
     jar_path: &Path,
     jar_name: &str,
     hash: &str,
-    class_count: u32,
+    _class_count: u32,
 ) -> Result<DecompileTask, String> {
     let java = find_java()?;
     let vineflower = find_vineflower()?;
@@ -247,7 +249,7 @@ pub fn start(
     std::fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
     let progress = Arc::new(DecompileProgress {
         current: AtomicU32::new(0),
-        total: AtomicU32::new(class_count * 2),
+        total: AtomicU32::new(0),
         decompiled: Mutex::new(HashSet::new()),
     });
     let child_pid = Arc::new(AtomicU32::new(0));
@@ -277,10 +279,15 @@ fn run_vineflower(
     child_pid: &AtomicU32,
 ) -> Result<(), String> {
     let mut cmd = std::process::Command::new(java);
+    // 限制线程数，避免吃满 CPU
+    let thr = std::thread::available_parallelism()
+        .map(|n| n.get().max(2) / 2)
+        .unwrap_or(2);
     cmd.arg("-jar")
         .arg(vineflower)
         .arg("--bytecode-source-mapping=1")
         .arg("--__dump_original_lines__=1")
+        .arg(format!("-thr={thr}"))
         .arg(jar_path)
         .arg(output_dir)
         .stdout(std::process::Stdio::piped())
@@ -291,39 +298,61 @@ fn run_vineflower(
         .spawn()
         .map_err(|e| t!("decompiler.spawn_failed", error = e).to_string())?;
     child_pid.store(child.id(), Ordering::Relaxed);
-    // Vineflower 日志输出到 stdout
+    // stdout 和 stderr 各起一个线程读取，汇入同一 channel 统一解析
+    // Vineflower 可能把进度日志写到任一流，合并后不遗漏且避免管道满死锁
+    let (line_tx, line_rx) = mpsc::channel::<String>();
+    let stdout_thread = child.stdout.take().map(|out| {
+        let tx = line_tx.clone();
+        std::thread::spawn(move || {
+            let reader = std::io::BufReader::new(out);
+            for line in reader.lines().flatten() {
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        })
+    });
+    let stderr_thread = child.stderr.take().map(|err| {
+        let tx = line_tx.clone();
+        std::thread::spawn(move || {
+            let reader = std::io::BufReader::new(err);
+            for line in reader.lines().flatten() {
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        })
+    });
+    drop(line_tx);
     // 进度阶段：
     //   "Preprocessing class" — 分析阶段（每个根类一次）
     //   "Decompiling class"   — 反编译输出阶段（每个根类一次）
-    // 两阶段都计入进度，总数按 class_count * 2 算
+    // 两阶段都计入 current，total 在 Preprocessing 时动态累加（×2 留给 Decompiling）
     // "Decompiling class X" 出现时，上一个类已完成输出
     let mut prev_class: Option<String> = None;
-    if let Some(stdout) = child.stdout.take() {
-        let reader = std::io::BufReader::new(stdout);
-        for line in reader.lines() {
-            let line = match line {
-                Ok(l) => l,
-                Err(_) => break,
-            };
-            if line.contains("Preprocessing class") {
-                progress.current.fetch_add(1, Ordering::Relaxed);
-            } else if line.contains("Decompiling class") {
-                progress.current.fetch_add(1, Ordering::Relaxed);
-                if let Some(prev) = prev_class.take() {
-                    mark_decompiled(&progress.decompiled, &prev);
-                }
-                prev_class = extract_class_name(&line);
-                if let Some(name) = &prev_class {
-                    log::debug!("Decompiling: {name}");
-                }
-            } else if line.starts_with("ERROR:") {
-                log::error!("vineflower: {line}");
+    for line in line_rx {
+        if line.contains("Preprocessing class") {
+            progress.total.fetch_add(2, Ordering::Relaxed);
+            progress.current.fetch_add(1, Ordering::Relaxed);
+        } else if line.contains("Decompiling class") {
+            progress.current.fetch_add(1, Ordering::Relaxed);
+            if let Some(prev) = prev_class.take() {
+                mark_decompiled(&progress.decompiled, &prev);
             }
+            prev_class = extract_class_name(&line);
+        } else if line.starts_with("ERROR:") {
+            log::error!("vineflower: {line}");
         }
     }
     // 最后一个类
     if let Some(prev) = prev_class {
         mark_decompiled(&progress.decompiled, &prev);
+    }
+    if let Some(t) = stdout_thread {
+        let _ = t.join();
+    }
+    if let Some(t) = stderr_thread {
+        let _ = t.join();
     }
     let status = child
         .wait()
@@ -366,4 +395,65 @@ fn mark_decompiled(set: &Mutex<HashSet<String>>, class_name: &str) {
     for (i, _) in class_name.match_indices('/') {
         guard.insert(class_name[..i + 1].to_string());
     }
+}
+
+/// 单文件反编译：将 class 字节写入临时输入目录，跑 Vineflower，输出直接写入缓存目录
+///
+/// `class_path` 形如 `com/example/Foo.class`，用于构建临时目录结构。
+/// `jar_path` 用作 Vineflower 的 context library（-e 参数），提供依赖解析。
+/// `hash` 为 JAR 哈希，决定缓存目录位置。
+pub fn decompile_single_class(
+    bytes: &[u8],
+    class_path: &str,
+    jar_path: &Path,
+    hash: &str,
+) -> Result<CachedSource, String> {
+    let java = find_java()?;
+    let vineflower = find_vineflower()?;
+    // 输出直接写入缓存目录
+    let output_dir = cache_dir(hash)?;
+    std::fs::create_dir_all(&output_dir).map_err(|e| format!("{e}"))?;
+    // 唯一临时输入目录（原子计数器避免并发冲突）
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp_input = std::env::temp_dir().join(format!("pervius_single_{id}"));
+    // 写入临时 .class 文件（保持包目录结构）
+    let class_file = tmp_input.join(class_path);
+    if let Some(parent) = class_file.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("{e}"))?;
+    }
+    std::fs::write(&class_file, bytes).map_err(|e| format!("{e}"))?;
+    // 运行 Vineflower（传入目录而非单文件，保留包路径结构）
+    let mut cmd = std::process::Command::new(&java);
+    cmd.arg("-jar")
+        .arg(&vineflower)
+        .arg("--bytecode-source-mapping=1")
+        .arg("--__dump_original_lines__=1")
+        .arg(format!("-e={}", jar_path.display()))
+        .arg(tmp_input.as_os_str())
+        .arg(output_dir.as_os_str())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000);
+    let output = cmd.output().map_err(|e| format!("spawn failed: {e}"))?;
+    let _ = std::fs::remove_dir_all(&tmp_input);
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("vineflower failed: {stderr}"));
+    }
+    // 从缓存目录读取结果
+    let base = class_to_base_path(class_path);
+    for (ext, is_kt) in &[(".java", false), (".kt", true)] {
+        let file = output_dir.join(format!("{base}{ext}"));
+        if let Ok(raw) = std::fs::read_to_string(&file) {
+            let (source, line_mapping) = strip_line_markers(&raw);
+            return Ok(CachedSource {
+                source,
+                is_kotlin: *is_kt,
+                line_mapping,
+            });
+        }
+    }
+    Err("Vineflower produced no output".to_string())
 }

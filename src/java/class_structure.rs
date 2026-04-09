@@ -36,8 +36,6 @@ pub struct ClassInfo {
     pub annotations: Vec<EditableAnnotation>,
     /// 是否标记 Deprecated
     pub is_deprecated: bool,
-    /// 可编辑声明行，如 "public final class com/example/MyClass extends java/lang/Object"
-    pub declaration: String,
 }
 
 /// field 信息
@@ -58,8 +56,6 @@ pub struct FieldInfo {
     pub is_deprecated: bool,
     /// 是否编译器生成
     pub is_synthetic: bool,
-    /// 可编辑声明行，如 "public static final count I"
-    pub declaration: String,
 }
 
 /// method 信息
@@ -80,8 +76,6 @@ pub struct MethodInfo {
     pub is_deprecated: bool,
     /// 是否编译器生成
     pub is_synthetic: bool,
-    /// 可编辑声明行，如 "public foo(I)V"
-    pub declaration: String,
     /// 可编辑字节码指令文本，逐行
     pub bytecode: String,
     /// 是否有 Code attribute（abstract/native 没有）

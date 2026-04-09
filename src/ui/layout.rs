@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+mod confirm;
 mod handler;
 mod island;
 
@@ -11,17 +12,18 @@ use super::explorer::FilePanel;
 use super::search::SearchDialog;
 use super::settings::SettingsDialog;
 use super::status_bar::StatusBar;
-use crate::java::decompiler::DecompileTask;
+use crate::java::decompiler::{CachedSource, DecompileTask};
 use crate::java::jar::JarArchive;
 use crate::settings::Settings;
 use crate::shell::theme;
+use confirm::ConfirmAction;
 use eframe::egui;
 use egui_keybind::KeyMap;
 use egui_notify::Toasts;
 use egui_window_settings::SettingsFile;
 use rust_i18n::t;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::sync::mpsc;
 
 /// Explorer 面板最小宽度
 const EXPLORER_MIN_WIDTH: f32 = 160.0;
@@ -30,13 +32,6 @@ const EXPLORER_MAX_WIDTH: f32 = 600.0;
 
 /// Explorer 折叠/展开动画时长（秒）
 const EXPLORER_ANIM_DURATION: f32 = 0.08;
-
-/// 需要用户确认的破坏性动作
-pub enum ConfirmAction {
-    Close,
-    OpenDialog,
-    Open(PathBuf),
-}
 
 /// 主布局状态
 pub struct Layout {
@@ -64,6 +59,10 @@ pub struct Layout {
     show_fps: bool,
     /// 待确认的破坏性动作
     pub pending_confirm: Option<ConfirmAction>,
+    /// 单文件反编译结果接收队列（支持并发多个）
+    pending_decompiles: Vec<(String, mpsc::Receiver<Result<CachedSource, String>>)>,
+    /// 后台重反编译启动中（清缓存 + start 在子线程）
+    pending_re_decompile: Option<(String, mpsc::Receiver<Result<DecompileTask, String>>)>,
 }
 
 struct LayoutRects {
@@ -93,6 +92,8 @@ impl Layout {
             decompiled_classes: None,
             show_fps: false,
             pending_confirm: None,
+            pending_decompiles: Vec::new(),
+            pending_re_decompile: None,
         }
     }
 
@@ -109,6 +110,8 @@ impl Layout {
         self.handle_pending_reveal();
         self.check_loading();
         self.check_decompiling();
+        self.check_re_decompile();
+        self.check_single_decompile();
         // keybind 录制中跳过快捷键分发，避免录制按键同时触发动作
         if !egui_window_settings::is_recording_keybind(ui.ctx()) {
             let mut keys = std::mem::take(&mut self.keys);
@@ -240,19 +243,36 @@ impl Layout {
             class_info.as_deref(),
         );
         // 同步反编译进度
-        let decompile_info = self.decompiling.as_ref().map(|task| {
-            let current = task
-                .progress
-                .current
-                .load(std::sync::atomic::Ordering::Relaxed);
-            let total = task
-                .progress
-                .total
-                .load(std::sync::atomic::Ordering::Relaxed);
-            (task.jar_name.as_str(), current, total)
-        });
-        self.status_bar.sync_decompile(decompile_info);
-        if self.decompiling.is_some() {
+        let decompile_info = if let Some((ref name, _)) = self.pending_re_decompile {
+            // 重反编译启动中（后台清缓存）
+            Some((name.clone(), 0u32, 0u32))
+        } else if !self.pending_decompiles.is_empty() {
+            // 单文件反编译中（取最后一个的名字）
+            let name = &self.pending_decompiles.last().unwrap().0;
+            let short = name.rsplit('/').next().unwrap_or(name);
+            Some((short.to_string(), 0u32, 0u32))
+        } else {
+            self.decompiling.as_ref().map(|task| {
+                let current = task
+                    .progress
+                    .current
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                let total = task
+                    .progress
+                    .total
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                (task.jar_name.clone(), current, total)
+            })
+        };
+        self.status_bar.sync_decompile(
+            decompile_info
+                .as_ref()
+                .map(|(n, c, t)| (n.as_str(), *c, *t)),
+        );
+        if self.decompiling.is_some()
+            || !self.pending_decompiles.is_empty()
+            || self.pending_re_decompile.is_some()
+        {
             ui.ctx().request_repaint();
         }
         self.status_bar
@@ -359,172 +379,8 @@ impl Layout {
         set.insert(String::new());
     }
 
-    /// 保存当前聚焦 tab 的修改到 JAR 内存
-    pub fn save_active_tab(&mut self) {
-        let tab = match self.editor.focused_tab_mut() {
-            Some(t) => t,
-            None => return,
-        };
-        if !tab.is_modified {
-            return;
-        }
-        let entry_path = match tab.entry_path.clone() {
-            Some(p) => p,
-            None => return,
-        };
-        let cs = match &tab.class_structure {
-            Some(cs) => cs,
-            None => return,
-        };
-        match crate::java::save::apply_structure(&tab.raw_bytes, cs) {
-            Ok(new_bytes) => {
-                tab.raw_bytes = new_bytes.clone();
-                tab.is_modified = false;
-                if let Some(jar) = &mut self.jar {
-                    jar.put(&entry_path, new_bytes);
-                }
-                log::info!("Saved: {entry_path}");
-            }
-            Err(e) => {
-                log::error!("Save failed: {entry_path}: {e}");
-                self.toasts.error(t!("editor.save_failed", error = e));
-            }
-        }
-    }
-
     /// 打开设置对话框
     pub fn open_settings(&mut self) {
         self.settings_dialog.open(&self.settings);
-    }
-
-    /// 是否有未保存的变更（tab 级别编辑 或 JAR 内存级别修改）
-    pub fn has_unsaved_changes(&self) -> bool {
-        self.jar.as_ref().is_some_and(|j| j.has_modified_entries())
-            || self
-                .editor
-                .dock_state
-                .iter_all_tabs()
-                .any(|(_, tab)| tab.is_modified)
-    }
-
-    /// 带确认的关闭请求
-    pub fn request_close(&mut self, ctx: &egui::Context) {
-        if self.has_unsaved_changes() {
-            self.pending_confirm = Some(ConfirmAction::Close);
-        } else {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        }
-    }
-
-    /// 带确认的打开 JAR 对话框
-    pub fn request_open_jar_dialog(&mut self) {
-        if self.has_unsaved_changes() {
-            self.pending_confirm = Some(ConfirmAction::OpenDialog);
-        } else {
-            self.open_jar_dialog();
-        }
-    }
-
-    /// 带确认的打开指定 JAR
-    pub fn request_open_jar(&mut self, path: &std::path::Path) {
-        if self.has_unsaved_changes() {
-            self.pending_confirm = Some(ConfirmAction::Open(path.to_path_buf()));
-        } else {
-            self.open_jar(path);
-        }
-    }
-
-    /// 执行已确认的动作
-    fn execute_confirmed(&mut self, action: ConfirmAction, ctx: &egui::Context) {
-        match action {
-            ConfirmAction::Close => {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
-            ConfirmAction::OpenDialog => {
-                self.open_jar_dialog();
-            }
-            ConfirmAction::Open(path) => {
-                self.open_jar(&path);
-            }
-        }
-    }
-
-    /// 渲染确认对话框（模态遮罩 + 居中面板）
-    fn render_confirm(&mut self, ctx: &egui::Context) {
-        if self.pending_confirm.is_none() {
-            return;
-        }
-        // Escape 取消
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.pending_confirm = None;
-            return;
-        }
-        // 半透明遮罩
-        let screen = ctx.screen_rect();
-        let backdrop_layer =
-            egui::LayerId::new(egui::Order::Foreground, egui::Id::new("confirm_backdrop"));
-        let painter = ctx.layer_painter(backdrop_layer);
-        painter.rect_filled(screen, 0.0, egui::Color32::from_black_alpha(120));
-        // 遮罩区域拦截点击（通过 Area 实现）
-        egui::Area::new(egui::Id::new("confirm_backdrop_area"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(screen.left_top())
-            .show(ctx, |ui| {
-                let resp = ui.allocate_response(screen.size(), egui::Sense::click());
-                if resp.clicked() {
-                    self.pending_confirm = None;
-                }
-            });
-        if self.pending_confirm.is_none() {
-            return;
-        }
-        // 居中对话框
-        egui::Area::new(egui::Id::new("confirm_dialog"))
-            .order(egui::Order::Foreground)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .show(ctx, |ui| {
-                egui::Frame::popup(ui.style())
-                    .fill(theme::BG_MEDIUM)
-                    .stroke(egui::Stroke::new(1.0, theme::BORDER))
-                    .corner_radius(8.0)
-                    .inner_margin(24.0)
-                    .show(ui, |ui| {
-                        ui.label(
-                            egui::RichText::new(t!("confirm.unsaved_title"))
-                                .size(14.0)
-                                .color(theme::TEXT_PRIMARY)
-                                .strong(),
-                        );
-                        ui.add_space(8.0);
-                        ui.label(
-                            egui::RichText::new(t!("confirm.unsaved_message"))
-                                .size(12.0)
-                                .color(theme::TEXT_SECONDARY),
-                        );
-                        ui.add_space(16.0);
-                        ui.horizontal(|ui| {
-                            if ui
-                                .add(
-                                    super::widget::FlatButton::new(&t!("confirm.discard"))
-                                        .min_size(egui::vec2(80.0, 28.0)),
-                                )
-                                .clicked()
-                            {
-                                let action = self.pending_confirm.take().unwrap();
-                                self.execute_confirmed(action, ui.ctx());
-                            }
-                            ui.add_space(8.0);
-                            if ui
-                                .add(
-                                    super::widget::FlatButton::new(&t!("confirm.cancel"))
-                                        .min_size(egui::vec2(80.0, 28.0)),
-                                )
-                                .clicked()
-                            {
-                                self.pending_confirm = None;
-                            }
-                        });
-                    });
-            });
     }
 }

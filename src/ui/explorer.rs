@@ -86,10 +86,10 @@ impl FilePanel {
         );
         // 标题栏右侧按钮
         self.render_title_buttons(ui, title_rect);
-        // 内容区（左右 2px padding）
+        // 内容区（左 2px、右 8px padding，右侧留空避免文字贴进 scrollbar）
         let body_rect = egui::Rect::from_min_max(
             egui::pos2(rect.left() + 2.0, title_rect.bottom()),
-            egui::pos2(rect.right() - 2.0, rect.bottom()),
+            egui::pos2(rect.right() - 8.0, rect.bottom()),
         );
         let mut body_ui = ui.new_child(egui::UiBuilder::new().max_rect(body_rect));
         self.render_tree(&mut body_ui, tab_modified, jar_modified, decompiled_classes);

@@ -95,8 +95,15 @@ impl Layout {
             None => return,
         };
         let hash = self.jar.as_ref().map(|j| j.hash.as_str());
+        let has_cache = hash
+            .and_then(|h| decompiler::cached_source_path(h, &entry_path))
+            .is_some();
         let tab = Self::create_tab(&entry_path, &bytes, hash);
         self.editor.open_tab(tab);
+        // 缓存未命中的 .class 文件立即触发单文件反编译
+        if !has_cache && entry_path.ends_with(".class") {
+            self.start_single_decompile(&entry_path);
+        }
     }
 
     /// 检查后台 JAR 加载是否完成
@@ -188,21 +195,24 @@ impl Layout {
             self.toasts.warning(t!("layout.decompile_in_progress"));
             return;
         }
-        decompiler::clear_cache(&jar.hash);
         self.decompiled_classes = Some(HashSet::new());
-        // 需要 clone 出必要数据避免借用冲突
         let path = jar.path.clone();
         let name = jar.name.clone();
         let hash = jar.hash.clone();
         let class_count = jar.class_count();
-        match decompiler::start(&path, &name, &hash, class_count) {
-            Ok(task) => {
+        // 清缓存 + 启动反编译都在后台线程，避免 remove_dir_all 卡主线程
+        let (tx, rx) = mpsc::channel();
+        let thread_name = name.clone();
+        std::thread::spawn(move || {
+            decompiler::clear_cache(&hash);
+            let result = decompiler::start(&path, &thread_name, &hash, class_count);
+            let _ = tx.send(result);
+        });
+        match rx.try_recv() {
+            // 不会立即就绪，存 receiver 等后续帧轮询
+            _ => {
                 log::info!("Re-decompiling: {name} ({class_count} classes)");
-                self.decompiling = Some(task);
-            }
-            Err(e) => {
-                self.toasts
-                    .warning(t!("layout.decompiler_unavailable", error = e));
+                self.pending_re_decompile = Some((name, rx));
             }
         }
     }
@@ -222,6 +232,150 @@ impl Layout {
                 log::warn!("Cannot start decompiler: {e}");
                 self.toasts
                     .warning(t!("layout.decompiler_unavailable", error = e));
+            }
+        }
+    }
+
+    /// 保存当前聚焦 tab 的修改到 JAR 内存，并触发单文件反编译
+    pub fn save_active_tab(&mut self) {
+        let tab = match self.editor.focused_tab_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        if !tab.is_modified {
+            return;
+        }
+        let entry_path = match tab.entry_path.clone() {
+            Some(p) => p,
+            None => return,
+        };
+        let cs = match &tab.class_structure {
+            Some(cs) => cs,
+            None => return,
+        };
+        match crate::java::save::apply_structure(&tab.raw_bytes, cs) {
+            Ok(new_bytes) => {
+                tab.raw_bytes = new_bytes.clone();
+                tab.is_modified = false;
+                if let Ok(new_cs) = crate::java::bytecode::disassemble(&new_bytes) {
+                    tab.class_structure = Some(new_cs);
+                }
+                if let Some(jar) = &mut self.jar {
+                    jar.put(&entry_path, new_bytes);
+                }
+                log::info!("Saved: {entry_path}");
+                self.start_single_decompile(&entry_path);
+            }
+            Err(e) => {
+                log::error!("Save failed: {entry_path}: {e}");
+                self.toasts.error(t!("editor.save_failed", error = e));
+            }
+        }
+    }
+
+    /// 后台反编译单个 .class 文件
+    pub(super) fn start_single_decompile(&mut self, entry_path: &str) {
+        let jar = match &self.jar {
+            Some(j) => j,
+            None => return,
+        };
+        let jar_path = jar.path.clone();
+        let hash = jar.hash.clone();
+        let bytes = match jar.get(entry_path) {
+            Some(b) => b.to_vec(),
+            None => return,
+        };
+        let class_path = entry_path.to_string();
+        let (tx, rx) = mpsc::channel();
+        let cp = class_path.clone();
+        std::thread::spawn(move || {
+            let result =
+                crate::java::decompiler::decompile_single_class(&bytes, &cp, &jar_path, &hash);
+            let _ = tx.send(result);
+        });
+        self.pending_decompiles.push((class_path, rx));
+    }
+
+    /// 轮询后台重反编译启动结果
+    pub(super) fn check_re_decompile(&mut self) {
+        let (name, rx) = match &self.pending_re_decompile {
+            Some(v) => v,
+            None => return,
+        };
+        let result = match rx.try_recv() {
+            Ok(r) => r,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.pending_re_decompile = None;
+                return;
+            }
+        };
+        let _name = name.clone();
+        self.pending_re_decompile = None;
+        match result {
+            Ok(task) => {
+                self.decompiling = Some(task);
+            }
+            Err(e) => {
+                log::error!("Re-decompile failed to start: {e}");
+                self.toasts
+                    .warning(t!("layout.decompiler_unavailable", error = e));
+            }
+        }
+    }
+
+    /// 轮询单文件反编译结果，完成后回填到对应 tab
+    pub(super) fn check_single_decompile(&mut self) {
+        if self.pending_decompiles.is_empty() {
+            return;
+        }
+        let mut i = 0;
+        while i < self.pending_decompiles.len() {
+            let result = match self.pending_decompiles[i].1.try_recv() {
+                Ok(r) => r,
+                Err(mpsc::TryRecvError::Empty) => {
+                    i += 1;
+                    continue;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.pending_decompiles.swap_remove(i);
+                    continue;
+                }
+            };
+            let entry_path = self.pending_decompiles.swap_remove(i).0;
+            match result {
+                Ok(cached) => {
+                    let lang = if cached.is_kotlin {
+                        Language::Kotlin
+                    } else {
+                        Language::Java
+                    };
+                    for (_, tab) in self.editor.dock_state.iter_all_tabs_mut() {
+                        if tab.entry_path.as_deref() == Some(&entry_path) {
+                            tab.set_decompiled(
+                                cached.source.clone(),
+                                lang,
+                                cached.line_mapping.clone(),
+                            );
+                            break;
+                        }
+                    }
+                    if let Some(set) = &mut self.decompiled_classes {
+                        let base = entry_path.strip_suffix(".class").unwrap_or(&entry_path);
+                        let base = match base.find('$') {
+                            Some(pos) => &base[..pos],
+                            None => base,
+                        };
+                        set.insert(base.to_string());
+                        for (idx, _) in base.match_indices('/') {
+                            set.insert(base[..idx + 1].to_string());
+                        }
+                    }
+                    log::info!("Single-decompiled: {entry_path}");
+                }
+                Err(e) => {
+                    log::warn!("Single decompile failed: {entry_path}: {e}");
+                }
             }
         }
     }

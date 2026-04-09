@@ -25,8 +25,8 @@ impl DecompileProgressItem {
     pub fn set_progress(&mut self, info: Option<(&str, u32, u32)>) {
         match info {
             Some((name, current, total)) => {
-                if current == 0 {
-                    self.text = t!("status.decompiling_init", name = name).to_string();
+                if total == 0 {
+                    self.text = t!("status.decompiling_init", name = name, count = 0).to_string();
                 } else {
                     self.text = t!(
                         "status.decompiling_progress",

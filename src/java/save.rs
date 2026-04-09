@@ -18,6 +18,45 @@ pub fn apply_structure(raw_bytes: &[u8], cs: &ClassStructure) -> Result<Vec<u8>,
     let mut cf = ClassFile::from_bytes(raw_bytes).map_err(|e| format!("parse error: {e}"))?;
     // 先反汇编一份原始字节码用于比对（跳过未修改的方法）
     let original = bytecode::disassemble(raw_bytes).ok();
+    if let Some(ref orig) = original {
+        log::debug!(
+            "apply_structure: class={}, orig_access={}, new_access={}",
+            orig.info.name,
+            orig.info.access,
+            cs.info.access,
+        );
+        for (i, (om, nm)) in orig.methods.iter().zip(cs.methods.iter()).enumerate() {
+            if om.bytecode != nm.bytecode {
+                log::debug!(
+                    "  method[{i}] {}.{} bytecode CHANGED",
+                    nm.name,
+                    nm.descriptor
+                );
+            }
+            if om.name != nm.name {
+                log::debug!("  method[{i}] name CHANGED: {} -> {}", om.name, nm.name);
+            }
+            if om.access != nm.access {
+                log::debug!(
+                    "  method[{i}] access CHANGED: {} -> {}",
+                    om.access,
+                    nm.access
+                );
+            }
+        }
+        for (i, (of, nf)) in orig.fields.iter().zip(cs.fields.iter()).enumerate() {
+            if of.name != nf.name {
+                log::debug!("  field[{i}] name CHANGED: {} -> {}", of.name, nf.name);
+            }
+            if of.access != nf.access {
+                log::debug!(
+                    "  field[{i}] access CHANGED: {} -> {}",
+                    of.access,
+                    nf.access
+                );
+            }
+        }
+    }
     apply_class_info(&mut cf, cs);
     apply_fields(&mut cf, cs);
     // class info / fields 修改可能新增 CP 条目，用修改后的 CP 构建 lookup
@@ -32,6 +71,11 @@ pub fn apply_structure(raw_bytes: &[u8], cs: &ClassStructure) -> Result<Vec<u8>,
     let mut buf = Vec::new();
     cf.to_bytes(&mut buf)
         .map_err(|e| format!("serialize error: {e}"))?;
+    log::debug!(
+        "apply_structure: {} -> {} bytes",
+        raw_bytes.len(),
+        buf.len()
+    );
     Ok(buf)
 }
 
