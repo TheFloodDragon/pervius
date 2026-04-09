@@ -75,6 +75,7 @@ pub(crate) fn row(
 ) {
     let row_offset = row * BYTES_PER_ROW;
     let row_end = (row_offset + BYTES_PER_ROW).min(data.len());
+    let row_len = row_end - row_offset;
     let y = origin.y + PAD_TOP + row as f32 * ROW_H;
     let cy = y + ROW_H * 0.5;
     let row_rect = egui::Rect::from_min_size(egui::pos2(origin.x, y), egui::vec2(content_w, ROW_H));
@@ -94,41 +95,72 @@ pub(crate) fn row(
         font.clone(),
         addr_color,
     );
-    // Hex 字节 + ASCII
-    for col in 0..(row_end - row_offset) {
+    // 选中范围：计算本行内的选中列区间 [sel_start_col, sel_end_col)
+    let sel_range = state.selection.and_then(|(s, e)| {
+        let sel_start = s.max(row_offset);
+        let sel_end = e.min(row_end);
+        if sel_start < sel_end {
+            Some((sel_start - row_offset, sel_end - row_offset))
+        } else {
+            None
+        }
+    });
+    // 绘制选中背景（整条连续矩形）
+    if let Some((sc, ec)) = sel_range {
+        let hex_left = origin.x + cols.hex_byte_x(sc);
+        let hex_right = origin.x + cols.hex_byte_x(ec - 1) + cols.char_w * 2.0;
+        painter.rect_filled(
+            egui::Rect::from_min_max(egui::pos2(hex_left, y), egui::pos2(hex_right, y + ROW_H)),
+            0.0,
+            theme.selection_bg,
+        );
+        let ascii_left = origin.x + cols.ascii_byte_x(sc);
+        let ascii_right = origin.x + cols.ascii_byte_x(ec - 1) + cols.char_w;
+        painter.rect_filled(
+            egui::Rect::from_min_max(
+                egui::pos2(ascii_left, y),
+                egui::pos2(ascii_right, y + ROW_H),
+            ),
+            0.0,
+            theme.selection_bg,
+        );
+    }
+    // 光标 / hover 单字节高亮
+    for col in 0..row_len {
         let byte_idx = row_offset + col;
-        let b = data[byte_idx];
         let is_cursor = state.cursor == Some(byte_idx);
-        let is_selected = state
-            .selection
-            .map_or(false, |(s, e)| byte_idx >= s && byte_idx < e);
+        let is_selected = sel_range.map_or(false, |(sc, ec)| col >= sc && col < ec);
         let is_hover = hover_idx == Some(byte_idx) && !is_cursor && !is_selected;
-        let hex_x = origin.x + cols.hex_byte_x(col);
-        let ascii_x = origin.x + cols.ascii_byte_x(col);
-        // 背景高亮
-        if is_cursor || is_selected || is_hover {
+        if is_cursor || is_hover {
             let bg = if is_cursor {
                 theme.cursor_bg
-            } else if is_selected {
-                theme.selection_bg
             } else {
                 theme.hover_byte_bg
             };
+            let hex_x = origin.x + cols.hex_byte_x(col);
+            let ascii_x = origin.x + cols.ascii_byte_x(col);
             painter.rect_filled(
                 egui::Rect::from_min_size(
                     egui::pos2(hex_x, y),
                     egui::vec2(cols.char_w * 2.0, ROW_H),
                 ),
-                2.0,
+                0.0,
                 bg,
             );
             painter.rect_filled(
                 egui::Rect::from_min_size(egui::pos2(ascii_x, y), egui::vec2(cols.char_w, ROW_H)),
-                2.0,
+                0.0,
                 bg,
             );
         }
-        // hex 文本
+    }
+    // 文本绘制
+    for col in 0..row_len {
+        let byte_idx = row_offset + col;
+        let b = data[byte_idx];
+        let is_cursor = state.cursor == Some(byte_idx);
+        let hex_x = origin.x + cols.hex_byte_x(col);
+        let ascii_x = origin.x + cols.ascii_byte_x(col);
         let hex_color = if is_cursor {
             theme.text_primary
         } else {
@@ -141,7 +173,6 @@ pub(crate) fn row(
             font.clone(),
             hex_color,
         );
-        // ASCII 文本
         let ch = if b.is_ascii_graphic() || b == b' ' {
             b as char
         } else {

@@ -24,7 +24,7 @@ pub fn line_number_width(line_count: usize) -> f32 {
 pub fn paint_editor_bg(ui: &egui::Ui, full_rect: egui::Rect, gutter_w: f32) {
     let painter = ui.painter();
     // 右侧编辑区背景
-    painter.rect_filled(full_rect, 0.0, theme::BG_MEDIUM);
+    painter.rect_filled(full_rect, 0.0, theme::BG_DARKEST);
     // 左侧 gutter 背景覆盖编辑区
     painter.rect_filled(
         egui::Rect::from_min_size(
@@ -89,16 +89,20 @@ fn render_code_view(
     paint_line_numbers(ui, response.rect, text, gutter_w);
 }
 
-/// 反编译视图：只读，带语法高亮
+/// 反编译视图：只读可选中，带语法高亮
 pub fn render_decompiled(ui: &mut egui::Ui, tab: &mut EditorTab) {
-    let id = format!("te_{}", tab.title);
+    let salt = tab.entry_path.as_deref().unwrap_or(&tab.title);
+    let id = format!("dec_{salt}");
     let layouter = &mut tab.layouter_decompiled;
-    render_code_view(ui, &id, &mut tab.decompiled, false, layouter);
+    let snapshot = tab.decompiled.clone();
+    render_code_view(ui, &id, &mut tab.decompiled, true, layouter);
+    tab.decompiled = snapshot;
 }
 
 /// 字节码视图：可编辑，带语法高亮
 pub fn render_bytecode(ui: &mut egui::Ui, tab: &mut EditorTab) {
-    let id = format!("te_{}", tab.title);
+    let salt = tab.entry_path.as_deref().unwrap_or(&tab.title);
+    let id = format!("bc_{salt}");
     let layouter = &mut tab.layouter_bytecode;
     render_code_view(ui, &id, &mut tab.bytecode, true, layouter);
 }

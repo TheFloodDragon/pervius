@@ -18,8 +18,6 @@ pub trait AppContent {
 pub struct ShellTheme {
     /// 窗口 / 标题栏 / 状态栏背景
     pub bg: egui::Color32,
-    /// 输入框 / 编辑区背景（visuals.extreme_bg_color）
-    pub bg_editor: egui::Color32,
     /// 悬停背景（菜单按钮 hover）
     pub bg_hover: egui::Color32,
     /// 主要文字
@@ -50,7 +48,6 @@ impl Default for ShellOptions {
             size: [1280.0, 800.0],
             theme: ShellTheme {
                 bg: egui::Color32::from_rgb(21, 21, 22),
-                bg_editor: egui::Color32::from_rgb(28, 28, 30),
                 bg_hover: egui::Color32::from_rgb(46, 46, 49),
                 text_primary: egui::Color32::from_rgb(236, 236, 239),
                 text_secondary: egui::Color32::from_rgb(160, 160, 171),
@@ -79,11 +76,23 @@ where
         &options.title,
         native,
         Box::new(move |cc| {
-            cc.egui_ctx.set_visuals({
-                let mut v = egui::Visuals::dark();
-                v.extreme_bg_color = theme.bg_editor;
-                v.code_bg_color = theme.bg_editor;
-                v
+            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            // 覆盖 Window 相关 visuals，使 egui::Window 匹配深色主题
+            cc.egui_ctx.style_mut(|style| {
+                style.visuals.window_fill = egui::Color32::from_rgb(17, 17, 18);
+                style.visuals.window_stroke =
+                    egui::Stroke::new(1.0, egui::Color32::from_rgb(58, 58, 61));
+                style.visuals.window_shadow = egui::Shadow {
+                    spread: 0,
+                    blur: 16,
+                    offset: [0, 4],
+                    color: egui::Color32::from_black_alpha(50),
+                };
+                style.visuals.window_corner_radius = egui::CornerRadius::same(8);
+                // 禁用 egui::Window 的 resize 边缘 hover/drag 高亮 (默认 from_gray(150))
+                let subtle_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(46, 46, 48));
+                style.visuals.widgets.hovered.bg_stroke = subtle_stroke;
+                style.visuals.widgets.active.bg_stroke = subtle_stroke;
             });
             fonts::setup(&cc.egui_ctx);
             let content = create(cc);

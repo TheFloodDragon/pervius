@@ -13,6 +13,8 @@ pub fn build(egui_style: &egui::Style) -> DockStyle {
     style.tab_bar.bg_fill = theme::BG_GUTTER;
     style.tab_bar.hline_color = egui::Color32::TRANSPARENT;
     style.tab_bar.height = 32.0;
+    // Tab 栏溢出时不显示滚动条
+    style.tab_bar.show_scroll_bar_on_overflow = false;
     // 固定最小宽度，关闭 tab 时位置不跳
     style.tab.minimum_width = Some(120.0);
     // 活跃 Tab 不显示底部分隔线（视觉上与内容区融合）

@@ -66,6 +66,12 @@ pub const EXPORT: &str = "\u{EBAC}";
 pub const COPY: &str = "\u{EBCC}";
 /// 修改标记（实心圆点，Unicode 通用符号，非 Codicon 字体）
 pub const CIRCLE_FILLED: &str = "\u{25CF}";
+/// 图钉
+pub const PIN: &str = "\u{EB6D}";
+/// 大小写敏感
+pub const CASE_SENSITIVE: &str = "\u{EB77}";
+/// 正则表达式
+pub const REGEX: &str = "\u{EB38}";
 
 /// Codicon 字体族（来自 egui-shell）
 pub fn family() -> egui::FontFamily {

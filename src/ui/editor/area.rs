@@ -6,10 +6,10 @@ use super::render::{self, line_number_width};
 use super::style::dock;
 use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
-use super::viewer::EditorTabViewer;
+use super::viewer::{EditorTabViewer, TabAction};
 use crate::shell::theme;
 use eframe::egui;
-use egui_dock::{DockArea, DockState};
+use egui_dock::{DockArea, DockState, SurfaceIndex, TabPath};
 
 /// 编辑器区域状态
 pub struct EditorArea {
@@ -17,9 +17,10 @@ pub struct EditorArea {
 }
 
 impl EditorArea {
-    pub fn new(tabs: Vec<EditorTab>) -> Self {
-        let dock_state = DockState::new(tabs);
-        Self { dock_state }
+    pub fn new() -> Self {
+        Self {
+            dock_state: DockState::new(vec![]),
+        }
     }
 
     /// 在给定 UI 区域内渲染
@@ -29,45 +30,50 @@ impl EditorArea {
             return;
         }
         let rect = ui.max_rect();
-        // 在 DockArea（ScrollArea）外画全高 gutter 背景
         if let Some(gutter_w) = self.active_gutter_width() {
             render::paint_editor_bg(ui, rect, gutter_w);
         }
         let style = dock::build(ui.style());
+        let mut viewer = EditorTabViewer { action: None };
         DockArea::new(&mut self.dock_state)
             .style(style)
             .show_leaf_collapse_buttons(false)
             .show_leaf_close_all_buttons(false)
-            .show_inside(ui, &mut EditorTabViewer);
+            .show_inside(ui, &mut viewer);
+        if let Some(action) = viewer.action.take() {
+            self.handle_tab_action(action);
+        }
+        ui.output_mut(|o| {
+            if matches!(o.cursor_icon, egui::CursorIcon::Grab) {
+                o.cursor_icon = egui::CursorIcon::Default;
+            }
+        });
     }
 
     fn is_empty(&self) -> bool {
         self.dock_state.main_surface().num_tabs() == 0
     }
 
-    /// 无文件打开时的占位提示（IDEA 风格：操作名 + 快捷键）
     fn render_placeholder(ui: &mut egui::Ui) {
+        use crate::ui::keybindings;
         let rect = ui.max_rect();
         let painter = ui.painter();
         let center = rect.center();
-        // (操作名, 快捷键)
-        let hints: &[(&str, &str)] = &[
-            ("Open File", "Ctrl+O"),
-            ("Search Everywhere", "Double Shift"),
-            ("Project View", "Alt+1"),
+        let hints: &[(&str, String)] = &[
+            ("Open File", keybindings::OPEN_JAR.label()),
+            ("Find in Files", "Double Shift".into()),
+            ("Project View", keybindings::TOGGLE_EXPLORER.label()),
         ];
         let font_action = egui::FontId::proportional(13.0);
         let font_keybind = egui::FontId::proportional(11.0);
         let font_hint = egui::FontId::proportional(12.0);
         let line_height = 26.0;
         let gap = 16.0;
-        // 快捷键列表高度 + 间距 + 拖拽提示一行
         let hints_h = line_height * hints.len() as f32;
         let total_h = hints_h + gap + line_height;
         let start_y = center.y - total_h / 2.0;
         for (i, (action, keybind)) in hints.iter().enumerate() {
             let mid_y = start_y + i as f32 * line_height + line_height / 2.0;
-            // 操作名（右对齐到中线左侧）
             painter.text(
                 egui::pos2(center.x - 8.0, mid_y),
                 egui::Align2::RIGHT_CENTER,
@@ -75,7 +81,6 @@ impl EditorArea {
                 font_action.clone(),
                 theme::TEXT_MUTED,
             );
-            // 快捷键（左对齐到中线右侧，带圆角背景框）
             let keybind_galley = painter.layout_no_wrap(
                 keybind.to_string(),
                 font_keybind.clone(),
@@ -93,7 +98,6 @@ impl EditorArea {
             );
             painter.galley(kb_pos, keybind_galley, theme::TEXT_MUTED);
         }
-        // 底部拖拽提示
         let drop_y = start_y + hints_h + gap + line_height / 2.0;
         painter.text(
             egui::pos2(center.x, drop_y),
@@ -105,10 +109,7 @@ impl EditorArea {
         ui.allocate_rect(rect, egui::Sense::hover());
     }
 
-    /// 查找当前聚焦的 tab
     fn focused_tab(&mut self) -> Option<&mut EditorTab> {
-        // find_active_focused 返回的引用跨越了 else 分支的二次借用，
-        // 需要先 is_some() 断开生命周期
         if self.dock_state.find_active_focused().is_some() {
             return self.dock_state.find_active_focused().map(|(_, t)| t);
         }
@@ -118,7 +119,6 @@ impl EditorArea {
             .map(|(_, t)| t)
     }
 
-    /// 当前活跃 tab 的行号栏宽度（Hex 视图返回 None，自己画地址列）
     fn active_gutter_width(&mut self) -> Option<f32> {
         let tab = self.focused_tab()?;
         let text = match tab.active_view {
@@ -129,20 +129,90 @@ impl EditorArea {
         Some(line_number_width(text.lines().count().max(1)))
     }
 
-    /// 添加新 Tab
     pub fn open_tab(&mut self, tab: EditorTab) {
         self.dock_state.main_surface_mut().push_to_focused_leaf(tab);
     }
 
-    /// 获取当前活跃 Tab 的 active_view（供 StatusBar 显示）
+    /// 聚焦已打开的 tab（按 entry_path 匹配），返回是否找到
+    pub fn focus_tab(&mut self, entry_path: &str) -> bool {
+        let found = self
+            .dock_state
+            .find_tab_from(|tab| tab.entry_path.as_deref() == Some(entry_path));
+        if let Some(tab_path) = found {
+            let _ = self.dock_state.set_active_tab(tab_path);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn focused_view(&mut self) -> Option<ActiveView> {
         Some(self.focused_tab()?.active_view)
     }
 
-    /// 设置当前活跃 Tab 的 active_view（从 StatusBar 切换）
     pub fn set_focused_view(&mut self, view: ActiveView) {
         if let Some(tab) = self.focused_tab() {
             tab.active_view = view;
+        }
+    }
+
+    /// 关闭当前活跃 tab
+    pub fn close_active_tab(&mut self) {
+        let path = self.dock_state.focused_leaf().or_else(|| {
+            let node = self.dock_state[SurfaceIndex::main()].focused_leaf()?;
+            Some(egui_dock::NodePath {
+                surface: SurfaceIndex::main(),
+                node,
+            })
+        });
+        if let Some(node_path) = path {
+            let active = self.dock_state[node_path.surface][node_path.node]
+                .get_leaf()
+                .map(|leaf| leaf.active);
+            if let Some(tab_idx) = active {
+                self.dock_state.remove_tab(TabPath::new(
+                    node_path.surface,
+                    node_path.node,
+                    tab_idx,
+                ));
+            }
+        }
+    }
+
+    /// 关闭所有 tab
+    pub fn close_all_tabs(&mut self) {
+        self.dock_state = DockState::new(vec![]);
+    }
+
+    fn handle_tab_action(&mut self, action: TabAction) {
+        match action {
+            TabAction::Close(path) => {
+                let found = self.dock_state.find_tab_from(|t| t.entry_path == path);
+                if let Some(tab_path) = found {
+                    self.dock_state.remove_tab(tab_path);
+                }
+            }
+            TabAction::CloseAll => {
+                self.dock_state = DockState::new(vec![]);
+            }
+            TabAction::CloseOthers(keep_path) => {
+                self.dock_state
+                    .retain_tabs(|tab| tab.entry_path == keep_path);
+            }
+            TabAction::CloseToRight(after_path) => {
+                let found = self
+                    .dock_state
+                    .find_tab_from(|t| t.entry_path == after_path);
+                if let Some(tab_path) = found {
+                    let node = &mut self.dock_state[tab_path.surface][tab_path.node];
+                    if let Some(leaf) = node.get_leaf_mut() {
+                        leaf.tabs.truncate(tab_path.tab.0 + 1);
+                        if leaf.active.0 >= leaf.tabs.len() {
+                            leaf.active.0 = leaf.tabs.len().saturating_sub(1);
+                        }
+                    }
+                }
+            }
         }
     }
 }

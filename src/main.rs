@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+mod jar;
 mod shell;
 mod ui;
 
@@ -15,7 +16,6 @@ fn main() -> eframe::Result {
         size: [1280.0, 800.0],
         theme: shell::ShellTheme {
             bg: shell::theme::BG_DARK,
-            bg_editor: shell::theme::BG_MEDIUM,
             bg_hover: shell::theme::BG_HOVER,
             text_primary: shell::theme::TEXT_PRIMARY,
             text_secondary: shell::theme::TEXT_SECONDARY,
@@ -41,6 +41,16 @@ impl shell::AppContent for PervApp {
         self.layout.render(ui);
     }
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
-        ui::menu::menu_bar(ui);
+        let ctx = ui.ctx().clone();
+        ui::menu::menu_bar(ui, &mut |action| {
+            use ui::menu::MenuAction;
+            match action {
+                MenuAction::Exit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                MenuAction::ToggleExplorer => {
+                    self.layout.explorer_visible = !self.layout.explorer_visible
+                }
+                _ => {}
+            }
+        });
     }
 }
