@@ -134,6 +134,9 @@ impl<Tab> LeafNode<Tab> {
         F: FnMut(&mut Tab) -> bool,
     {
         self.tabs.retain_mut(predicate);
+        if self.active.0 >= self.tabs.len() {
+            self.active.0 = self.tabs.len().saturating_sub(1);
+        }
     }
 
     /// Return the area and tab which is currently representing this [`LeafNode`]

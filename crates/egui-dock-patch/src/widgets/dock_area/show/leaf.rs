@@ -371,7 +371,7 @@ impl<Tab> DockArea<'_, Tab> {
                 );
                 let title_id = response.id;
                 let close_clicked = close_response.is_some_and(|res| res.clicked());
-                let is_lonely_tab = self.dock_state[path.surface].num_tabs() == 1;
+                let _is_lonely_tab = self.dock_state[path.surface].num_tabs() == 1;
 
                 if self.show_tab_name_on_hover {
                     let tabs = self.dock_state[path]
