@@ -183,9 +183,9 @@ fn handle_window_resize(ui: &mut egui::Ui, ctx: &egui::Context, rect: egui::Rect
             }
         };
         ctx.set_cursor_icon(cursor);
-        let edge_id = ui.id().with("window_resize");
-        let response = ui.interact(rect, edge_id, egui::Sense::drag());
-        if response.drag_started() {
+        // 直接读指针状态，不通过 ui.interact()，
+        // 避免后渲染的 widget（滚动条等）抢占 drag 事件
+        if ui.input(|i| i.pointer.primary_pressed()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(d));
         }
     }
