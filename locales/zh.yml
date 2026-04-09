@@ -120,6 +120,12 @@ decompiler.spawn_failed: "启动 vineflower 失败：%{error}"
 decompiler.process_error: "Vineflower 进程错误：%{error}"
 decompiler.exit_code: "Vineflower 退出码：%{code}"
 
+# 确认对话框
+confirm.unsaved_title: "未保存的更改"
+confirm.unsaved_message: "当前有未保存的更改，继续操作将丢失这些更改。"
+confirm.discard: "放弃更改"
+confirm.cancel: "取消"
+
 # 语言名称
 lang.en: "English"
 lang.zh: "中文"
