@@ -6,6 +6,7 @@ use super::item::{menu_item, menu_item_raw, menu_submenu};
 use crate::ui::keybindings;
 use crate::ui::layout::Layout;
 use eframe::egui;
+use egui_window_settings::SettingsFile;
 use std::path::PathBuf;
 
 pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {

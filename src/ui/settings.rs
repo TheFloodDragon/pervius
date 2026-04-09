@@ -1,8 +1,7 @@
-//! 设置模块：对话框 + widget 原语
+//! 设置模块
 //!
 //! @author sky
 
 mod dialog;
-mod widget;
 
 pub use dialog::SettingsDialog;

@@ -26,6 +26,7 @@ pub fn build_keymap() -> KeyMap<Layout> {
         .bind(OPEN_JAR, |l: &mut Layout| l.open_jar_dialog())
         .bind(CLOSE_TAB, |l: &mut Layout| l.editor.close_active_tab())
         .bind(CLOSE_ALL_TABS, |l: &mut Layout| l.editor.close_all_tabs())
+        .bind(FIND, |l: &mut Layout| l.editor.open_find())
         .bind(CYCLE_VIEW, |l: &mut Layout| l.editor.cycle_view())
         .bind_double_shift(|l: &mut Layout| l.search.open())
 }

@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+use super::find::{self, FindMatch};
 use super::tab::EditorTab;
 use crate::shell::theme;
 use eframe::egui;
@@ -86,43 +87,55 @@ fn render_code_view(
     id_salt: &str,
     text: &mut dyn TextBuffer,
     layouter: &mut dyn FnMut(&egui::Ui, &str, f32) -> std::sync::Arc<egui::Galley>,
+    matches: &[FindMatch],
+    current: Option<usize>,
 ) {
     let line_count = text.as_str().lines().count().max(1);
     let gutter_w = line_number_width(line_count);
     let min = egui::vec2(ui.available_width(), ui.available_height());
-    let response = ui.add(
-        egui::TextEdit::multiline(text)
-            .id_salt(id_salt)
-            .font(egui::FontId::monospace(13.0))
-            .code_editor()
-            .frame(egui::Frame::NONE.inner_margin(egui::Margin {
-                left: (gutter_w + GUTTER_PAD) as i8,
-                right: 8,
-                top: 4,
-                bottom: 4,
-            }))
-            .min_size(min)
-            .desired_width(f32::INFINITY)
-            .layouter(&mut |ui, s, wrap_width| layouter(ui, s.as_str(), wrap_width)),
-    );
-    paint_line_numbers(ui, response.rect, text.as_str(), gutter_w);
+    let output = egui::TextEdit::multiline(text)
+        .id_salt(id_salt)
+        .font(egui::FontId::monospace(13.0))
+        .code_editor()
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin {
+            left: (gutter_w + GUTTER_PAD) as i8,
+            right: 8,
+            top: 4,
+            bottom: 4,
+        }))
+        .min_size(min)
+        .desired_width(f32::INFINITY)
+        .layouter(&mut |ui, s, wrap_width| layouter(ui, s.as_str(), wrap_width))
+        .show(ui);
+    paint_line_numbers(ui, output.response.rect, text.as_str(), gutter_w);
+    find::paint_highlights(ui, &output, text.as_str(), matches, current);
 }
 
 /// 反编译视图：只读可选中，带语法高亮
-pub fn render_decompiled(ui: &mut egui::Ui, tab: &mut EditorTab) {
+pub fn render_decompiled(
+    ui: &mut egui::Ui,
+    tab: &mut EditorTab,
+    matches: &[FindMatch],
+    current: Option<usize>,
+) {
     let salt = tab.entry_path.as_deref().unwrap_or(&tab.title);
     let id = format!("dec_{salt}");
     let layouter = &mut tab.layouter_decompiled;
     let mut buf = ReadOnlyBuffer(&tab.decompiled);
-    render_code_view(ui, &id, &mut buf, layouter);
+    render_code_view(ui, &id, &mut buf, layouter, matches, current);
 }
 
 /// 字节码视图：可编辑，带语法高亮
-pub fn render_bytecode(ui: &mut egui::Ui, tab: &mut EditorTab) {
+pub fn render_bytecode(
+    ui: &mut egui::Ui,
+    tab: &mut EditorTab,
+    matches: &[FindMatch],
+    current: Option<usize>,
+) {
     let salt = tab.entry_path.as_deref().unwrap_or(&tab.title);
     let id = format!("bc_{salt}");
     let layouter = &mut tab.layouter_bytecode;
-    render_code_view(ui, &id, &mut tab.bytecode, layouter);
+    render_code_view(ui, &id, &mut tab.bytecode, layouter, matches, current);
 }
 
 /// Hex 视图：自绘 HexGrid（字节级点击 + 双向联动高亮）

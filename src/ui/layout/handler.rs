@@ -11,6 +11,7 @@ use crate::ui::editor::view_toggle::ActiveView;
 use crate::ui::editor::{EditorArea, EditorTab};
 use crate::ui::explorer::tree;
 use eframe::egui;
+use egui_window_settings::SettingsFile;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::{mpsc, Arc};

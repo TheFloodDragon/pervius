@@ -1,13 +1,12 @@
-//! 用户配置：数据定义 + TOML 持久化
+//! 用户配置：数据定义 + 业务逻辑
 //!
-//! 配置文件路径：`{config_dir}/pervius/settings.toml`
-//!
+//! TOML 持久化由 [`egui_window_settings::SettingsFile`] trait 提供，
 //! 所有 section 均标注 `#[serde(default)]`，新增字段不会破坏旧配置文件。
 //!
 //! @author sky
 
+use egui_window_settings::SettingsFile;
 use serde::{Deserialize, Serialize};
-use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -28,6 +27,12 @@ impl Default for Settings {
             java: JavaSettings::default(),
             recent: Vec::new(),
         }
+    }
+}
+
+impl SettingsFile for Settings {
+    fn app_name() -> &'static str {
+        "pervius"
     }
 }
 
@@ -59,58 +64,6 @@ impl Default for JavaSettings {
 }
 
 impl Settings {
-    /// 配置目录
-    fn config_dir() -> Option<PathBuf> {
-        dirs::config_dir().map(|d| d.join("pervius"))
-    }
-
-    /// 配置文件路径
-    fn config_path() -> Option<PathBuf> {
-        Self::config_dir().map(|d| d.join("settings.toml"))
-    }
-
-    /// 从磁盘加载配置，文件不存在或格式错误则返回默认值
-    pub fn load() -> Self {
-        let Some(path) = Self::config_path() else {
-            log::warn!("无法确定配置目录，使用默认配置");
-            return Self::default();
-        };
-        match std::fs::read_to_string(&path) {
-            Ok(content) => match toml::from_str(&content) {
-                Ok(settings) => {
-                    log::info!("已加载配置：{}", path.display());
-                    settings
-                }
-                Err(e) => {
-                    log::warn!("配置解析失败 ({}): {e}，使用默认配置", path.display());
-                    Self::default()
-                }
-            },
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                log::info!("配置文件不存在，使用默认配置");
-                Self::default()
-            }
-            Err(e) => {
-                log::warn!("读取配置失败 ({}): {e}，使用默认配置", path.display());
-                Self::default()
-            }
-        }
-    }
-
-    /// 保存配置到磁盘
-    pub fn save(&self) -> io::Result<()> {
-        let Some(dir) = Self::config_dir() else {
-            return Err(io::Error::new(io::ErrorKind::NotFound, "无法确定配置目录"));
-        };
-        std::fs::create_dir_all(&dir)?;
-        let path = dir.join("settings.toml");
-        let content =
-            toml::to_string_pretty(self).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-        std::fs::write(&path, content)?;
-        log::info!("配置已保存：{}", path.display());
-        Ok(())
-    }
-
     /// 解析生效的 java 路径，空字符串时回退到 JAVA_HOME 环境变量
     pub fn java_executable(&self) -> Option<PathBuf> {
         let home = if self.java.java_home.is_empty() {

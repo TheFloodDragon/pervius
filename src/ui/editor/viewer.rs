@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+use super::find::FindBar;
 use super::render;
 use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
@@ -22,11 +23,12 @@ pub enum TabAction {
     CloseToRight(Option<String>),
 }
 
-pub struct EditorTabViewer {
+pub struct EditorTabViewer<'a> {
     pub action: Option<TabAction>,
+    pub find_bar: &'a mut FindBar,
 }
 
-impl TabViewer for EditorTabViewer {
+impl TabViewer for EditorTabViewer<'_> {
     type Tab = EditorTab;
 
     fn id(&mut self, tab: &mut Self::Tab) -> egui::Id {
@@ -76,9 +78,18 @@ impl TabViewer for EditorTabViewer {
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+        // 查找栏
+        if self.find_bar.open {
+            self.find_bar.render(ui, tab);
+        }
+        let (matches, current) = if self.find_bar.open {
+            self.find_bar.highlight_info()
+        } else {
+            (vec![], None)
+        };
         match tab.active_view {
-            ActiveView::Decompiled => render::render_decompiled(ui, tab),
-            ActiveView::Bytecode => render::render_bytecode(ui, tab),
+            ActiveView::Decompiled => render::render_decompiled(ui, tab, &matches, current),
+            ActiveView::Bytecode => render::render_bytecode(ui, tab, &matches, current),
             ActiveView::Hex => render::render_hex(ui, tab),
         }
     }

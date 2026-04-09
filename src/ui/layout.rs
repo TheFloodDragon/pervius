@@ -18,6 +18,7 @@ use crate::shell::theme;
 use eframe::egui;
 use egui_keybind::KeyMap;
 use egui_notify::Toasts;
+use egui_window_settings::SettingsFile;
 
 /// Explorer 面板最小宽度
 const EXPLORER_MIN_WIDTH: f32 = 160.0;

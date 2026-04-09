@@ -1,0 +1,184 @@
+//! FloatingWindow 核心：结构体定义、builder API、show 渲染入口、拖拽移动
+//!
+//! @author sky
+
+mod header;
+mod resize;
+
+use crate::WindowTheme;
+use eframe::egui;
+
+/// 边缘 resize 抓取宽度
+const GRAB: f32 = 5.0;
+
+/// 带 pin 支持的主题化浮动窗口
+///
+/// 基于 `egui::Area`（movable=false）+ `egui::Frame` 自绘。
+/// 移动通过 header 拖拽实现，resize 通过四边/四角手柄实现，互不冲突。
+pub struct FloatingWindow {
+    id: egui::Id,
+    title: String,
+    icon: Option<char>,
+    default_size: egui::Vec2,
+    min_size: egui::Vec2,
+    resizable: bool,
+    pub open: bool,
+    pub pinned: bool,
+    /// 当前窗口尺寸，None 表示使用 default_size
+    size: Option<egui::Vec2>,
+    /// 当前窗口位置（左上角），None 表示首次打开居中
+    pos: Option<egui::Pos2>,
+    /// header 右侧按钮区域左边界（屏幕坐标），drag 区域排除此右侧避免吞掉按钮点击
+    header_right_x: f32,
+}
+
+impl Default for FloatingWindow {
+    fn default() -> Self {
+        Self {
+            id: egui::Id::NULL,
+            title: String::new(),
+            icon: None,
+            default_size: egui::vec2(600.0, 400.0),
+            min_size: egui::vec2(300.0, 200.0),
+            resizable: true,
+            open: false,
+            pinned: false,
+            size: None,
+            pos: None,
+            header_right_x: f32::MAX,
+        }
+    }
+}
+
+impl FloatingWindow {
+    pub fn new(id: impl Into<egui::Id>, title: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn icon(mut self, icon: char) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    pub fn default_size(mut self, size: impl Into<egui::Vec2>) -> Self {
+        self.default_size = size.into();
+        self
+    }
+
+    pub fn min_size(mut self, size: impl Into<egui::Vec2>) -> Self {
+        self.min_size = size.into();
+        self
+    }
+
+    pub fn resizable(mut self, resizable: bool) -> Self {
+        self.resizable = resizable;
+        self
+    }
+
+    pub fn open(&mut self) {
+        self.open = true;
+        self.pos = None;
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
+        self.pinned = false;
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    /// 渲染浮动窗口
+    ///
+    /// `header_right`: header 右侧自定义按钮区域
+    /// `content`: 窗口主体内容
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        theme: &WindowTheme,
+        header_right: impl FnOnce(&mut egui::Ui),
+        content: impl FnOnce(&mut egui::Ui),
+    ) {
+        if !self.open {
+            return;
+        }
+        // 未 pin 时 Escape 关闭
+        if !self.pinned && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.close();
+            return;
+        }
+        let size = self.size.unwrap_or(self.default_size);
+        let screen = ctx.screen_rect();
+        // 首次打开居中，之后保持位置
+        let pos = self.pos.unwrap_or_else(|| {
+            egui::pos2(
+                screen.center().x - size.x * 0.5,
+                screen.center().y - size.y * 0.5,
+            )
+        });
+        self.pos = Some(pos);
+        let area_resp = egui::Area::new(self.id)
+            .movable(false)
+            .sense(egui::Sense::hover())
+            .current_pos(pos)
+            .constrain(true)
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                let frame_resp = theme.frame.show(ui, |ui| {
+                    let origin = ui.available_rect_before_wrap().min;
+                    let rect = egui::Rect::from_min_size(origin, size);
+                    let mut child = ui.new_child(
+                        egui::UiBuilder::new()
+                            .id(self.id.with("content"))
+                            .max_rect(rect),
+                    );
+                    child.set_clip_rect(rect);
+                    header::apply_style(&mut child, theme);
+                    self.render_header(&mut child, theme, header_right);
+                    crate::separator(&mut child, theme.separator);
+                    content(&mut child);
+                    ui.allocate_rect(rect, egui::Sense::hover());
+                });
+                let frame_rect = frame_resp.response.rect;
+                self.handle_move(ui, frame_rect, theme);
+                if self.resizable {
+                    self.handle_resize(ui, frame_rect, theme);
+                }
+            });
+        // 未 pin 时点击窗口外部关闭
+        if !self.pinned {
+            let window_rect = area_resp.response.rect.expand(4.0);
+            let clicked_outside = ctx.input(|i| {
+                i.pointer.any_pressed()
+                    && i.pointer
+                        .interact_pos()
+                        .is_some_and(|p| !window_rect.contains(p))
+            });
+            if clicked_outside {
+                self.close();
+            }
+        }
+    }
+
+    /// header 拖拽移动（排除右侧按钮区域）
+    fn handle_move(&mut self, ui: &mut egui::Ui, frame_rect: egui::Rect, theme: &WindowTheme) {
+        let drag_width = (self.header_right_x - frame_rect.left()).max(0.0);
+        let header_rect =
+            egui::Rect::from_min_size(frame_rect.min, egui::vec2(drag_width, theme.header_height));
+        let resp = ui.interact(
+            header_rect,
+            self.id.with("header_drag"),
+            egui::Sense::drag(),
+        );
+        if resp.dragged() {
+            if let Some(pos) = &mut self.pos {
+                *pos += resp.drag_delta();
+            }
+        }
+    }
+}

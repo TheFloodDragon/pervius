@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/egui-animation", "crates/egui-hex-view", "crates/egui-keybind", "crates/egui-shell", "crates/egui-window"]
+members = [".", "crates/egui-animation", "crates/egui-hex-view", "crates/egui-keybind", "crates/egui-shell", "crates/egui-window", "crates/egui-window-settings"]
 
 [package]
 name = "pervius"
@@ -17,6 +17,7 @@ egui-hex-view = { path = "crates/egui-hex-view" }
 egui-keybind = { path = "crates/egui-keybind" }
 egui-shell = { path = "crates/egui-shell" }
 egui-window = { path = "crates/egui-window" }
+egui-window-settings = { path = "crates/egui-window-settings" }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 zip = "2"

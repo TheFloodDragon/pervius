@@ -140,3 +140,20 @@ pub fn window_theme() -> egui_window::WindowTheme {
         pin_icon: '\u{EBA0}',
     }
 }
+
+/// 设置面板 widget 主题
+pub fn settings_theme() -> egui_window_settings::SettingsTheme {
+    egui_window_settings::SettingsTheme {
+        text_primary: TEXT_PRIMARY,
+        text_secondary: TEXT_SECONDARY,
+        text_muted: TEXT_MUTED,
+        bg_hover: BG_HOVER,
+        bg_light: BG_LIGHT,
+        bg_medium: BG_MEDIUM,
+        bg_sidebar: BG_DARKEST,
+        border: BORDER,
+        accent: VERDIGRIS,
+        icon_font: egui::FontFamily::Name("codicon".into()),
+        chevron_icon: '\u{EAB4}',
+    }
+}

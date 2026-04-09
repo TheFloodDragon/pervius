@@ -45,6 +45,8 @@ pub const PACKAGE: &str = "\u{EB29}";
 pub const CHEVRON_RIGHT: &str = "\u{EAB6}";
 /// 向下箭头（展开状态）
 pub const CHEVRON_DOWN: &str = "\u{EAB4}";
+/// 向上箭头
+pub const CHEVRON_UP: &str = "\u{EAB5}";
 
 // -- 通用 UI --
 
@@ -74,6 +76,8 @@ pub const PIN: &str = "\u{EBA0}";
 pub const CASE_SENSITIVE: &str = "\u{EB77}";
 /// 正则表达式
 pub const REGEX: &str = "\u{EB38}";
+/// 全词匹配
+pub const WHOLE_WORD: &str = "\u{EB7E}";
 
 /// Codicon 字体族（来自 egui-shell）
 pub fn family() -> egui::FontFamily {

@@ -1,0 +1,14 @@
+[package]
+name = "egui-window-settings"
+version = "0.1.0"
+edition = "2024"
+description = "Settings panel framework built on egui-window"
+license = "MIT"
+
+[dependencies]
+eframe = { version = "0.34.1", default-features = false, features = ["glow"] }
+egui-window = { path = "../egui-window" }
+serde = "1"
+toml = "0.8"
+dirs = "6"
+log = "0.4"

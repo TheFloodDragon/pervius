@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+use super::find::FindBar;
 use super::render::{self, line_number_width};
 use super::style::dock;
 use super::tab::EditorTab;
@@ -15,12 +16,14 @@ use egui_dock::{DockArea, DockState, SurfaceIndex, TabPath};
 /// 编辑器区域状态
 pub struct EditorArea {
     pub dock_state: DockState<EditorTab>,
+    pub find_bar: FindBar,
 }
 
 impl EditorArea {
     pub fn new() -> Self {
         Self {
             dock_state: DockState::new(vec![]),
+            find_bar: FindBar::new(),
         }
     }
 
@@ -35,7 +38,10 @@ impl EditorArea {
             render::paint_editor_bg(ui, rect, gutter_w);
         }
         let style = dock::build(ui.style());
-        let mut viewer = EditorTabViewer { action: None };
+        let mut viewer = EditorTabViewer {
+            action: None,
+            find_bar: &mut self.find_bar,
+        };
         DockArea::new(&mut self.dock_state)
             .style(style)
             .show_leaf_collapse_buttons(false)
@@ -180,6 +186,11 @@ impl EditorArea {
             }
             tab.active_view = tab.active_view.next();
         }
+    }
+
+    /// 打开/聚焦编辑器内查找栏
+    pub fn open_find(&mut self) {
+        self.find_bar.toggle();
     }
 
     /// 反编译完成后，刷新所有已打开的 .class tab 的源码
