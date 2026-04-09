@@ -1,10 +1,17 @@
 //! egui 动画工具库
 //!
-//! 提供颜色插值、多维度动画等 egui 原生 `animate_value_with_time` 之上的扩展。
+//! 通过 [`Anim`] 作用域对象消除重复的 `ctx` / `id` / `duration` 样板代码。
+//!
+//! ```ignore
+//! let anim = Anim::new(ui, 0.15);
+//! let offset = anim.f32("offset", target_offset);
+//! let color = anim.color("text", target_color);
+//! ```
 //!
 //! @author sky
 
-use egui::{Color32, Context, Id, Vec2};
+use egui::{Color32, Context, Id, Ui, Vec2};
+use std::hash::Hash;
 
 /// 两个颜色之间的线性插值。
 ///
@@ -19,24 +26,76 @@ pub fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     )
 }
 
-/// 对 `Color32` 做平滑过渡动画。
+/// 动画作用域，绑定 `Context`、基础 `Id` 和 `duration`，后续调用零样板。
 ///
-/// 工作方式类似 [`Context::animate_value_with_time`]，但直接接受目标颜色，
-/// 内部将 RGBA 四通道拆分为独立的 f32 动画。
-pub fn animate_color(ctx: &Context, id: Id, target: Color32, duration: f32) -> Color32 {
-    let r = ctx.animate_value_with_time(id.with(0u8), target.r() as f32, duration);
-    let g = ctx.animate_value_with_time(id.with(1u8), target.g() as f32, duration);
-    let b = ctx.animate_value_with_time(id.with(2u8), target.b() as f32, duration);
-    let a = ctx.animate_value_with_time(id.with(3u8), target.a() as f32, duration);
-    Color32::from_rgba_premultiplied(r as u8, g as u8, b as u8, a as u8)
+/// 内部克隆 `Context`（`Arc` 级别，几乎零开销），不持有 `&Ui` 引用，
+/// 因此创建后仍可自由使用 `&mut Ui`。
+pub struct Anim {
+    ctx: Context,
+    base_id: Id,
+    duration: f32,
 }
 
-/// 对 `Vec2` 做平滑过渡动画。
-///
-/// 将 x、y 分量拆分为两个独立的 f32 动画。
-pub fn animate_vec2(ctx: &Context, id: Id, target: Vec2, duration: f32) -> Vec2 {
-    Vec2::new(
-        ctx.animate_value_with_time(id.with("x"), target.x, duration),
-        ctx.animate_value_with_time(id.with("y"), target.y, duration),
-    )
+impl Anim {
+    /// 从当前 `Ui` 创建动画作用域。
+    pub fn new(ui: &Ui, duration: f32) -> Self {
+        Self {
+            ctx: ui.ctx().clone(),
+            base_id: ui.id(),
+            duration,
+        }
+    }
+
+    /// 追加 ID salt，用于循环中区分不同元素。
+    ///
+    /// ```ignore
+    /// for (i, item) in items.iter().enumerate() {
+    ///     let anim = Anim::new(ui, 0.15).with(i);
+    ///     let bg = anim.color("bg", target);
+    /// }
+    /// ```
+    pub fn with(mut self, salt: impl Hash) -> Self {
+        self.base_id = self.base_id.with(salt);
+        self
+    }
+
+    /// 动画化 f32 值。
+    pub fn f32(&self, salt: impl Hash, target: f32) -> f32 {
+        self.ctx
+            .animate_value_with_time(self.base_id.with(salt), target, self.duration)
+    }
+
+    /// 动画化布尔状态，返回 `0.0..=1.0` 的过渡值。
+    pub fn bool(&self, salt: impl Hash, target: bool) -> f32 {
+        self.f32(salt, if target { 1.0 } else { 0.0 })
+    }
+
+    /// 动画化颜色，RGBA 四通道独立过渡。
+    pub fn color(&self, salt: impl Hash, target: Color32) -> Color32 {
+        let id = self.base_id.with(salt);
+        let r = self
+            .ctx
+            .animate_value_with_time(id.with(0u8), target.r() as f32, self.duration);
+        let g = self
+            .ctx
+            .animate_value_with_time(id.with(1u8), target.g() as f32, self.duration);
+        let b = self
+            .ctx
+            .animate_value_with_time(id.with(2u8), target.b() as f32, self.duration);
+        let a = self
+            .ctx
+            .animate_value_with_time(id.with(3u8), target.a() as f32, self.duration);
+        Color32::from_rgba_premultiplied(r as u8, g as u8, b as u8, a as u8)
+    }
+
+    /// 动画化 `Vec2`，x/y 分量独立过渡。
+    pub fn vec2(&self, salt: impl Hash, target: Vec2) -> Vec2 {
+        let id = self.base_id.with(salt);
+        Vec2::new(
+            self.ctx
+                .animate_value_with_time(id.with(0u8), target.x, self.duration),
+            self.ctx
+                .animate_value_with_time(id.with(1u8), target.y, self.duration),
+        )
+    }
 }

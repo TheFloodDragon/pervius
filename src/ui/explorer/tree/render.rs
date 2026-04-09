@@ -6,6 +6,7 @@ use super::node::TreeNode;
 use crate::shell::{codicon, theme};
 use crate::ui::menu::item::menu_item_raw;
 use eframe::egui;
+use egui_animation::Anim;
 
 /// 递归判断节点是否匹配过滤（自身标签或任意后代标签包含 filter）
 fn matches_filter(node: &TreeNode, filter: &str) -> bool {
@@ -97,13 +98,21 @@ fn render_row(
     let avail_w = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::click());
     let painter = ui.painter();
-    if selected {
-        painter.rect_filled(rect, 4.0, theme::verdigris_alpha(38));
-        if scroll {
-            response.scroll_to_me(Some(egui::Align::Center));
-        }
+    // 选中 / hover 背景动画
+    let anim = Anim::new(ui, 0.1).with(&node.path);
+    let target_bg = if selected {
+        theme::verdigris_alpha(38)
     } else if response.hovered() {
-        painter.rect_filled(rect, 4.0, theme::BG_HOVER);
+        theme::BG_HOVER
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+    let bg = anim.color("bg", target_bg);
+    if bg.a() > 0 {
+        painter.rect_filled(rect, 4.0, bg);
+    }
+    if selected && scroll {
+        response.scroll_to_me(Some(egui::Align::Center));
     }
     let y = rect.center().y;
     let mut x = rect.left() + indent_px;

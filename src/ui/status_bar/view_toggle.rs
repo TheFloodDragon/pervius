@@ -6,7 +6,7 @@ use super::item::{Alignment, ItemResponse, StatusItem};
 use crate::shell::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
-use egui_animation::animate_color;
+use egui_animation::Anim;
 
 /// 三视图切换 item
 pub struct ViewToggleItem {
@@ -92,10 +92,9 @@ impl StatusItem for ViewToggleItem {
             .unwrap_or(0);
         let target_offset: f32 = (0..active_idx).map(|i| item_widths[i] + item_gap).sum();
         let target_w = item_widths[active_idx];
-        let ctx = ui.ctx();
-        let anim_offset =
-            ctx.animate_value_with_time(ui.id().with("vt_offset"), target_offset, ANIM_DURATION);
-        let anim_w = ctx.animate_value_with_time(ui.id().with("vt_width"), target_w, ANIM_DURATION);
+        let anim = Anim::new(ui, ANIM_DURATION);
+        let anim_offset = anim.f32("offset", target_offset);
+        let anim_w = anim.f32("width", target_w);
         let highlight_rect = egui::Rect::from_min_size(
             egui::pos2(base_x + anim_offset, iy),
             egui::vec2(anim_w, item_h),
@@ -123,7 +122,7 @@ impl StatusItem for ViewToggleItem {
                 } else {
                     theme::TEXT_MUTED
                 };
-                animate_color(ctx, ui.id().with(format!("vt_c{i}")), target, ANIM_DURATION)
+                anim.color(format!("c{i}"), target)
             };
             painter.text(
                 item_rect.center(),
