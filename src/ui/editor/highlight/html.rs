@@ -4,7 +4,7 @@
 
 use super::TokenKind;
 
-pub fn classify(node: &tree_sitter::Node) -> Option<TokenKind> {
+pub fn classify(node: &tree_sitter::Node, _source: &[u8]) -> Option<TokenKind> {
     match node.kind() {
         "tag_name" => Some(TokenKind::Keyword),
         "attribute_name" => Some(TokenKind::Type),

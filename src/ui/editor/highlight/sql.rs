@@ -4,7 +4,7 @@
 
 use super::TokenKind;
 
-pub fn classify(node: &tree_sitter::Node) -> Option<TokenKind> {
+pub fn classify(node: &tree_sitter::Node, _source: &[u8]) -> Option<TokenKind> {
     let kind = node.kind();
     // tree-sitter-sequel 可能用小写 node kind（keyword_xxx 前缀）
     if kind.starts_with("keyword") {

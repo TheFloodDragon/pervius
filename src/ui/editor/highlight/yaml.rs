@@ -4,7 +4,7 @@
 
 use super::TokenKind;
 
-pub fn classify(node: &tree_sitter::Node) -> Option<TokenKind> {
+pub fn classify(node: &tree_sitter::Node, _source: &[u8]) -> Option<TokenKind> {
     match node.kind() {
         "double_quote_scalar" | "single_quote_scalar" | "string_scalar" | "block_scalar" => {
             Some(TokenKind::String)

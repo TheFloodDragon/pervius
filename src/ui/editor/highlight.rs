@@ -10,6 +10,7 @@ mod bytecode;
 mod html;
 mod java;
 mod json;
+mod kotlin;
 mod properties;
 mod sql;
 mod xml;
@@ -32,6 +33,8 @@ pub enum TokenKind {
     Annotation,
     /// 低对比度文本（标点、分隔符）
     Muted,
+    /// 常量（enum 值、static final 字段）
+    Constant,
     /// 方法调用
     MethodCall,
     /// 方法声明
@@ -42,7 +45,7 @@ impl TokenKind {
     /// 映射到 egui 颜色
     pub fn color(self) -> egui::Color32 {
         match self {
-            Self::Plain => theme::TEXT_PRIMARY,
+            Self::Plain => theme::SYN_TEXT,
             Self::Keyword => theme::SYN_KEYWORD,
             Self::String => theme::SYN_STRING,
             Self::Type => theme::SYN_TYPE,
@@ -50,6 +53,7 @@ impl TokenKind {
             Self::Comment => theme::SYN_COMMENT,
             Self::Annotation => theme::SYN_ANNOTATION,
             Self::Muted => theme::TEXT_MUTED,
+            Self::Constant => theme::SYN_CONSTANT,
             Self::MethodCall => theme::SYN_METHOD,
             Self::MethodDecl => theme::SYN_METHOD_DECL,
         }
@@ -60,7 +64,7 @@ impl TokenKind {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Language {
     Java,
-    /// Kotlin 复用 Java grammar（关键字高度重叠，tree-sitter-kotlin 版本不兼容）
+    /// Kotlin（tree-sitter-kotlin）
     Kotlin,
     Xml,
     Yaml,
@@ -168,7 +172,8 @@ fn collect_spans(source: &str, lang: Language) -> Vec<Span> {
 fn collect_treesitter_spans(source: &str, lang: Language) -> Vec<Span> {
     let mut parser = tree_sitter::Parser::new();
     let ts_lang: tree_sitter::Language = match lang {
-        Language::Java | Language::Kotlin => tree_sitter_java::LANGUAGE.into(),
+        Language::Java => tree_sitter_java::LANGUAGE.into(),
+        Language::Kotlin => tree_sitter_kotlin_sg::LANGUAGE.into(),
         Language::Xml => tree_sitter_xml::LANGUAGE_XML.into(),
         Language::Yaml => tree_sitter_yaml::LANGUAGE.into(),
         Language::Json => tree_sitter_json::LANGUAGE.into(),
@@ -184,7 +189,8 @@ fn collect_treesitter_spans(source: &str, lang: Language) -> Vec<Span> {
         None => return vec![(0, source.len(), TokenKind::Plain)],
     };
     let color_fn: ColorFn = match lang {
-        Language::Java | Language::Kotlin => java::classify,
+        Language::Java => java::classify,
+        Language::Kotlin => kotlin::classify,
         Language::Xml => xml::classify,
         Language::Yaml => yaml::classify,
         Language::Json => json::classify,
@@ -193,23 +199,29 @@ fn collect_treesitter_spans(source: &str, lang: Language) -> Vec<Span> {
         Language::Properties | Language::Plain => return vec![(0, source.len(), TokenKind::Plain)],
     };
     let mut spans = Vec::new();
-    collect_node_spans(&mut tree.root_node().walk(), &mut spans, color_fn);
+    collect_node_spans(
+        &mut tree.root_node().walk(),
+        &mut spans,
+        color_fn,
+        source.as_bytes(),
+    );
     spans.sort_by_key(|&(start, _, _)| start);
     spans
 }
 
 /// 各语言着色函数签名：返回 Some 表示命中，None 表示继续深入子节点
-type ColorFn = fn(&tree_sitter::Node) -> Option<TokenKind>;
+type ColorFn = fn(&tree_sitter::Node, &[u8]) -> Option<TokenKind>;
 
 /// 一次深度优先遍历，收集所有叶子 span（字节偏移）
 fn collect_node_spans(
     cursor: &mut tree_sitter::TreeCursor,
     spans: &mut Vec<Span>,
     color_fn: ColorFn,
+    source: &[u8],
 ) {
     loop {
         let node = cursor.node();
-        let kind = color_fn(&node);
+        let kind = color_fn(&node, source);
         if kind.is_some() || node.child_count() == 0 {
             spans.push((
                 node.start_byte(),
@@ -277,4 +289,91 @@ fn append_section(job: &mut LayoutJob, text: &str, kind: TokenKind) {
             ..Default::default()
         },
     );
+}
+
+/// 为搜索预览面板生成逐行 LayoutJob（含语法高亮 + 匹配区间背景标记）
+///
+/// `match_line` 对应的行会在 `match_ranges`（行内字节偏移）区间叠加 `match_bg` 背景色，
+/// 使匹配文本在语法着色之上仍能辨识。
+pub fn highlight_per_line(
+    lines: &[String],
+    bytecode_mode: bool,
+    font: egui::FontId,
+    match_line: usize,
+    match_ranges: &[(usize, usize)],
+    match_bg: egui::Color32,
+) -> Vec<LayoutJob> {
+    let source = lines.join("\n");
+    let spans = if bytecode_mode {
+        bytecode::collect_spans(&source)
+    } else {
+        collect_spans(&source, Language::Java)
+    };
+    // 每行在 source 中的起始字节偏移
+    let mut line_starts = Vec::with_capacity(lines.len());
+    let mut off = 0usize;
+    for line in lines {
+        line_starts.push(off);
+        off += line.len() + 1;
+    }
+    let mut jobs = Vec::with_capacity(lines.len());
+    for (i, line) in lines.iter().enumerate() {
+        let ls = line_starts[i];
+        let le = ls + line.len();
+        // 裁剪 + 转行内相对偏移
+        let line_spans: Vec<Span> = spans
+            .iter()
+            .filter(|&&(s, e, _)| s < le && e > ls)
+            .map(|&(s, e, k)| (s.max(ls) - ls, e.min(le) - ls, k))
+            .collect();
+        let mr = if i == match_line { match_ranges } else { &[] };
+        jobs.push(build_line_layout(line, &line_spans, &font, mr, match_bg));
+    }
+    jobs
+}
+
+/// 合并语法 span 与匹配区间，输出单行 LayoutJob
+fn build_line_layout(
+    line: &str,
+    spans: &[Span],
+    font: &egui::FontId,
+    match_ranges: &[(usize, usize)],
+    match_bg: egui::Color32,
+) -> LayoutJob {
+    let mut breaks = std::collections::BTreeSet::new();
+    breaks.insert(0);
+    breaks.insert(line.len());
+    for &(s, e, _) in spans {
+        breaks.insert(s.min(line.len()));
+        breaks.insert(e.min(line.len()));
+    }
+    for &(s, e) in match_ranges {
+        breaks.insert(s.min(line.len()));
+        breaks.insert(e.min(line.len()));
+    }
+    let breaks: Vec<usize> = breaks.into_iter().collect();
+    let mut job = LayoutJob::default();
+    for w in breaks.windows(2) {
+        let (start, end) = (w[0], w[1]);
+        if start >= end || start >= line.len() {
+            continue;
+        }
+        let end = end.min(line.len());
+        let color = spans
+            .iter()
+            .find(|&&(s, e, _)| s <= start && end <= e)
+            .map(|&(_, _, k)| k.color())
+            .unwrap_or(TokenKind::Plain.color());
+        let in_match = match_ranges.iter().any(|&(s, e)| start >= s && end <= e);
+        let mut format = egui::TextFormat {
+            font_id: font.clone(),
+            color,
+            ..Default::default()
+        };
+        if in_match {
+            format.background = match_bg;
+        }
+        job.append(&line[start..end], 0.0, format);
+    }
+    job
 }
