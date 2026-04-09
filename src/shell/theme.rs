@@ -50,24 +50,28 @@ pub const ACCENT_RED: egui::Color32 = egui::Color32::from_rgb(224, 108, 117);
 /// 辅助青 #7EC8C8
 pub const ACCENT_CYAN: egui::Color32 = egui::Color32::from_rgb(126, 200, 200);
 
-// -- 语法高亮（JetBrains Darcula）--
+// -- 语法高亮（JetBrains New UI Dark，源自 expUI_darkScheme.xml）--
 
-/// 关键字 #CC7832
-pub const SYN_KEYWORD: egui::Color32 = egui::Color32::from_rgb(204, 120, 50);
-/// 字符串 #7DA668（原 #6A8759 偏亮）
-pub const SYN_STRING: egui::Color32 = egui::Color32::from_rgb(125, 166, 104);
-/// 类型 #A9B7C6
-pub const SYN_TYPE: egui::Color32 = egui::Color32::from_rgb(169, 183, 198);
-/// 数字 #6897BB
-pub const SYN_NUMBER: egui::Color32 = egui::Color32::from_rgb(104, 151, 187);
-/// 注释 #808080
-pub const SYN_COMMENT: egui::Color32 = egui::Color32::from_rgb(128, 128, 128);
-/// 注解 #BBB529
-pub const SYN_ANNOTATION: egui::Color32 = egui::Color32::from_rgb(187, 181, 41);
-/// 方法调用 #FFC66D
-pub const SYN_METHOD: egui::Color32 = egui::Color32::from_rgb(255, 198, 109);
-/// 方法声明 #51A7E4
-pub const SYN_METHOD_DECL: egui::Color32 = egui::Color32::from_rgb(81, 167, 228);
+/// 代码默认文字 #BCBEC4
+pub const SYN_TEXT: egui::Color32 = egui::Color32::from_rgb(188, 190, 196);
+/// 关键字 #CF8E6D
+pub const SYN_KEYWORD: egui::Color32 = egui::Color32::from_rgb(207, 142, 109);
+/// 字符串 #6AAB73
+pub const SYN_STRING: egui::Color32 = egui::Color32::from_rgb(106, 171, 115);
+/// 类型（与默认文字同色，IntelliJ 不对类引用做特殊着色）
+pub const SYN_TYPE: egui::Color32 = SYN_TEXT;
+/// 常量 / 字段 #C77DBB
+pub const SYN_CONSTANT: egui::Color32 = egui::Color32::from_rgb(199, 125, 187);
+/// 数字 #2AACB8
+pub const SYN_NUMBER: egui::Color32 = egui::Color32::from_rgb(42, 172, 184);
+/// 注释 #7A7E85
+pub const SYN_COMMENT: egui::Color32 = egui::Color32::from_rgb(122, 126, 133);
+/// 注解 #B3AE60
+pub const SYN_ANNOTATION: egui::Color32 = egui::Color32::from_rgb(179, 174, 96);
+/// 方法调用（与默认文字同色）
+pub const SYN_METHOD: egui::Color32 = SYN_TEXT;
+/// 方法声明 #56A8F5
+pub const SYN_METHOD_DECL: egui::Color32 = egui::Color32::from_rgb(86, 168, 245);
 
 // -- 标题栏控制按钮 --
 
@@ -106,4 +110,33 @@ pub fn verdigris_alpha(alpha: u8) -> egui::Color32 {
         (174u16 * alpha as u16 / 255) as u8,
         alpha,
     )
+}
+
+/// 浮动窗口（Search / Settings 等）的统一主题
+pub fn window_theme() -> egui_window::WindowTheme {
+    egui_window::WindowTheme {
+        frame: egui::Frame {
+            fill: BG_MEDIUM,
+            corner_radius: egui::CornerRadius::same(8),
+            stroke: egui::Stroke::new(1.0, BORDER_LIGHT),
+            inner_margin: egui::Margin::same(0),
+            shadow: egui::Shadow {
+                spread: 2,
+                blur: 20,
+                offset: [0, 4],
+                color: egui::Color32::from_black_alpha(80),
+            },
+            ..Default::default()
+        },
+        header_height: 32.0,
+        accent: VERDIGRIS,
+        text_primary: TEXT_PRIMARY,
+        text_muted: TEXT_MUTED,
+        bg_active: BG_LIGHT,
+        bg_hover: BG_HOVER,
+        bg_pressed: BG_LIGHT,
+        separator: BORDER,
+        icon_font: egui::FontFamily::Name("codicon".into()),
+        pin_icon: '\u{EBA0}',
+    }
 }

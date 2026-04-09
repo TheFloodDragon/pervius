@@ -30,6 +30,8 @@ pub const FOLDER_OPENED: &str = "\u{EAF7}";
 pub const FILES: &str = "\u{EAF0}";
 /// 符号类（class 图标）
 pub const SYMBOL_CLASS: &str = "\u{EB5B}";
+/// Java 文件图标（咖啡杯）
+pub const JAVA: &str = "\u{EC15}";
 /// 符号字段（field 图标）
 pub const SYMBOL_FIELD: &str = "\u{EB5F}";
 /// 符号方法（method 图标）
@@ -66,8 +68,8 @@ pub const EXPORT: &str = "\u{EBAC}";
 pub const COPY: &str = "\u{EBCC}";
 /// 修改标记（实心圆点，Unicode 通用符号，非 Codicon 字体）
 pub const CIRCLE_FILLED: &str = "\u{25CF}";
-/// 图钉
-pub const PIN: &str = "\u{EB6D}";
+/// 图钉（大头针，竖直）
+pub const PIN: &str = "\u{EBA0}";
 /// 大小写敏感
 pub const CASE_SENSITIVE: &str = "\u{EB77}";
 /// 正则表达式
