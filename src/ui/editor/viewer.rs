@@ -16,6 +16,8 @@ impl TabViewer for EditorTabViewer {
 
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
         let mut job = egui::text::LayoutJob::default();
+        // 左侧额外 4px 间距（egui_dock 硬编码 x_spacing=8，补到 12）
+        job.append("", 4.0, egui::TextFormat::default());
         // class 图标
         job.append(
             codicon::SYMBOL_CLASS,
@@ -27,13 +29,13 @@ impl TabViewer for EditorTabViewer {
             },
         );
         job.append(" ", 0.0, egui::TextFormat::default());
-        // 标题文字
+        // 标题文字（用 PLACEHOLDER 让 egui_dock 的 text_color 控制颜色）
         job.append(
             &tab.title,
             0.0,
             egui::TextFormat {
                 font_id: egui::FontId::proportional(12.0),
-                color: theme::TEXT_PRIMARY,
+                color: egui::Color32::PLACEHOLDER,
                 ..Default::default()
             },
         );
@@ -50,6 +52,8 @@ impl TabViewer for EditorTabViewer {
                 },
             );
         }
+        // 右侧额外 4px 间距
+        job.append("", 4.0, egui::TextFormat::default());
         job.into()
     }
 

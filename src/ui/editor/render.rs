@@ -84,8 +84,9 @@ pub fn render_decompiled(ui: &mut egui::Ui, tab: &mut EditorTab) {
     paint_line_numbers(ui, response.rect, &tab.decompiled, gutter_w);
 }
 
-/// 字节码视图：可编辑纯文本
+/// 字节码视图：可编辑，带语法高亮
 pub fn render_bytecode(ui: &mut egui::Ui, tab: &mut EditorTab) {
+    let layouter = &mut tab.layouter_bytecode;
     let line_count = tab.bytecode.lines().count().max(1);
     let gutter_w = line_number_width(line_count);
     let min = egui::vec2(ui.available_width(), ui.available_height());
@@ -101,7 +102,8 @@ pub fn render_bytecode(ui: &mut egui::Ui, tab: &mut EditorTab) {
                 bottom: 4,
             }))
             .min_size(min)
-            .desired_width(f32::INFINITY),
+            .desired_width(f32::INFINITY)
+            .layouter(&mut |ui, text, wrap_width| layouter(ui, text.as_str(), wrap_width)),
     );
     paint_line_numbers(ui, response.rect, &tab.bytecode, gutter_w);
 }

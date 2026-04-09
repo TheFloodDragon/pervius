@@ -4,7 +4,7 @@
 
 use super::editor::EditorArea;
 use super::explorer::FilePanel;
-use super::status_bar::StatusBar;
+use super::status_bar::{Alignment, StatusBar, TextItem, ViewToggleItem};
 use crate::shell::theme;
 use eframe::egui;
 use egui_notify::Toasts;
@@ -13,15 +13,39 @@ use egui_notify::Toasts;
 pub struct Layout {
     pub file_panel: FilePanel,
     pub editor: EditorArea,
+    pub status_bar: StatusBar,
     pub toasts: Toasts,
 }
 
 impl Layout {
     pub fn new() -> Self {
         use super::demo;
+        let mut status_bar = StatusBar::new();
+        status_bar.add(TextItem::new(
+            "Pervius v0.1.0",
+            theme::TEXT_MUTED,
+            Alignment::Left,
+        ));
+        status_bar.add(TextItem::new(
+            "Java 17 (class 61.0)",
+            theme::TEXT_SECONDARY,
+            Alignment::Left,
+        ));
+        status_bar.add(TextItem::new(
+            "UTF-8  |  LF",
+            theme::TEXT_MUTED,
+            Alignment::Right,
+        ));
+        status_bar.add(TextItem::new(
+            "CFR 0.152",
+            theme::ACCENT_GREEN,
+            Alignment::Right,
+        ));
+        status_bar.add(ViewToggleItem::new());
         Self {
             file_panel: FilePanel::new(demo::tree_nodes(), demo::search_results()),
             editor: EditorArea::new(demo::editor_tabs()),
+            status_bar,
             toasts: Toasts::default(),
         }
     }
@@ -63,13 +87,18 @@ impl Layout {
             egui::pos2(total.left(), status_top),
             egui::vec2(total.width(), theme::STATUS_BAR_HEIGHT),
         );
+        // 渲染前同步 ViewToggle 状态
         let active_view = self.editor.focused_view();
-        let new_view = StatusBar::render(
-            &mut ui.new_child(egui::UiBuilder::new().max_rect(status_rect)),
-            active_view,
-        );
-        if let Some(v) = new_view {
-            self.editor.set_focused_view(v);
+        if let Some(vt) = self.status_bar.item_mut::<ViewToggleItem>() {
+            vt.set_active(active_view);
+        }
+        self.status_bar
+            .render(&mut ui.new_child(egui::UiBuilder::new().max_rect(status_rect)));
+        // 渲染后读取用户切换的视图
+        if let Some(vt) = self.status_bar.item_mut::<ViewToggleItem>() {
+            if let Some(v) = vt.take_changed() {
+                self.editor.set_focused_view(v);
+            }
         }
         // Toast 通知
         self.toasts.show(ui.ctx());

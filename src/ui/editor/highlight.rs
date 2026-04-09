@@ -6,6 +6,7 @@
 //!
 //! @author sky
 
+mod bytecode;
 mod html;
 mod java;
 mod json;
@@ -146,6 +147,29 @@ fn collect_spans(source: &str, lang: Language) -> Vec<Span> {
         Language::Properties => properties::collect_spans(source),
         Language::Plain => vec![(0, source.len(), TokenKind::Plain)],
         _ => collect_treesitter_spans(source, lang),
+    }
+}
+
+/// 字节码高亮的 layouter 回调工厂
+pub fn make_bytecode_layouter() -> impl FnMut(&egui::Ui, &str, f32) -> std::sync::Arc<egui::Galley>
+{
+    let mut cached_hash: u64 = 0;
+    let mut cached_job = LayoutJob::default();
+    move |ui: &egui::Ui, text: &str, wrap_width: f32| {
+        let hash = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            text.hash(&mut h);
+            h.finish()
+        };
+        if hash != cached_hash {
+            let spans = bytecode::collect_spans(text);
+            cached_job = build_layout_job(text, &spans);
+            cached_hash = hash;
+        }
+        let mut job = cached_job.clone();
+        job.wrap.max_width = wrap_width;
+        ui.painter().layout_job(job)
     }
 }
 

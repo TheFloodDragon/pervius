@@ -21,6 +21,8 @@ pub struct EditorTab {
     pub is_modified: bool,
     /// Decompiled 视图的 layouter 缓存
     pub(super) layouter_decompiled: Box<dyn FnMut(&egui::Ui, &str, f32) -> Arc<egui::Galley>>,
+    /// Bytecode 视图的 layouter 缓存
+    pub(super) layouter_bytecode: Box<dyn FnMut(&egui::Ui, &str, f32) -> Arc<egui::Galley>>,
 }
 
 impl EditorTab {
@@ -41,6 +43,7 @@ impl EditorTab {
             active_view: ActiveView::Decompiled,
             is_modified: false,
             layouter_decompiled: Box::new(highlight::make_layouter(lang)),
+            layouter_bytecode: Box::new(highlight::make_bytecode_layouter()),
         }
     }
 }
