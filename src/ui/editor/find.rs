@@ -1,4 +1,4 @@
-//! 编辑器内查找栏：Ctrl+F 触发，支持大小写敏感、全词匹配
+//! 编辑器内查找栏：Ctrl+F 触发，右上角浮动 island
 //!
 //! @author sky
 
@@ -9,8 +9,10 @@ use crate::ui::widget::FlatButton;
 use eframe::egui;
 use std::hash::{Hash, Hasher};
 
-/// 查找栏高度
-const BAR_HEIGHT: f32 = 30.0;
+/// island 到编辑区边缘的间距
+const MARGIN: f32 = 8.0;
+/// island 高度
+const BAR_H: f32 = 30.0;
 
 /// 查找匹配项（字节偏移）
 #[derive(Clone)]
@@ -68,11 +70,10 @@ impl FindBar {
         self.last_key = 0;
     }
 
-    /// 渲染查找栏并更新搜索结果
-    pub fn render(&mut self, ui: &mut egui::Ui, tab: &EditorTab) {
-        let text = Self::text_for_view(tab);
+    /// 更新搜索结果（在渲染内容前调用，提供高亮数据）
+    pub fn update(&mut self, tab: &EditorTab) {
+        let text = text_for_view(tab);
         self.update_search(text);
-        self.render_bar(ui);
     }
 
     /// 返回当前匹配列表（克隆，避免借用冲突）
@@ -83,188 +84,162 @@ impl FindBar {
         (self.matches.clone(), Some(self.current))
     }
 
-    /// 获取当前视图的搜索文本
-    fn text_for_view(tab: &EditorTab) -> &str {
-        match tab.active_view {
-            ActiveView::Decompiled => &tab.decompiled,
-            ActiveView::Bytecode => &tab.bytecode,
-            ActiveView::Hex => "",
-        }
-    }
-
-    fn render_bar(&mut self, ui: &mut egui::Ui) {
-        let (_, bar_rect) = ui.allocate_space(egui::vec2(ui.available_width(), BAR_HEIGHT));
-        let painter = ui.painter();
-        // 背景 + 底部分隔线
-        painter.rect_filled(bar_rect, 0.0, theme::BG_DARK);
-        painter.line_segment(
-            [bar_rect.left_bottom(), bar_rect.right_bottom()],
-            egui::Stroke::new(1.0, theme::BORDER),
+    /// 渲染浮动 island（在内容渲染之后调用，固定 rect overlay）
+    pub fn render_overlay(&mut self, ui: &mut egui::Ui, content_rect: egui::Rect) {
+        let bar_rect = egui::Rect::from_min_size(
+            egui::pos2(content_rect.left() + MARGIN, content_rect.top() + MARGIN),
+            egui::vec2(content_rect.width() - MARGIN * 2.0, BAR_H),
         );
+        // 阻断下方内容的点击
+        ui.interact(
+            bar_rect,
+            ui.id().with("find_blocker"),
+            egui::Sense::click_and_drag(),
+        );
+        // Island 背景 + 边框
+        let painter = ui.painter();
+        painter.rect_filled(bar_rect, 6.0, theme::BG_DARK);
+        painter.rect_stroke(
+            bar_rect,
+            6.0,
+            egui::Stroke::new(1.0, theme::BORDER),
+            egui::StrokeKind::Inside,
+        );
+        // 内容
         let inner = bar_rect.shrink2(egui::vec2(8.0, 0.0));
-        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner));
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(inner)
+                .id_salt("find_bar_overlay"),
+        );
         child.set_clip_rect(bar_rect);
-        child.horizontal_centered(|ui| {
-            self.render_contents(ui);
-        });
+        self.render_contents(&mut child);
     }
 
     fn render_contents(&mut self, ui: &mut egui::Ui) {
-        // 搜索图标
-        ui.label(
-            egui::RichText::new(codicon::SEARCH)
-                .font(egui::FontId::new(14.0, codicon::family()))
-                .color(theme::TEXT_MUTED),
-        );
-        ui.add_space(4.0);
-        // 输入框
-        let input_w = (ui.available_width() - 220.0).max(80.0);
-        let resp = ui.add_sized(
-            egui::vec2(input_w, 22.0),
-            egui::TextEdit::singleline(&mut self.query)
-                .hint_text("Find...")
-                .frame(egui::Frame::NONE)
-                .text_color(theme::TEXT_PRIMARY)
-                .font(egui::FontId::proportional(13.0)),
-        );
-        if self.focus_input {
-            resp.request_focus();
-            self.focus_input = false;
-        }
-        // 失焦处理：Enter 导航 / Esc 关闭
-        if resp.lost_focus() {
-            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        // 右到左布局：按钮固定居右，输入框占剩余空间
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            // ✕ 关闭
+            if ui
+                .add(icon_btn(codicon::CLOSE))
+                .on_hover_text("Close (Esc)")
+                .clicked()
+            {
                 self.close();
-                return;
             }
-            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                if ui.input(|i| i.modifiers.shift) {
-                    self.prev_match();
-                } else {
-                    self.next_match();
-                }
+            ui.add_space(2.0);
+            // ↓ 下一个
+            if ui
+                .add(icon_btn(codicon::CHEVRON_DOWN))
+                .on_hover_text("Next match (Enter)")
+                .clicked()
+            {
+                self.next_match();
                 self.focus_input = true;
             }
-        }
-        // F3 导航（全局）
-        if ui.input(|i| i.key_pressed(egui::Key::F3)) {
-            if ui.input(|i| i.modifiers.shift) {
+            // ↑ 上一个
+            if ui
+                .add(icon_btn(codicon::CHEVRON_UP))
+                .on_hover_text("Previous match (Shift+Enter)")
+                .clicked()
+            {
                 self.prev_match();
-            } else {
-                self.next_match();
+                self.focus_input = true;
             }
-        }
-        ui.add_space(4.0);
-        // Cc — Case Sensitive
-        if ui
-            .add(
-                FlatButton::new(codicon::CASE_SENSITIVE)
-                    .font_family(codicon::family())
-                    .font_size(15.0)
-                    .active(self.case_sensitive)
-                    .inactive_color(theme::TEXT_MUTED)
-                    .min_size(egui::vec2(26.0, 22.0)),
-            )
-            .on_hover_text("Match case")
-            .clicked()
-        {
-            self.case_sensitive = !self.case_sensitive;
-            self.invalidate();
-        }
-        ui.add_space(1.0);
-        // W — Whole Word
-        if ui
-            .add(
-                FlatButton::new(codicon::WHOLE_WORD)
-                    .font_family(codicon::family())
-                    .font_size(15.0)
-                    .active(self.whole_word)
-                    .inactive_color(theme::TEXT_MUTED)
-                    .min_size(egui::vec2(26.0, 22.0)),
-            )
-            .on_hover_text("Match whole word")
-            .clicked()
-        {
-            self.whole_word = !self.whole_word;
-            self.invalidate();
-        }
-        ui.add_space(1.0);
-        // .* — Regex
-        if ui
-            .add(
-                FlatButton::new(codicon::REGEX)
-                    .font_family(codicon::family())
-                    .font_size(15.0)
-                    .active(self.regex)
-                    .inactive_color(theme::TEXT_MUTED)
-                    .min_size(egui::vec2(26.0, 22.0)),
-            )
-            .on_hover_text("Use regex")
-            .clicked()
-        {
-            self.regex = !self.regex;
-            self.invalidate();
-        }
-        ui.add_space(8.0);
-        // 结果计数
-        if !self.query.is_empty() {
-            let text = if self.matches.is_empty() {
-                "0 results".to_string()
+            ui.add_space(2.0);
+            // 结果计数（始终渲染以保持 widget 数量稳定，避免布局偏移触发 egui ID 冲突警告）
+            let (count_text, count_color) = if self.query.is_empty() {
+                (String::new(), theme::TEXT_MUTED)
+            } else if self.matches.is_empty() {
+                ("0 results".to_string(), theme::ACCENT_RED)
             } else {
-                format!("{} of {}", self.current + 1, self.matches.len())
+                (
+                    format!("{} of {}", self.current + 1, self.matches.len()),
+                    theme::TEXT_MUTED,
+                )
             };
-            let color = if self.matches.is_empty() {
-                theme::ACCENT_RED
-            } else {
-                theme::TEXT_MUTED
-            };
-            ui.label(egui::RichText::new(text).size(12.0).color(color));
-        }
-        ui.add_space(6.0);
-        // ↑ 上一个
-        if ui
-            .add(
-                FlatButton::new(codicon::CHEVRON_UP)
-                    .font_family(codicon::family())
-                    .font_size(14.0)
-                    .inactive_color(theme::TEXT_MUTED)
-                    .min_size(egui::vec2(22.0, 22.0)),
-            )
-            .on_hover_text("Previous match (Shift+Enter)")
-            .clicked()
-        {
-            self.prev_match();
-        }
-        ui.add_space(1.0);
-        // ↓ 下一个
-        if ui
-            .add(
-                FlatButton::new(codicon::CHEVRON_DOWN)
-                    .font_family(codicon::family())
-                    .font_size(14.0)
-                    .inactive_color(theme::TEXT_MUTED)
-                    .min_size(egui::vec2(22.0, 22.0)),
-            )
-            .on_hover_text("Next match (Enter)")
-            .clicked()
-        {
-            self.next_match();
-        }
-        ui.add_space(4.0);
-        // ✕ 关闭
-        if ui
-            .add(
-                FlatButton::new(codicon::CLOSE)
-                    .font_family(codicon::family())
-                    .font_size(14.0)
-                    .inactive_color(theme::TEXT_MUTED)
-                    .min_size(egui::vec2(22.0, 22.0)),
-            )
-            .on_hover_text("Close (Esc)")
-            .clicked()
-        {
-            self.close();
-        }
+            ui.label(
+                egui::RichText::new(count_text)
+                    .size(12.0)
+                    .color(count_color),
+            );
+            ui.add_space(4.0);
+            // .* Regex
+            if ui
+                .add(icon_toggle(codicon::REGEX, self.regex))
+                .on_hover_text("Use regex")
+                .clicked()
+            {
+                self.regex = !self.regex;
+                self.invalidate();
+                self.focus_input = true;
+            }
+            // W Whole Word
+            if ui
+                .add(icon_toggle(codicon::WHOLE_WORD, self.whole_word))
+                .on_hover_text("Match whole word")
+                .clicked()
+            {
+                self.whole_word = !self.whole_word;
+                self.invalidate();
+                self.focus_input = true;
+            }
+            // Cc Case Sensitive
+            if ui
+                .add(icon_toggle(codicon::CASE_SENSITIVE, self.case_sensitive))
+                .on_hover_text("Match case")
+                .clicked()
+            {
+                self.case_sensitive = !self.case_sensitive;
+                self.invalidate();
+                self.focus_input = true;
+            }
+            ui.add_space(4.0);
+            // 搜索图标 + 输入框（占剩余全部宽度）
+            let remaining = ui.available_width();
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(codicon::SEARCH)
+                        .font(egui::FontId::new(14.0, codicon::family()))
+                        .color(theme::TEXT_MUTED),
+                );
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut self.query)
+                        .id(ui.id().with("find_input"))
+                        .hint_text("Find...")
+                        .frame(egui::Frame::NONE)
+                        .text_color(theme::TEXT_PRIMARY)
+                        .font(egui::FontId::proportional(13.0))
+                        .desired_width(remaining - 22.0),
+                );
+                if self.focus_input {
+                    resp.request_focus();
+                    self.focus_input = false;
+                }
+                if resp.lost_focus() {
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        self.close();
+                        return;
+                    }
+                    if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        if ui.input(|i| i.modifiers.shift) {
+                            self.prev_match();
+                        } else {
+                            self.next_match();
+                        }
+                        self.focus_input = true;
+                    }
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::F3)) {
+                    if ui.input(|i| i.modifiers.shift) {
+                        self.prev_match();
+                    } else {
+                        self.next_match();
+                    }
+                }
+            });
+        });
     }
 
     fn next_match(&mut self) {
@@ -309,6 +284,37 @@ impl FindBar {
     }
 }
 
+// -- 按钮工厂 --
+
+/// Codicon 图标 toggle 按钮（带 active 状态）
+fn icon_toggle(icon: &str, active: bool) -> FlatButton<'_> {
+    FlatButton::new(icon)
+        .font_family(codicon::family())
+        .font_size(15.0)
+        .active(active)
+        .inactive_color(theme::TEXT_MUTED)
+        .min_size(egui::vec2(24.0, 22.0))
+}
+
+/// Codicon 图标普通按钮
+fn icon_btn(icon: &str) -> FlatButton<'_> {
+    FlatButton::new(icon)
+        .font_family(codicon::family())
+        .font_size(14.0)
+        .inactive_color(theme::TEXT_MUTED)
+        .min_size(egui::vec2(22.0, 22.0))
+}
+
+// -- 工具函数 --
+
+fn text_for_view(tab: &EditorTab) -> &str {
+    match tab.active_view {
+        ActiveView::Decompiled => &tab.decompiled,
+        ActiveView::Bytecode => &tab.bytecode,
+        ActiveView::Hex => "",
+    }
+}
+
 // -- 搜索引擎 --
 
 fn find_all(text: &str, query: &str, case_sensitive: bool, whole_word: bool) -> Vec<FindMatch> {
@@ -331,7 +337,9 @@ fn find_plain(text: &str, query: &str, whole_word: bool) -> Vec<FindMatch> {
         if !whole_word || is_word_boundary(text, abs, end) {
             results.push(FindMatch { start: abs, end });
         }
-        start = abs + 1;
+        // 按字符步进，避免落在多字节 UTF-8 字符中间
+        let step = text[abs..].chars().next().map_or(1, |c| c.len_utf8());
+        start = abs + step;
     }
     results
 }
@@ -347,12 +355,12 @@ fn find_case_insensitive(text: &str, query: &str, whole_word: bool) -> Vec<FindM
         if !whole_word || is_word_boundary(text, abs, end) {
             results.push(FindMatch { start: abs, end });
         }
-        start = abs + 1;
+        let step = text_lower[abs..].chars().next().map_or(1, |c| c.len_utf8());
+        start = abs + step;
     }
     results
 }
 
-/// 判断 [start, end) 范围是否构成完整单词
 fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
     let before = if start == 0 {
         true
@@ -391,12 +399,10 @@ pub fn paint_highlights(
     let pos = output.galley_pos;
     let clip = output.text_clip_rect;
     for (i, m) in matches.iter().enumerate() {
-        // 字节偏移 → 字符偏移（ASCII 快速路径）
         let cs = byte_to_char(text, m.start);
         let ce = byte_to_char(text, m.end);
         let r0 = galley.pos_from_cursor(egui::text::CCursor::new(cs));
         let r1 = galley.pos_from_cursor(egui::text::CCursor::new(ce));
-        // 构建屏幕坐标 rect
         let rect = egui::Rect::from_min_max(
             egui::pos2(pos.x + r0.min.x, pos.y + r0.min.y),
             egui::pos2(pos.x + r1.min.x, pos.y + r1.max.y),
@@ -419,7 +425,6 @@ pub fn paint_highlights(
     }
 }
 
-/// 字节偏移 → 字符偏移
 fn byte_to_char(text: &str, byte_offset: usize) -> usize {
     text[..byte_offset.min(text.len())].chars().count()
 }
