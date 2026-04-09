@@ -5,6 +5,27 @@
 use super::tab::EditorTab;
 use crate::shell::theme;
 use eframe::egui;
+use egui::TextBuffer;
+use std::ops::Range;
+
+/// 只读文本缓冲区，允许选择和复制但禁止编辑
+struct ReadOnlyBuffer<'a>(&'a str);
+
+impl TextBuffer for ReadOnlyBuffer<'_> {
+    fn is_mutable(&self) -> bool {
+        false
+    }
+    fn as_str(&self) -> &str {
+        self.0
+    }
+    fn insert_text(&mut self, _text: &str, _char_index: usize) -> usize {
+        0
+    }
+    fn delete_char_range(&mut self, _char_range: Range<usize>) {}
+    fn type_id(&self) -> std::any::TypeId {
+        std::any::TypeId::of::<ReadOnlyBuffer<'static>>()
+    }
+}
 
 /// 行号栏右侧到文本的间距
 const GUTTER_PAD: f32 = 8.0;
@@ -63,11 +84,10 @@ fn paint_line_numbers(ui: &egui::Ui, text_rect: egui::Rect, text: &str, gutter_w
 fn render_code_view(
     ui: &mut egui::Ui,
     id_salt: &str,
-    text: &mut String,
-    interactive: bool,
+    text: &mut dyn TextBuffer,
     layouter: &mut dyn FnMut(&egui::Ui, &str, f32) -> std::sync::Arc<egui::Galley>,
 ) {
-    let line_count = text.lines().count().max(1);
+    let line_count = text.as_str().lines().count().max(1);
     let gutter_w = line_number_width(line_count);
     let min = egui::vec2(ui.available_width(), ui.available_height());
     let response = ui.add(
@@ -81,12 +101,11 @@ fn render_code_view(
                 top: 4,
                 bottom: 4,
             }))
-            .interactive(interactive)
             .min_size(min)
             .desired_width(f32::INFINITY)
             .layouter(&mut |ui, s, wrap_width| layouter(ui, s.as_str(), wrap_width)),
     );
-    paint_line_numbers(ui, response.rect, text, gutter_w);
+    paint_line_numbers(ui, response.rect, text.as_str(), gutter_w);
 }
 
 /// 反编译视图：只读可选中，带语法高亮
@@ -94,9 +113,8 @@ pub fn render_decompiled(ui: &mut egui::Ui, tab: &mut EditorTab) {
     let salt = tab.entry_path.as_deref().unwrap_or(&tab.title);
     let id = format!("dec_{salt}");
     let layouter = &mut tab.layouter_decompiled;
-    let snapshot = tab.decompiled.clone();
-    render_code_view(ui, &id, &mut tab.decompiled, true, layouter);
-    tab.decompiled = snapshot;
+    let mut buf = ReadOnlyBuffer(&tab.decompiled);
+    render_code_view(ui, &id, &mut buf, layouter);
 }
 
 /// 字节码视图：可编辑，带语法高亮
@@ -104,7 +122,7 @@ pub fn render_bytecode(ui: &mut egui::Ui, tab: &mut EditorTab) {
     let salt = tab.entry_path.as_deref().unwrap_or(&tab.title);
     let id = format!("bc_{salt}");
     let layouter = &mut tab.layouter_bytecode;
-    render_code_view(ui, &id, &mut tab.bytecode, true, layouter);
+    render_code_view(ui, &id, &mut tab.bytecode, layouter);
 }
 
 /// Hex 视图：自绘 HexGrid（字节级点击 + 双向联动高亮）

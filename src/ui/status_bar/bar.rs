@@ -2,10 +2,12 @@
 //!
 //! @author sky
 
+use super::class_info::ClassInfoItem;
 use super::decompile_progress::DecompileProgressItem;
 use super::item::{Alignment, StatusItem};
 use super::text_item::TextItem;
 use super::view_toggle::ViewToggleItem;
+use crate::decompiler;
 use crate::shell::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
@@ -26,16 +28,10 @@ impl Default for StatusBar {
             theme::TEXT_MUTED,
             Alignment::Left,
         ));
-        s.add(
-            TextItem::new(
-                "Java 17 (class 61.0)",
-                theme::TEXT_SECONDARY,
-                Alignment::Left,
-            )
-            .context_only(),
-        );
-        s.add(TextItem::new("UTF-8  |  LF", theme::TEXT_MUTED, Alignment::Right).context_only());
-        s.add(TextItem::new("CFR 0.152", theme::ACCENT_GREEN, Alignment::Right).context_only());
+        s.add(ClassInfoItem::new());
+        if let Some(ver) = decompiler::vineflower_version() {
+            s.add(TextItem::new(ver, theme::ACCENT_GREEN, Alignment::Right).context_only());
+        }
         s.add(ViewToggleItem::new());
         s.add(DecompileProgressItem::new());
         s
@@ -55,19 +51,27 @@ impl StatusBar {
             .find_map(|item| item.downcast_mut::<T>())
     }
 
-    /// 同步编辑器状态（ViewToggle + context_only items 可见性）
-    pub fn sync_view(&mut self, active_view: Option<ActiveView>) {
+    /// 同步编辑器状态（ViewToggle + ClassInfo + context_only items 可见性）
+    pub fn sync_view(
+        &mut self,
+        active_view: Option<ActiveView>,
+        is_class: bool,
+        class_info: Option<&str>,
+    ) {
         let has_tab = active_view.is_some();
         for item in &mut self.items {
-            // 同步 context_only TextItem 的可见性
             if let Some(text) = item.downcast_mut::<TextItem>() {
                 if text.is_context_only() {
                     text.set_visible(has_tab);
                 }
             }
-            // 同步 ViewToggle 的活跃视图
+            // 三视图切换仅对 .class 文件显示
             if let Some(vt) = item.downcast_mut::<ViewToggleItem>() {
-                vt.set_active(active_view);
+                vt.set_active(if is_class { active_view } else { None });
+            }
+            // class 版本信息
+            if let Some(ci) = item.downcast_mut::<ClassInfoItem>() {
+                ci.set_info(class_info);
             }
         }
     }

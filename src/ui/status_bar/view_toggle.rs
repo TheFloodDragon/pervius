@@ -45,6 +45,10 @@ impl StatusItem for ViewToggleItem {
         Alignment::Right
     }
 
+    fn visible(&self) -> bool {
+        self.active.is_some()
+    }
+
     fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> ItemResponse {
         let active = match self.active {
             Some(v) => v,

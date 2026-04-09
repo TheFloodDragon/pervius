@@ -264,11 +264,19 @@ impl Layout {
                 tab.active_view = ActiveView::Decompiled;
             }
             tab
+        } else if Self::is_binary(bytes) {
+            EditorTab::new_binary(title, entry_path, bytes.to_vec())
         } else {
             let text = Self::decode_text(bytes);
             let lang = Language::from_filename(file_name);
             EditorTab::new_text(title, entry_path, text, bytes.to_vec(), lang)
         }
+    }
+
+    /// 判断字节内容是否为二进制文件（前 8KB 内含 null 字节即视为二进制）
+    fn is_binary(bytes: &[u8]) -> bool {
+        let check_len = bytes.len().min(8192);
+        bytes[..check_len].contains(&0)
     }
 
     /// 将字节解码为文本（自动检测编码）

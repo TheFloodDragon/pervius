@@ -151,6 +151,16 @@ impl EditorArea {
         Some(self.focused_tab()?.active_view)
     }
 
+    /// 当前聚焦 tab 是否为 .class 文件
+    pub fn focused_is_class(&mut self) -> bool {
+        self.focused_tab().is_some_and(|t| t.is_class)
+    }
+
+    /// 当前聚焦 tab 的 class 版本信息
+    pub fn focused_class_info(&mut self) -> Option<&str> {
+        self.focused_tab()?.class_info.as_deref()
+    }
+
     /// 当前聚焦 tab 的条目路径
     pub fn focused_entry_path(&mut self) -> Option<String> {
         self.focused_tab()?.entry_path.clone()

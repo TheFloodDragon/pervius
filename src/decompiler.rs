@@ -4,7 +4,7 @@
 
 use std::io::BufRead;
 #[cfg(windows)]
-use std::os::windows::process::CommandExt;
+use std::os::windows::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{mpsc, Arc};
@@ -16,10 +16,41 @@ pub struct DecompileProgress {
 }
 
 /// 后台反编译任务句柄
+///
+/// Drop 时自动终止正在运行的 vineflower 子进程。
 pub struct DecompileTask {
     pub jar_name: String,
     pub progress: Arc<DecompileProgress>,
     pub receiver: mpsc::Receiver<Result<(), String>>,
+    /// 正在运行的子进程 PID（0 表示未运行或已结束）
+    child_pid: Arc<AtomicU32>,
+}
+
+impl Drop for DecompileTask {
+    fn drop(&mut self) {
+        let pid = self.child_pid.load(Ordering::Relaxed);
+        if pid == 0 {
+            return;
+        }
+        log::info!("Killing vineflower process (PID {pid})");
+        kill_process_tree(pid);
+    }
+}
+
+/// 终止进程及其子进程树
+#[cfg(windows)]
+fn kill_process_tree(pid: u32) {
+    let mut cmd = std::process::Command::new("taskkill");
+    cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let _ = cmd.output();
+}
+
+#[cfg(not(windows))]
+fn kill_process_tree(pid: u32) {
+    let _ = std::process::Command::new("kill")
+        .arg(pid.to_string())
+        .output();
 }
 
 /// 从 JAVA_HOME 环境变量定位 java 可执行文件
@@ -36,6 +67,14 @@ pub fn find_java() -> Result<PathBuf, String> {
         return Err(format!("Java executable not found at {}", java.display()));
     }
     Ok(java)
+}
+
+/// 获取 Vineflower 版本号（从 JAR 文件名解析）
+pub fn vineflower_version() -> Option<String> {
+    let path = find_vineflower().ok()?;
+    let name = path.file_stem()?.to_str()?;
+    let version = name.strip_prefix("vineflower-")?;
+    Some(format!("Vineflower {version}"))
 }
 
 /// 定位 vineflower JAR（exe 同目录，匹配 vineflower-*.jar）
@@ -153,17 +192,20 @@ pub fn start(
         current: AtomicU32::new(0),
         total: AtomicU32::new(class_count),
     });
+    let child_pid = Arc::new(AtomicU32::new(0));
     let (tx, rx) = mpsc::channel();
     let jar_path = jar_path.to_path_buf();
     let p = progress.clone();
+    let cp = child_pid.clone();
     std::thread::spawn(move || {
-        let result = run_vineflower(&java, &vineflower, &jar_path, &output_dir, &p);
+        let result = run_vineflower(&java, &vineflower, &jar_path, &output_dir, &p, &cp);
         let _ = tx.send(result);
     });
     Ok(DecompileTask {
         jar_name: jar_name.to_string(),
         progress,
         receiver: rx,
+        child_pid,
     })
 }
 
@@ -174,6 +216,7 @@ fn run_vineflower(
     jar_path: &Path,
     output_dir: &Path,
     progress: &DecompileProgress,
+    child_pid: &AtomicU32,
 ) -> Result<(), String> {
     let mut cmd = std::process::Command::new(java);
     cmd.arg("-jar")
@@ -187,6 +230,7 @@ fn run_vineflower(
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn vineflower: {e}"))?;
+    child_pid.store(child.id(), Ordering::Relaxed);
     // 逐行读 stderr，匹配 "Decompiling class" 更新进度，其余行记日志
     if let Some(stderr) = child.stderr.take() {
         let reader = std::io::BufReader::new(stderr);
@@ -207,6 +251,7 @@ fn run_vineflower(
     let status = child
         .wait()
         .map_err(|e| format!("Vineflower process error: {e}"))?;
+    child_pid.store(0, Ordering::Relaxed);
     if !status.success() {
         return Err(format!("Vineflower exited with code {:?}", status.code()));
     }

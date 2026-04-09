@@ -39,6 +39,10 @@ impl TextItem {
     pub fn set_visible(&mut self, visible: bool) {
         self.visible = visible;
     }
+
+    pub fn set_text(&mut self, text: impl Into<String>) {
+        self.text = text.into();
+    }
 }
 
 impl StatusItem for TextItem {

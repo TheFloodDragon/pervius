@@ -159,7 +159,12 @@ impl Layout {
     }
 
     fn render_status_bar(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
-        self.status_bar.sync_view(self.editor.focused_view());
+        let class_info = self.editor.focused_class_info().map(|s| s.to_string());
+        self.status_bar.sync_view(
+            self.editor.focused_view(),
+            self.editor.focused_is_class(),
+            class_info.as_deref(),
+        );
         // 同步反编译进度
         let decompile_info = self.decompiling.as_ref().map(|task| {
             let current = task
