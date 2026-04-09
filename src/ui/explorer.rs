@@ -5,7 +5,10 @@
 pub mod tree;
 
 use crate::shell::{codicon, theme};
+use crate::ui::widget::FlatButton;
 use eframe::egui;
+use std::collections::HashSet;
+use std::sync::{mpsc, Arc};
 use tree::TreeNode;
 
 /// 文件面板状态
@@ -20,6 +23,16 @@ pub struct FilePanel {
     pub scroll_to_selected: bool,
     /// 速搜过滤文本（键盘直接输入，IntelliJ 风格）
     pub filter: String,
+    /// 面板是否拥有隐式键盘焦点（点击面板获得，点击别处失去）
+    focused: bool,
+    /// 预构建的过滤索引（树变化时重建，Arc 共享给后台线程）
+    filter_index: Option<Arc<Vec<tree::FilterEntry>>>,
+    /// 当前过滤可见集合（后台线程产出）
+    filter_visible: HashSet<String>,
+    /// 后台过滤结果接收端
+    filter_rx: Option<mpsc::Receiver<(u64, tree::FilterResult)>>,
+    /// 过滤请求计数器（丢弃过期结果）
+    filter_gen: u64,
 }
 
 impl FilePanel {
@@ -31,13 +44,27 @@ impl FilePanel {
             pending_reveal: None,
             scroll_to_selected: false,
             filter: String::new(),
+            focused: false,
+            filter_index: None,
+            filter_visible: HashSet::new(),
+            filter_rx: None,
+            filter_gen: 0,
         }
+    }
+
+    /// 使索引失效（树结构变化后调用）
+    pub fn invalidate_index(&mut self) {
+        self.filter_index = None;
     }
 
     /// 在给定 rect 内渲染（背景由 layout island 绘制）
     pub fn render(&mut self, ui: &mut egui::Ui) {
-        self.capture_input(ui.ctx());
         let rect = ui.max_rect();
+        self.update_focus(ui.ctx(), rect);
+        if self.focused {
+            self.capture_input(ui.ctx());
+        }
+        self.poll_filter_result();
         let painter = ui.painter();
         // 面板标题
         let title_h = 32.0;
@@ -50,6 +77,8 @@ impl FilePanel {
             egui::FontId::proportional(11.0),
             theme::TEXT_SECONDARY,
         );
+        // 标题栏右侧按钮
+        self.render_title_buttons(ui, title_rect);
         // 内容区（左右 2px padding）
         let body_rect = egui::Rect::from_min_max(
             egui::pos2(rect.left() + 2.0, title_rect.bottom()),
@@ -61,12 +90,32 @@ impl FilePanel {
         self.render_filter_bar(ui, rect);
     }
 
-    /// 捕获键盘输入用于速搜过滤
-    fn capture_input(&mut self, ctx: &egui::Context) {
-        // 有文本控件聚焦时不捕获（如搜索对话框、编辑器）
+    /// 更新面板隐式焦点：点击面板内获得，点击面板外或有 widget 聚焦时失去
+    fn update_focus(&mut self, ctx: &egui::Context, rect: egui::Rect) {
+        // 有文本控件聚焦时（如编辑器 TextEdit、查找栏）让出焦点
         if ctx.memory(|m| m.focused().is_some()) {
+            if self.focused {
+                self.focused = false;
+                self.clear_filter();
+            }
             return;
         }
+        // 检测主键点击位置
+        if ctx.input(|i| i.pointer.primary_clicked()) {
+            let inside = ctx
+                .input(|i| i.pointer.interact_pos())
+                .is_some_and(|p| rect.contains(p));
+            if inside {
+                self.focused = true;
+            } else {
+                self.focused = false;
+                self.clear_filter();
+            }
+        }
+    }
+
+    /// 捕获键盘输入用于速搜过滤（仅在面板拥有焦点时调用）
+    fn capture_input(&mut self, ctx: &egui::Context) {
         if self.roots.is_empty() {
             return;
         }
@@ -75,8 +124,15 @@ impl FilePanel {
         for event in &events {
             match event {
                 egui::Event::Text(text) => {
-                    self.filter.push_str(text);
-                    changed = true;
+                    // 忽略组合键产生的文本事件（Alt+1、Ctrl+O 等）
+                    let has_modifier = ctx.input(|i| {
+                        let m = i.modifiers;
+                        m.alt || m.ctrl || m.command
+                    });
+                    if !has_modifier {
+                        self.filter.push_str(text);
+                        changed = true;
+                    }
                 }
                 egui::Event::Key {
                     key: egui::Key::Backspace,
@@ -92,7 +148,7 @@ impl FilePanel {
                     pressed: true,
                     ..
                 } if !self.filter.is_empty() => {
-                    self.filter.clear();
+                    self.clear_filter();
                 }
                 egui::Event::Key {
                     key: egui::Key::Enter,
@@ -104,21 +160,70 @@ impl FilePanel {
                         self.pending_open = Some(path);
                         self.scroll_to_selected = true;
                     }
-                    self.filter.clear();
+                    self.clear_filter();
                 }
                 _ => {}
             }
         }
-        // 过滤变化时自动选中第一个匹配文件
-        if changed && !self.filter.is_empty() {
-            let lower = self.filter.to_ascii_lowercase();
-            self.selected = tree::first_match(&self.roots, &lower);
+        if changed {
+            self.dispatch_filter();
         }
+    }
+
+    /// 发起后台过滤计算
+    fn dispatch_filter(&mut self) {
+        self.filter_gen += 1;
+        if self.filter.is_empty() {
+            self.filter_visible.clear();
+            return;
+        }
+        // 首次过滤时构建索引
+        if self.filter_index.is_none() {
+            self.filter_index = Some(Arc::new(tree::build_filter_index(&self.roots)));
+        }
+        let lower = self.filter.to_ascii_lowercase();
+        let index = Arc::clone(self.filter_index.as_ref().unwrap());
+        let seq = self.filter_gen;
+        let (tx, rx) = mpsc::channel();
+        self.filter_rx = Some(rx);
+        std::thread::spawn(move || {
+            let result = tree::compute_filter(&index, &lower);
+            let _ = tx.send((seq, result));
+        });
+    }
+
+    /// 拉取后台过滤结果（每帧调用，非阻塞）
+    fn poll_filter_result(&mut self) {
+        let rx = match &self.filter_rx {
+            Some(rx) => rx,
+            None => return,
+        };
+        let (seq, result) = match rx.try_recv() {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        self.filter_rx = None;
+        // 丢弃过期结果
+        if seq != self.filter_gen {
+            return;
+        }
+        self.filter_visible = result.visible;
+        if let Some(ref path) = result.first_match {
+            self.selected = result.first_match.clone();
+            tree::reveal(&mut self.roots, path);
+            self.scroll_to_selected = true;
+        }
+    }
+
+    /// 清除过滤状态
+    fn clear_filter(&mut self) {
+        self.filter.clear();
+        self.filter_visible.clear();
+        self.filter_gen += 1;
     }
 
     fn render_tree(&mut self, ui: &mut egui::Ui) {
         let filtering = !self.filter.is_empty();
-        let filter = self.filter.to_ascii_lowercase();
         let mut ctx_reveal = None;
         let scroll = self.scroll_to_selected;
         let mut opened = None;
@@ -132,7 +237,7 @@ impl FilePanel {
                     &mut self.roots,
                     0,
                     &self.selected,
-                    &filter,
+                    &self.filter_visible,
                     &mut ctx_reveal,
                     scroll,
                 );
@@ -142,15 +247,58 @@ impl FilePanel {
         if let Some(path) = opened {
             self.selected = Some(path.clone());
             self.pending_open = Some(path.clone());
-            // 过滤模式下点击文件：展开路径，否则清除过滤后节点会隐藏
             if filtering {
                 tree::reveal(&mut self.roots, &path);
                 self.scroll_to_selected = true;
             }
-            self.filter.clear();
+            self.clear_filter();
         }
         if ctx_reveal.is_some() {
             self.pending_reveal = ctx_reveal;
+        }
+    }
+
+    /// 标题栏右侧展开/折叠按钮
+    fn render_title_buttons(&mut self, ui: &mut egui::Ui, title_rect: egui::Rect) {
+        if self.roots.is_empty() {
+            return;
+        }
+        let btn_size = egui::vec2(22.0, 22.0);
+        let mid_y = title_rect.center().y;
+        let icon_family = codicon::family();
+        // 折叠按钮（最右）
+        let collapse_x = title_rect.right() - 8.0 - btn_size.x * 0.5;
+        let collapse_rect = egui::Rect::from_center_size(egui::pos2(collapse_x, mid_y), btn_size);
+        let mut collapse_ui = ui.new_child(egui::UiBuilder::new().max_rect(collapse_rect));
+        if collapse_ui
+            .add(
+                FlatButton::new(codicon::COLLAPSE_ALL)
+                    .font_size(14.0)
+                    .font_family(icon_family.clone())
+                    .inactive_color(theme::TEXT_SECONDARY)
+                    .min_size(btn_size),
+            )
+            .on_hover_text("Collapse One Level")
+            .clicked()
+        {
+            tree::collapse_one_level(&mut self.roots);
+        }
+        // 展开按钮
+        let expand_x = collapse_rect.left() - 2.0 - btn_size.x * 0.5;
+        let expand_rect = egui::Rect::from_center_size(egui::pos2(expand_x, mid_y), btn_size);
+        let mut expand_ui = ui.new_child(egui::UiBuilder::new().max_rect(expand_rect));
+        if expand_ui
+            .add(
+                FlatButton::new(codicon::EXPAND_ALL)
+                    .font_size(14.0)
+                    .font_family(icon_family)
+                    .inactive_color(theme::TEXT_SECONDARY)
+                    .min_size(btn_size),
+            )
+            .on_hover_text("Expand One Level")
+            .clicked()
+        {
+            tree::expand_one_level(&mut self.roots);
         }
     }
 

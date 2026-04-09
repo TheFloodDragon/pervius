@@ -58,15 +58,17 @@ struct LayoutRects {
 
 impl Layout {
     pub fn new() -> Self {
+        let settings = Settings::load();
+        let keys = super::keybindings::build_keymap(&settings.keymap);
         Self {
             file_panel: FilePanel::new(),
             editor: EditorArea::new(),
             status_bar: StatusBar::default(),
             search: SearchDialog::new(),
             settings_dialog: SettingsDialog::new(),
-            settings: Settings::load(),
+            settings,
             toasts: Toasts::default(),
-            keys: super::keybindings::build_keymap(),
+            keys,
             explorer_width: theme::FILE_PANEL_WIDTH,
             explorer_visible: true,
             jar: None,
@@ -82,9 +84,12 @@ impl Layout {
         self.handle_pending_reveal();
         self.check_loading();
         self.check_decompiling();
-        let mut keys = std::mem::take(&mut self.keys);
-        keys.dispatch(ui.ctx(), self);
-        self.keys = keys;
+        // keybind 录制中跳过快捷键分发，避免录制按键同时触发动作
+        if !egui_window_settings::is_recording_keybind(ui.ctx()) {
+            let mut keys = std::mem::take(&mut self.keys);
+            keys.dispatch(ui.ctx(), self);
+            self.keys = keys;
+        }
         let t = self.explorer_anim_t(ui);
         let rects = Self::compute_rects(ui.max_rect(), self.explorer_width * t, t > 0.0);
         if t > 0.0 {
@@ -98,6 +103,8 @@ impl Layout {
         self.render_status_bar(ui, rects.status);
         self.search.render(ui.ctx());
         if let Some(new_settings) = self.settings_dialog.render(ui.ctx()) {
+            // keybind 配置变更时重建 KeyMap
+            self.keys = super::keybindings::build_keymap(&new_settings.keymap);
             self.settings = new_settings;
             if let Err(e) = self.settings.save() {
                 log::warn!("配置保存失败: {e}");

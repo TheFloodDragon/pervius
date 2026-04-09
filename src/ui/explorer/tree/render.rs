@@ -1,4 +1,4 @@
-//! 文件树渲染 + 过滤
+//! 文件树渲染
 //!
 //! @author sky
 
@@ -7,43 +7,25 @@ use crate::shell::{codicon, theme};
 use crate::ui::menu::item::menu_item_raw;
 use eframe::egui;
 use egui_animation::Anim;
-
-/// 递归判断节点是否匹配过滤（自身标签或任意后代标签包含 filter）
-fn matches_filter(node: &TreeNode, filter: &str) -> bool {
-    if node.label.to_ascii_lowercase().contains(filter) {
-        return true;
-    }
-    node.children.iter().any(|c| matches_filter(c, filter))
-}
-
-/// 查找第一个匹配过滤的文件节点路径（深度优先）
-pub fn first_match(nodes: &[TreeNode], filter: &str) -> Option<String> {
-    for node in nodes {
-        if !node.is_folder && node.label.to_ascii_lowercase().contains(filter) {
-            return Some(node.path.clone());
-        }
-        if let Some(path) = first_match(&node.children, filter) {
-            return Some(path);
-        }
-    }
-    None
-}
+use std::collections::HashSet;
 
 /// 递归渲染树节点，返回被点击的文件条目路径
+///
+/// `visible` 为后台线程计算的可见路径集合。
+/// 集合非空时进入过滤模式（隐藏不在集合中的节点，自动展开子树）。
 pub fn render_tree(
     ui: &mut egui::Ui,
     nodes: &mut [TreeNode],
     depth: u8,
     selected: &Option<String>,
-    filter: &str,
+    visible: &HashSet<String>,
     reveal: &mut Option<String>,
     scroll: bool,
 ) -> Option<String> {
-    let filtering = !filter.is_empty();
+    let filtering = !visible.is_empty();
     let mut clicked = None;
     for node in nodes.iter_mut() {
-        // 过滤模式：跳过无匹配的子树
-        if filtering && !matches_filter(node, filter) {
+        if filtering && !visible.contains(&node.path) {
             continue;
         }
         let is_selected = selected.as_ref().is_some_and(|s| s == &node.path);
@@ -73,7 +55,7 @@ pub fn render_tree(
                 &mut node.children,
                 depth + 1,
                 selected,
-                filter,
+                visible,
                 reveal,
                 scroll,
             ) {

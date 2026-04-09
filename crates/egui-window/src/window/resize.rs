@@ -168,23 +168,5 @@ impl FloatingWindow {
             }
             ui.ctx().request_repaint();
         }
-        paint_resize_grip(ui.painter(), rect, theme.text_muted);
-    }
-}
-
-/// 右下角三条斜线 grip 指示
-fn paint_resize_grip(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32) {
-    let c = egui::Color32::from_white_alpha(60).lerp_to_gamma(color, 0.5);
-    let stroke = egui::Stroke::new(1.0, c);
-    let br = rect.right_bottom();
-    for i in 1..=3 {
-        let offset = i as f32 * 3.5;
-        painter.line_segment(
-            [
-                egui::pos2(br.x - offset, br.y - 1.5),
-                egui::pos2(br.x - 1.5, br.y - offset),
-            ],
-            stroke,
-        );
     }
 }

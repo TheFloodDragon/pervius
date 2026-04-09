@@ -2,31 +2,35 @@
 //!
 //! @author sky
 
-use crate::settings::Settings;
+use crate::settings::{KeymapSettings, Settings};
 use crate::shell::{codicon, theme};
+use crate::ui::keybindings;
 use eframe::egui;
 use egui_window_settings::{
-    path_picker, section_header, sidebar_item, SettingsPanel, SettingsTheme,
+    keybind_row, path_picker, section_header, sidebar_item, SettingsPanel, SettingsTheme,
 };
 
 /// 侧栏分类
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Section {
     Java,
+    Keymap,
 }
 
 impl Section {
-    const ALL: &[Self] = &[Self::Java];
+    const ALL: &[Self] = &[Self::Java, Self::Keymap];
 
     fn label(self) -> &'static str {
         match self {
             Self::Java => "Java",
+            Self::Keymap => "Keymap",
         }
     }
 
     fn icon(self) -> &'static str {
         match self {
             Self::Java => codicon::BEAKER,
+            Self::Keymap => codicon::KEYBOARD,
         }
     }
 }
@@ -46,8 +50,8 @@ impl SettingsDialog {
         Self {
             panel: SettingsPanel::new("settings_window", "Settings")
                 .icon('\u{EB51}')
-                .default_size([520.0, 380.0])
-                .min_size([420.0, 280.0]),
+                .default_size([700.0, 500.0])
+                .min_size([520.0, 380.0]),
             section: Section::Java,
             draft: Settings::default(),
             snapshot: Settings::default(),
@@ -107,6 +111,7 @@ fn render_section(
 ) -> bool {
     match section {
         Section::Java => render_java(draft, ui, st),
+        Section::Keymap => render_keymap(&mut draft.keymap, ui, st),
     }
 }
 
@@ -124,6 +129,60 @@ fn render_java(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> b
                 .pick_folder()
                 .map(|p| p.to_string_lossy().into_owned())
         },
+    );
+    changed
+}
+
+fn render_keymap(km: &mut KeymapSettings, ui: &mut egui::Ui, st: &SettingsTheme) -> bool {
+    let mut changed = false;
+    let defaults = KeymapSettings::default();
+    section_header(ui, st, "GENERAL");
+    changed |= keybind_row(ui, st, "Open JAR", &mut km.open_jar, defaults.open_jar);
+    changed |= keybind_row(
+        ui,
+        st,
+        "Toggle Explorer",
+        &mut km.toggle_explorer,
+        defaults.toggle_explorer,
+    );
+    changed |= keybind_row(
+        ui,
+        st,
+        "Open Settings",
+        &mut km.open_settings,
+        defaults.open_settings,
+    );
+    section_header(ui, st, "EDITOR");
+    changed |= keybind_row(ui, st, "Find", &mut km.find, defaults.find);
+    changed |= keybind_row(
+        ui,
+        st,
+        "Find in Files",
+        &mut km.find_in_files,
+        defaults.find_in_files,
+    );
+    changed |= keybind_row(ui, st, "Close Tab", &mut km.close_tab, defaults.close_tab);
+    changed |= keybind_row(
+        ui,
+        st,
+        "Close All Tabs",
+        &mut km.close_all_tabs,
+        defaults.close_all_tabs,
+    );
+    changed |= keybind_row(
+        ui,
+        st,
+        "Cycle View",
+        &mut km.cycle_view,
+        defaults.cycle_view,
+    );
+    section_header(ui, st, "EXPORT");
+    changed |= keybind_row(
+        ui,
+        st,
+        "Export Decompiled",
+        &mut km.export_decompiled,
+        defaults.export_decompiled,
     );
     changed
 }

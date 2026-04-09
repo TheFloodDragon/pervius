@@ -57,30 +57,12 @@ impl KeyBind {
 
     /// Ctrl+Shift
     pub const fn ctrl_shift(key: Key) -> Self {
-        Self::new(
-            Modifiers {
-                alt: false,
-                ctrl: true,
-                shift: true,
-                mac_cmd: false,
-                command: true,
-            },
-            key,
-        )
+        Self::new(Modifiers::COMMAND.plus(Modifiers::SHIFT), key)
     }
 
     /// Ctrl+Alt
     pub const fn ctrl_alt(key: Key) -> Self {
-        Self::new(
-            Modifiers {
-                alt: true,
-                ctrl: true,
-                shift: false,
-                mac_cmd: false,
-                command: true,
-            },
-            key,
-        )
+        Self::new(Modifiers::COMMAND.plus(Modifiers::ALT), key)
     }
 
     /// 人类可读的标签（如 "Ctrl+O"、"Alt+1"、"Ctrl+Shift+F"）
@@ -107,7 +89,28 @@ impl KeyBind {
     /// 修饰键数量（用于排序，更多修饰键优先匹配）
     fn modifier_count(&self) -> u8 {
         let m = &self.modifiers;
-        m.ctrl as u8 + m.alt as u8 + m.shift as u8 + m.mac_cmd as u8
+        (m.ctrl || m.command) as u8 + m.alt as u8 + m.shift as u8 + m.mac_cmd as u8
+    }
+
+    /// 从 `"Ctrl+O"`、`"Alt+1"` 等格式的字符串解析
+    pub fn parse(s: &str) -> Option<Self> {
+        let parts: Vec<&str> = s.split('+').collect();
+        if parts.is_empty() {
+            return None;
+        }
+        let key = parse_key(parts.last()?.trim())?;
+        let mut modifiers = Modifiers::NONE;
+        for &part in &parts[..parts.len() - 1] {
+            match part.trim() {
+                "Ctrl" | "⌘" | "Cmd" => {
+                    modifiers.command = true;
+                }
+                "Alt" => modifiers.alt = true,
+                "Shift" => modifiers.shift = true,
+                _ => return None,
+            }
+        }
+        Some(Self { modifiers, key })
     }
 }
 
@@ -267,6 +270,123 @@ fn key_name(key: Key) -> &'static str {
         Key::ArrowDown => "↓",
         Key::ArrowLeft => "←",
         Key::ArrowRight => "→",
+        Key::Slash => "/",
+        Key::Comma => ",",
         _ => key.name(),
+    }
+}
+
+/// 从显示名称反解析为 Key（支持 `key_name()` 的短名和 `Key::name()` 的原名）
+fn parse_key(s: &str) -> Option<Key> {
+    let normalized = match s {
+        "Esc" => "Escape",
+        "Del" => "Delete",
+        "Ins" => "Insert",
+        "PgUp" => "PageUp",
+        "PgDn" => "PageDown",
+        "↑" => "ArrowUp",
+        "↓" => "ArrowDown",
+        "←" => "ArrowLeft",
+        "→" => "ArrowRight",
+        "/" => "Slash",
+        "," => "Comma",
+        other => other,
+    };
+    ALL_KEYS.iter().find(|k| k.name() == normalized).copied()
+}
+
+/// 支持解析的所有 Key 变体
+const ALL_KEYS: &[Key] = &[
+    Key::ArrowDown,
+    Key::ArrowLeft,
+    Key::ArrowRight,
+    Key::ArrowUp,
+    Key::Escape,
+    Key::Tab,
+    Key::Backspace,
+    Key::Enter,
+    Key::Space,
+    Key::Insert,
+    Key::Delete,
+    Key::Home,
+    Key::End,
+    Key::PageUp,
+    Key::PageDown,
+    Key::Slash,
+    Key::Comma,
+    Key::Minus,
+    Key::Plus,
+    Key::Num0,
+    Key::Num1,
+    Key::Num2,
+    Key::Num3,
+    Key::Num4,
+    Key::Num5,
+    Key::Num6,
+    Key::Num7,
+    Key::Num8,
+    Key::Num9,
+    Key::A,
+    Key::B,
+    Key::C,
+    Key::D,
+    Key::E,
+    Key::F,
+    Key::G,
+    Key::H,
+    Key::I,
+    Key::J,
+    Key::K,
+    Key::L,
+    Key::M,
+    Key::N,
+    Key::O,
+    Key::P,
+    Key::Q,
+    Key::R,
+    Key::S,
+    Key::T,
+    Key::U,
+    Key::V,
+    Key::W,
+    Key::X,
+    Key::Y,
+    Key::Z,
+    Key::F1,
+    Key::F2,
+    Key::F3,
+    Key::F4,
+    Key::F5,
+    Key::F6,
+    Key::F7,
+    Key::F8,
+    Key::F9,
+    Key::F10,
+    Key::F11,
+    Key::F12,
+    Key::F13,
+    Key::F14,
+    Key::F15,
+    Key::F16,
+    Key::F17,
+    Key::F18,
+    Key::F19,
+    Key::F20,
+];
+
+// -- serde 支持：序列化为 "Ctrl+O" 格式字符串 --
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for KeyBind {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.label())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for KeyBind {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = <String as serde::Deserialize>::deserialize(deserializer)?;
+        Self::parse(&s).ok_or_else(|| serde::de::Error::custom(format!("invalid keybind: {s}")))
     }
 }

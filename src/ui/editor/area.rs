@@ -67,9 +67,9 @@ impl EditorArea {
         let painter = ui.painter();
         let center = rect.center();
         let hints: &[(&str, String)] = &[
-            ("Open File", keybindings::OPEN_JAR.label()),
+            ("Open File", keybindings::DEFAULT_OPEN_JAR.label()),
             ("Find in Files", "Double Shift".into()),
-            ("Project View", keybindings::TOGGLE_EXPLORER.label()),
+            ("Project View", keybindings::DEFAULT_TOGGLE_EXPLORER.label()),
         ];
         let font_action = egui::FontId::proportional(13.0);
         let font_keybind = egui::FontId::proportional(11.0);

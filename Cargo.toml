@@ -14,7 +14,7 @@ egui_dock = "0.19"
 egui-notify = "0.22"
 egui-animation = { path = "crates/egui-animation" }
 egui-hex-view = { path = "crates/egui-hex-view" }
-egui-keybind = { path = "crates/egui-keybind" }
+egui-keybind = { path = "crates/egui-keybind", features = ["serde"] }
 egui-shell = { path = "crates/egui-shell" }
 egui-window = { path = "crates/egui-window" }
 egui-window-settings = { path = "crates/egui-window-settings" }

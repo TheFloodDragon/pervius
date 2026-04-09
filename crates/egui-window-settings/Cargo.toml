@@ -7,6 +7,7 @@ license = "MIT"
 
 [dependencies]
 eframe = { version = "0.34.1", default-features = false, features = ["glow"] }
+egui-keybind = { path = "../egui-keybind" }
 egui-window = { path = "../egui-window" }
 serde = "1"
 toml = "0.8"

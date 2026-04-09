@@ -923,6 +923,7 @@ name = "egui-keybind"
 version = "0.1.0"
 dependencies = [
  "egui",
+ "serde",
 ]
 
 [[package]]
@@ -954,6 +955,7 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "eframe",
+ "egui-keybind",
  "egui-window",
  "log",
  "serde",

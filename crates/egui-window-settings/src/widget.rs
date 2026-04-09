@@ -7,6 +7,7 @@
 
 use crate::SettingsTheme;
 use eframe::egui;
+use egui_keybind::KeyBind;
 
 /// 设置行高度
 const ROW_H: f32 = 32.0;
@@ -378,4 +379,151 @@ pub fn path_picker(
             .desired_width(input_w - 4.0),
     );
     *value != old
+}
+
+/// 录制状态存储 key
+fn rec_key() -> egui::Id {
+    egui::Id::new("egui_ws_keybind_rec")
+}
+
+/// 检查是否有 keybind widget 正在录制（用于外部抑制快捷键分发）
+pub fn is_recording_keybind(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<u64>(rec_key()).unwrap_or(0) != 0)
+}
+
+/// 快捷键配置行
+///
+/// 左侧 label，右侧显示当前快捷键（pill 样式），点击进入录制模式。
+/// Escape 取消录制，按任意非修饰键完成录制。
+/// 返回 `true` 表示绑定被修改。
+pub fn keybind_row(
+    ui: &mut egui::Ui,
+    theme: &SettingsTheme,
+    label: &str,
+    bind: &mut KeyBind,
+    default: KeyBind,
+) -> bool {
+    let mut changed = false;
+    let avail_w = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(avail_w, ROW_H), egui::Sense::hover());
+    let painter = ui.painter();
+    let mid_y = rect.center().y;
+    let widget_id = ui.id().with(label);
+    let ctx = ui.ctx().clone();
+    let is_recording = ctx.data(|d| d.get_temp::<u64>(rec_key())) == Some(widget_id.value());
+    // hover 高亮
+    let hover_rect = ui.interact(rect, widget_id.with("hover"), egui::Sense::hover());
+    if hover_rect.hovered() && !is_recording {
+        painter.rect_filled(rect, 0.0, theme.bg_hover);
+    }
+    paint_label(painter, rect, label, theme.text_primary);
+    if is_recording {
+        // 录制中：背景高亮 + 提示文字
+        painter.rect_filled(rect, 0.0, theme.bg_hover);
+        let result = ctx.input(|i| {
+            for event in &i.events {
+                if let egui::Event::Key {
+                    key,
+                    modifiers,
+                    pressed: true,
+                    ..
+                } = event
+                {
+                    if *key == egui::Key::Escape {
+                        return Some(None);
+                    }
+                    return Some(Some(KeyBind::new(*modifiers, *key)));
+                }
+            }
+            None
+        });
+        match result {
+            Some(Some(new_bind)) => {
+                *bind = new_bind;
+                changed = true;
+                ctx.data_mut(|d| d.insert_temp::<u64>(rec_key(), 0));
+            }
+            Some(None) => {
+                ctx.data_mut(|d| d.insert_temp::<u64>(rec_key(), 0));
+            }
+            None => {}
+        }
+        painter.text(
+            egui::pos2(rect.right() - PAD_RIGHT, mid_y),
+            egui::Align2::RIGHT_CENTER,
+            "Press a key...",
+            egui::FontId::proportional(11.0),
+            theme.accent,
+        );
+    } else {
+        let mut right_edge = rect.right() - PAD_RIGHT;
+        // 已修改时显示重置按钮
+        if *bind != default {
+            let reset_size = 16.0;
+            let reset_rect = egui::Rect::from_center_size(
+                egui::pos2(right_edge - reset_size / 2.0, mid_y),
+                egui::vec2(reset_size, reset_size),
+            );
+            let reset_resp = ui.interact(reset_rect, widget_id.with("reset"), egui::Sense::click());
+            let reset_color = if reset_resp.hovered() {
+                theme.text_primary
+            } else {
+                theme.text_muted
+            };
+            painter.text(
+                reset_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "\u{EB37}",
+                egui::FontId::new(11.0, theme.icon_font.clone()),
+                reset_color,
+            );
+            if reset_resp.clicked() {
+                *bind = default;
+                changed = true;
+            }
+            right_edge -= reset_size + 6.0;
+        }
+        // 快捷键 pill
+        let bind_text = bind.label();
+        let text_galley = painter.layout_no_wrap(
+            bind_text.clone(),
+            egui::FontId::proportional(11.0),
+            theme.text_secondary,
+        );
+        let btn_w = text_galley.size().x + 16.0;
+        let btn_h = 20.0;
+        let btn_rect = egui::Rect::from_min_size(
+            egui::pos2(right_edge - btn_w, mid_y - btn_h / 2.0),
+            egui::vec2(btn_w, btn_h),
+        );
+        let btn_resp = ui.interact(btn_rect, widget_id.with("pill"), egui::Sense::click());
+        let btn_bg = if btn_resp.hovered() {
+            theme.bg_light
+        } else {
+            theme.bg_medium
+        };
+        painter.rect_filled(btn_rect, 3.0, btn_bg);
+        painter.rect_stroke(
+            btn_rect,
+            3.0,
+            egui::Stroke::new(1.0, theme.border),
+            egui::StrokeKind::Outside,
+        );
+        let text_color = if *bind != default {
+            theme.accent
+        } else {
+            theme.text_secondary
+        };
+        painter.text(
+            btn_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            &bind_text,
+            egui::FontId::proportional(11.0),
+            text_color,
+        );
+        if btn_resp.clicked() {
+            ctx.data_mut(|d| d.insert_temp::<u64>(rec_key(), widget_id.value()));
+        }
+    }
+    changed
 }

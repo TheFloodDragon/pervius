@@ -7,3 +7,7 @@ license = "MIT"
 
 [dependencies]
 egui = "0.34"
+serde = { version = "1", optional = true }
+
+[features]
+serde = ["dep:serde"]

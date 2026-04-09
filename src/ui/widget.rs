@@ -72,10 +72,16 @@ impl egui::Widget for FlatButton<'_> {
         };
         // 通过 widget visuals 控制三态 fill，不用 Button::fill（会覆盖所有状态）
         ui.scope(|ui| {
-            let wv = &mut ui.style_mut().visuals.widgets;
+            let vis = &mut ui.style_mut().visuals;
+            // 禁用 focus ring（默认灰白色在深色主题下刺眼）
+            vis.selection.stroke = egui::Stroke::NONE;
+            let wv = &mut vis.widgets;
             wv.inactive.weak_bg_fill = base_fill;
+            wv.inactive.bg_stroke = egui::Stroke::NONE;
             wv.hovered.weak_bg_fill = theme::BG_HOVER;
+            wv.hovered.bg_stroke = egui::Stroke::NONE;
             wv.active.weak_bg_fill = theme::BG_LIGHT;
+            wv.active.bg_stroke = egui::Stroke::NONE;
             let text = if let Some(ref family) = self.font_family {
                 egui::RichText::new(self.label)
                     .font(egui::FontId::new(self.font_size, family.clone()))

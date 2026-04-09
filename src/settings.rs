@@ -5,6 +5,7 @@
 //!
 //! @author sky
 
+use egui_keybind::KeyBind;
 use egui_window_settings::SettingsFile;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -18,6 +19,7 @@ const MAX_RECENT: usize = 10;
 #[serde(default)]
 pub struct Settings {
     pub java: JavaSettings,
+    pub keymap: KeymapSettings,
     pub recent: Vec<RecentEntry>,
 }
 
@@ -25,6 +27,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             java: JavaSettings::default(),
+            keymap: KeymapSettings::default(),
             recent: Vec::new(),
         }
     }
@@ -59,6 +62,38 @@ impl Default for JavaSettings {
     fn default() -> Self {
         Self {
             java_home: String::new(),
+        }
+    }
+}
+
+/// 快捷键配置
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct KeymapSettings {
+    pub toggle_explorer: KeyBind,
+    pub open_jar: KeyBind,
+    pub find: KeyBind,
+    pub find_in_files: KeyBind,
+    pub close_tab: KeyBind,
+    pub close_all_tabs: KeyBind,
+    pub export_decompiled: KeyBind,
+    pub cycle_view: KeyBind,
+    pub open_settings: KeyBind,
+}
+
+impl Default for KeymapSettings {
+    fn default() -> Self {
+        use crate::ui::keybindings;
+        Self {
+            toggle_explorer: keybindings::DEFAULT_TOGGLE_EXPLORER,
+            open_jar: keybindings::DEFAULT_OPEN_JAR,
+            find: keybindings::DEFAULT_FIND,
+            find_in_files: keybindings::DEFAULT_FIND_IN_FILES,
+            close_tab: keybindings::DEFAULT_CLOSE_TAB,
+            close_all_tabs: keybindings::DEFAULT_CLOSE_ALL_TABS,
+            export_decompiled: keybindings::DEFAULT_EXPORT_DECOMPILED,
+            cycle_view: keybindings::DEFAULT_CYCLE_VIEW,
+            open_settings: keybindings::DEFAULT_OPEN_SETTINGS,
         }
     }
 }
