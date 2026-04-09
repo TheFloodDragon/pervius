@@ -32,7 +32,7 @@ impl TreeNode {
                 codicon::FOLDER
             }
         } else if self.is_class() {
-            codicon::SYMBOL_CLASS
+            codicon::JAVA
         } else {
             codicon::FILE
         }

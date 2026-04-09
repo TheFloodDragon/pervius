@@ -119,12 +119,24 @@ fn nest_inner_classes(node: &mut TreeNode) {
         if !key.contains('$') {
             continue;
         }
-        let dollar_pos = key.rfind('$').unwrap();
-        let parent_key = key[..dollar_pos].to_string();
-        if class_map.contains_key(&parent_key) {
+        // 沿 $ 链向上查找最近的存在的祖先类
+        let mut remaining = key.as_str();
+        let mut parent_key = None;
+        while let Some(pos) = remaining.rfind('$') {
+            remaining = &remaining[..pos];
+            if class_map.contains_key(remaining) {
+                parent_key = Some(remaining.to_string());
+                break;
+            }
+        }
+        if let Some(parent) = parent_key {
             let mut inner = class_map.remove(&key).unwrap();
-            inner.label = key[dollar_pos..].to_string();
-            class_map.get_mut(&parent_key).unwrap().children.push(inner);
+            inner.label = key[parent.len()..].to_string();
+            class_map
+                .get_mut(parent.as_str())
+                .unwrap()
+                .children
+                .push(inner);
         }
     }
     // 排序内部类子节点

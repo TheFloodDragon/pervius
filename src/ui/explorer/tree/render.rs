@@ -4,6 +4,7 @@
 
 use super::node::TreeNode;
 use crate::shell::{codicon, theme};
+use crate::ui::menu::item::menu_item_raw;
 use eframe::egui;
 
 /// 递归判断节点是否匹配过滤（自身标签或任意后代标签包含 filter）
@@ -34,6 +35,7 @@ pub fn render_tree(
     depth: u8,
     selected: &Option<String>,
     filter: &str,
+    reveal: &mut Option<String>,
 ) -> Option<String> {
     let filtering = !filter.is_empty();
     let mut clicked = None;
@@ -43,18 +45,30 @@ pub fn render_tree(
             continue;
         }
         let is_selected = selected.as_ref().is_some_and(|s| s == &node.path);
-        if render_row(ui, node, depth, is_selected) {
-            if node.is_folder || node.has_children() {
+        let (single, double) = render_row(ui, node, depth, is_selected, reveal);
+        if node.is_folder {
+            if single {
                 node.expanded = !node.expanded;
             }
-            if !node.is_folder {
+        } else if node.label.starts_with('$') {
+            // 子类：双击展开，不打开文件
+            if double {
+                node.expanded = !node.expanded;
+            }
+        } else {
+            if single {
                 clicked = Some(node.path.clone());
+            }
+            if double && node.has_children() {
+                node.expanded = !node.expanded;
             }
         }
         // 过滤模式自动展开所有匹配路径，正常模式遵循 expanded
         let show_children = node.has_children() && (filtering || node.expanded);
         if show_children {
-            if let Some(path) = render_tree(ui, &mut node.children, depth + 1, selected, filter) {
+            if let Some(path) =
+                render_tree(ui, &mut node.children, depth + 1, selected, filter, reveal)
+            {
                 clicked = Some(path);
             }
         }
@@ -62,8 +76,14 @@ pub fn render_tree(
     clicked
 }
 
-/// 渲染一行树节点，返回是否被点击
-fn render_row(ui: &mut egui::Ui, node: &TreeNode, depth: u8, selected: bool) -> bool {
+/// 渲染一行树节点，返回 (单击, 双击)
+fn render_row(
+    ui: &mut egui::Ui,
+    node: &TreeNode,
+    depth: u8,
+    selected: bool,
+    reveal: &mut Option<String>,
+) -> (bool, bool) {
     let row_h = 22.0;
     let indent_px = 8.0 + depth as f32 * 16.0;
     let avail_w = ui.available_width();
@@ -109,5 +129,15 @@ fn render_row(ui: &mut egui::Ui, node: &TreeNode, depth: u8, selected: bool) -> 
         egui::FontId::proportional(12.0),
         theme::TEXT_PRIMARY,
     );
-    response.clicked()
+    // 右键菜单
+    if !node.is_folder {
+        response.context_menu(|ui| {
+            ui.style_mut().visuals.widgets.hovered.bg_fill = theme::BG_HOVER;
+            if menu_item_raw(ui, "Reveal in Explorer", "") {
+                *reveal = Some(node.path.clone());
+                ui.close();
+            }
+        });
+    }
+    (response.clicked(), response.double_clicked())
 }

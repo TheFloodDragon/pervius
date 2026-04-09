@@ -14,6 +14,8 @@ pub struct FilePanel {
     pub selected: Option<String>,
     /// 待打开的文件条目路径（由 Layout 消费）
     pub pending_open: Option<String>,
+    /// 待定位的文件条目路径（由 Layout 消费，在资源管理器中打开）
+    pub pending_reveal: Option<String>,
     /// 速搜过滤文本（键盘直接输入，IntelliJ 风格）
     pub filter: String,
 }
@@ -24,6 +26,7 @@ impl FilePanel {
             roots: Vec::new(),
             selected: None,
             pending_open: None,
+            pending_reveal: None,
             filter: String::new(),
         }
     }
@@ -110,13 +113,14 @@ impl FilePanel {
 
     fn render_tree(&mut self, ui: &mut egui::Ui) {
         let filter = self.filter.to_ascii_lowercase();
+        let mut reveal = None;
         egui::ScrollArea::vertical()
             .id_salt("file_tree")
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
                 ui.add_space(4.0);
                 if let Some(path) =
-                    tree::render_tree(ui, &mut self.roots, 0, &self.selected, &filter)
+                    tree::render_tree(ui, &mut self.roots, 0, &self.selected, &filter, &mut reveal)
                 {
                     self.selected = Some(path.clone());
                     self.pending_open = Some(path);
@@ -124,6 +128,9 @@ impl FilePanel {
                 }
                 ui.add_space(4.0);
             });
+        if reveal.is_some() {
+            self.pending_reveal = reveal;
+        }
     }
 
     /// 在面板底部绘制过滤条浮层
