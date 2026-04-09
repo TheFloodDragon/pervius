@@ -6,5 +6,5 @@ pub mod demo;
 pub mod editor;
 pub mod explorer;
 pub mod layout;
-pub mod sidebar;
+pub mod menu;
 pub mod status_bar;

@@ -24,4 +24,7 @@ impl shell::AppContent for PervApp {
     fn ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
         self.layout.render(ui);
     }
+    fn menu_bar(&mut self, ui: &mut egui::Ui) {
+        ui::menu::menu_bar(ui);
+    }
 }

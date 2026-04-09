@@ -1,13 +1,11 @@
-//! 左侧面板：根据 Sidebar 激活项分发到 tree / search / structure
+//! 左侧面板：文件树 / 搜索
 //!
 //! @author sky
 
 pub mod search;
-pub mod structure;
 pub mod tree;
 
 use crate::shell::theme;
-use crate::ui::sidebar::SidebarPanel;
 use eframe::egui;
 use search::SearchResult;
 use tree::TreeNode;
@@ -29,7 +27,7 @@ impl FilePanel {
     }
 
     /// 在给定 rect 内渲染
-    pub fn render(&mut self, ui: &mut egui::Ui, active: SidebarPanel) {
+    pub fn render(&mut self, ui: &mut egui::Ui) {
         let rect = ui.max_rect();
         let painter = ui.painter();
         painter.rect_filled(rect, 0.0, theme::BG_DARK);
@@ -37,35 +35,27 @@ impl FilePanel {
         let title_h = 32.0;
         let title_rect =
             egui::Rect::from_min_size(rect.left_top(), egui::vec2(rect.width(), title_h));
-        let label = match active {
-            SidebarPanel::Files => "EXPLORER",
-            SidebarPanel::Search => "SEARCH",
-            SidebarPanel::Structure => "STRUCTURE",
-        };
         painter.text(
             egui::pos2(title_rect.left() + 12.0, title_rect.center().y),
             egui::Align2::LEFT_CENTER,
-            label,
+            "EXPLORER",
             egui::FontId::proportional(11.0),
             theme::TEXT_SECONDARY,
         );
-        // 内容区
+        // 内容区（左右 2px padding）
         let body_rect = egui::Rect::from_min_max(
-            egui::pos2(rect.left(), title_rect.bottom()),
-            rect.right_bottom(),
+            egui::pos2(rect.left() + 2.0, title_rect.bottom()),
+            egui::pos2(rect.right() - 2.0, rect.bottom()),
         );
         let mut body_ui = ui.new_child(egui::UiBuilder::new().max_rect(body_rect));
-        match active {
-            SidebarPanel::Files => self.render_tree(&mut body_ui),
-            SidebarPanel::Search => self.render_search(&mut body_ui),
-            SidebarPanel::Structure => structure::render(&mut body_ui),
-        }
+        self.render_tree(&mut body_ui);
     }
 
     fn render_tree(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical()
             .id_salt("file_tree")
             .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 2.0;
                 ui.add_space(4.0);
                 for i in 0..self.tree_nodes.len() {
                     let selected = i == self.selected_index;
@@ -74,18 +64,6 @@ impl FilePanel {
                     }
                 }
                 ui.add_space(4.0);
-            });
-    }
-
-    fn render_search(&self, ui: &mut egui::Ui) {
-        search::search_box(ui);
-        egui::ScrollArea::vertical()
-            .id_salt("search_results")
-            .show(ui, |ui| {
-                ui.add_space(4.0);
-                for result in &self.search_results {
-                    search::search_row(ui, result);
-                }
             });
     }
 }

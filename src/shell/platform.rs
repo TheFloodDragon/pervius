@@ -8,7 +8,8 @@ use eframe::egui;
 pub fn viewport(title: &str, size: [f32; 2]) -> egui::ViewportBuilder {
     let mut vp = egui::ViewportBuilder::default()
         .with_title(title)
-        .with_inner_size(size);
+        .with_inner_size(size)
+        .with_min_inner_size([640.0, 400.0]);
     // macOS: 保留原生交通灯，内容延伸到标题栏
     #[cfg(target_os = "macos")]
     {

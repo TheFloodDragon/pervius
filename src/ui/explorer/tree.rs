@@ -16,7 +16,7 @@ pub struct TreeNode {
 
 /// 渲染一行树节点，返回是否被点击
 pub fn tree_row(ui: &mut egui::Ui, node: &TreeNode, selected: bool) -> bool {
-    let row_h = 26.0;
+    let row_h = 22.0;
     let indent_px = 8.0 + node.indent as f32 * 16.0;
     let avail_w = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::click());

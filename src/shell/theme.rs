@@ -1,6 +1,6 @@
 //! 主题色常量
 //!
-//! 完整色板对照 palette.slint，所有 hex 值标注在注释中。
+//! 所有 hex 值标注在注释中。
 //!
 //! @author sky
 
@@ -10,23 +10,23 @@ use eframe::egui;
 
 // -- 背景层级 --
 
-/// 最深背景 #0C0C0F（HeaderBar、Sidebar、StatusBar）
-pub const BG_DARKEST: egui::Color32 = egui::Color32::from_rgb(12, 12, 15);
-/// 主背景 #131318（面板底色）
-pub const BG_DARK: egui::Color32 = egui::Color32::from_rgb(19, 19, 24);
-/// 中层背景 #1A1A21（输入框、编辑区、ViewToggle 容器）
-pub const BG_MEDIUM: egui::Color32 = egui::Color32::from_rgb(26, 26, 33);
-/// 浅层背景 #23232D（关闭按钮 hover 等）
-pub const BG_LIGHT: egui::Color32 = egui::Color32::from_rgb(35, 35, 45);
-/// 悬停背景 #2A2A36
-pub const BG_HOVER: egui::Color32 = egui::Color32::from_rgb(42, 42, 54);
+/// 最深背景 #0D0D0E（HeaderBar、StatusBar）
+pub const BG_DARKEST: egui::Color32 = egui::Color32::from_rgb(13, 13, 14);
+/// 主背景 #151516（面板底色）
+pub const BG_DARK: egui::Color32 = egui::Color32::from_rgb(21, 21, 22);
+/// 中层背景 #1C1C1E（输入框、编辑区、ViewToggle 容器）
+pub const BG_MEDIUM: egui::Color32 = egui::Color32::from_rgb(28, 28, 30);
+/// 浅层背景 #252527（关闭按钮 hover 等）
+pub const BG_LIGHT: egui::Color32 = egui::Color32::from_rgb(37, 37, 39);
+/// 悬停背景 #2E2E31
+pub const BG_HOVER: egui::Color32 = egui::Color32::from_rgb(46, 46, 49);
 
 // -- 边框 --
 
-/// 主边框 #2A2A35
-pub const BORDER: egui::Color32 = egui::Color32::from_rgb(42, 42, 53);
-/// 浅边框 #363645
-pub const BORDER_LIGHT: egui::Color32 = egui::Color32::from_rgb(54, 54, 69);
+/// 主边框 #2E2E30
+pub const BORDER: egui::Color32 = egui::Color32::from_rgb(46, 46, 48);
+/// 浅边框 #3A3A3D
+pub const BORDER_LIGHT: egui::Color32 = egui::Color32::from_rgb(58, 58, 61);
 
 // -- 文字 --
 
@@ -48,7 +48,7 @@ pub const ACCENT_ORANGE: egui::Color32 = egui::Color32::from_rgb(224, 164, 88);
 /// 辅助红 #E06C75
 pub const ACCENT_RED: egui::Color32 = egui::Color32::from_rgb(224, 108, 117);
 /// 辅助青 #7EC8C8
-pub const ACCENT_PURPLE: egui::Color32 = egui::Color32::from_rgb(126, 200, 200);
+pub const ACCENT_CYAN: egui::Color32 = egui::Color32::from_rgb(126, 200, 200);
 
 // -- 语法高亮（JetBrains Darcula）--
 
@@ -80,16 +80,10 @@ pub const CLOSE_HOVER: egui::Color32 = egui::Color32::from_rgb(196, 43, 28);
 
 /// 标题栏高度
 pub const TITLE_BAR_HEIGHT: f32 = 36.0;
-/// 侧边栏宽度
-pub const SIDEBAR_WIDTH: f32 = 48.0;
 /// 文件面板宽度
 pub const FILE_PANEL_WIDTH: f32 = 260.0;
-/// Tab 栏高度
-pub const TAB_BAR_HEIGHT: f32 = 34.0;
 /// 状态栏高度
 pub const STATUS_BAR_HEIGHT: f32 = 24.0;
-/// 视图切换工具栏高度
-pub const VIEW_TOOLBAR_HEIGHT: f32 = 36.0;
 /// 边框宽度
 pub const BORDER_WIDTH: f32 = 1.0;
 

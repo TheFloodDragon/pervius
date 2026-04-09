@@ -2,15 +2,17 @@
 //!
 //! @author sky
 
-pub fn node_color_id(node: &tree_sitter::Node) -> i32 {
+use super::TokenKind;
+
+pub fn classify(node: &tree_sitter::Node) -> Option<TokenKind> {
     match node.kind() {
-        "tag_name" => 1,
-        "attribute_name" => 3,
-        "attribute_value" | "quoted_attribute_value" => 2,
-        "comment" => 5,
-        "doctype" | "<!DOCTYPE" | "<!doctype" => 6,
-        "<" | ">" | "</" | "/>" => 7,
-        "text" | "raw_text" => 0,
-        _ => -1,
+        "tag_name" => Some(TokenKind::Keyword),
+        "attribute_name" => Some(TokenKind::Type),
+        "attribute_value" | "quoted_attribute_value" => Some(TokenKind::String),
+        "comment" => Some(TokenKind::Comment),
+        "doctype" | "<!DOCTYPE" | "<!doctype" => Some(TokenKind::Annotation),
+        "<" | ">" | "</" | "/>" => Some(TokenKind::Muted),
+        "text" | "raw_text" => Some(TokenKind::Plain),
+        _ => None,
     }
 }

@@ -66,7 +66,7 @@ pub const BEAKER: &str = "\u{EAC4}";
 pub const EXPORT: &str = "\u{EBAC}";
 /// 复制
 pub const COPY: &str = "\u{EBCC}";
-/// 修改标记（实心圆点）
+/// 修改标记（实心圆点，Unicode 通用符号，非 Codicon 字体）
 pub const CIRCLE_FILLED: &str = "\u{25CF}";
 
 /// Codicon 字体族
