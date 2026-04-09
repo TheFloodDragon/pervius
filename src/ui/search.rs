@@ -3,7 +3,9 @@
 //! @author sky
 
 mod category;
+mod demo;
 mod result;
 mod tab;
+mod widget;
 
 pub use tab::SearchDialog;
