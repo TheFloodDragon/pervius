@@ -11,8 +11,9 @@ use super::viewer::{EditorTabViewer, TabAction};
 use crate::java::decompiler;
 use crate::shell::theme;
 use eframe::egui;
-use egui_dock::{DockArea, DockState, SurfaceIndex, TabPath};
+use egui_dock::{DockArea, DockState, SurfaceIndex};
 use rust_i18n::t;
+use std::collections::HashSet;
 
 /// 编辑器区域状态
 pub struct EditorArea {
@@ -29,7 +30,7 @@ impl EditorArea {
     }
 
     /// 在给定 UI 区域内渲染
-    pub fn render(&mut self, ui: &mut egui::Ui) {
+    pub fn render(&mut self, ui: &mut egui::Ui, jar_modified: &HashSet<String>) {
         if self.is_empty() {
             Self::render_placeholder(ui);
             return;
@@ -42,6 +43,7 @@ impl EditorArea {
         let mut viewer = EditorTabViewer {
             action: None,
             find_bar: &mut self.find_bar,
+            jar_modified,
         };
         DockArea::new(&mut self.dock_state)
             .style(style)
@@ -131,14 +133,29 @@ impl EditorArea {
             .map(|(_, t)| t)
     }
 
+    /// 供外部调用的聚焦 tab 可变引用
+    pub fn focused_tab_mut(&mut self) -> Option<&mut EditorTab> {
+        self.focused_tab()
+    }
+
     fn active_gutter_width(&mut self) -> Option<f32> {
         let tab = self.focused_tab()?;
-        let text = match tab.active_view {
-            ActiveView::Decompiled => &tab.decompiled,
-            ActiveView::Bytecode => &tab.bytecode,
-            ActiveView::Hex => return None,
-        };
-        Some(line_number_width(text.lines().count().max(1)))
+        match tab.active_view {
+            ActiveView::Decompiled => {
+                let max_number = if tab.decompiled_line_mapping.is_empty() {
+                    tab.decompiled_data.line_count()
+                } else {
+                    tab.decompiled_line_mapping
+                        .iter()
+                        .filter_map(|n| n.map(|v| v as usize))
+                        .max()
+                        .unwrap_or(tab.decompiled_data.line_count())
+                };
+                Some(line_number_width(max_number))
+            }
+            ActiveView::Bytecode => None,
+            ActiveView::Hex => None,
+        }
     }
 
     pub fn open_tab(&mut self, tab: EditorTab) {
@@ -215,9 +232,7 @@ impl EditorArea {
                 } else {
                     super::highlight::Language::Java
                 };
-                tab.decompiled = cached.source;
-                tab.language = lang;
-                tab.layouter_decompiled = Box::new(super::highlight::make_layouter(lang));
+                tab.set_decompiled(cached.source, lang, cached.line_mapping);
                 if tab.active_view == ActiveView::Hex {
                     tab.active_view = ActiveView::Decompiled;
                 }
@@ -239,11 +254,8 @@ impl EditorArea {
                 .get_leaf()
                 .map(|leaf| leaf.active);
             if let Some(tab_idx) = active {
-                self.dock_state.remove_tab(TabPath::new(
-                    node_path.surface,
-                    node_path.node,
-                    tab_idx,
-                ));
+                let tab_path = egui_dock::TabPath::new(node_path.surface, node_path.node, tab_idx);
+                self.dock_state.remove_tab(tab_path);
             }
         }
     }

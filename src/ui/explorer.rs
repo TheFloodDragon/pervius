@@ -59,7 +59,13 @@ impl FilePanel {
     }
 
     /// 在给定 rect 内渲染（背景由 layout island 绘制）
-    pub fn render(&mut self, ui: &mut egui::Ui) {
+    pub fn render(
+        &mut self,
+        ui: &mut egui::Ui,
+        tab_modified: &HashSet<String>,
+        jar_modified: &HashSet<String>,
+        decompiled_classes: Option<&HashSet<String>>,
+    ) {
         let rect = ui.max_rect();
         self.update_focus(ui.ctx(), rect);
         if self.focused {
@@ -86,7 +92,7 @@ impl FilePanel {
             egui::pos2(rect.right() - 2.0, rect.bottom()),
         );
         let mut body_ui = ui.new_child(egui::UiBuilder::new().max_rect(body_rect));
-        self.render_tree(&mut body_ui);
+        self.render_tree(&mut body_ui, tab_modified, jar_modified, decompiled_classes);
         // 过滤条浮层
         self.render_filter_bar(ui, rect);
     }
@@ -223,27 +229,27 @@ impl FilePanel {
         self.filter_gen += 1;
     }
 
-    fn render_tree(&mut self, ui: &mut egui::Ui) {
+    fn render_tree(
+        &mut self,
+        ui: &mut egui::Ui,
+        tab_modified: &HashSet<String>,
+        jar_modified: &HashSet<String>,
+        decompiled_classes: Option<&HashSet<String>>,
+    ) {
         let filtering = !self.filter.is_empty();
         let mut ctx_reveal = None;
         let scroll = self.scroll_to_selected;
-        let mut opened = None;
-        egui::ScrollArea::vertical()
-            .id_salt("file_tree")
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 2.0;
-                ui.add_space(4.0);
-                opened = tree::render_tree(
-                    ui,
-                    &mut self.roots,
-                    0,
-                    &self.selected,
-                    &self.filter_visible,
-                    &mut ctx_reveal,
-                    scroll,
-                );
-                ui.add_space(4.0);
-            });
+        let opened = tree::render_tree(
+            ui,
+            &mut self.roots,
+            &self.selected,
+            &self.filter_visible,
+            &mut ctx_reveal,
+            scroll,
+            tab_modified,
+            jar_modified,
+            decompiled_classes,
+        );
         self.scroll_to_selected = false;
         if let Some(path) = opened {
             self.selected = Some(path.clone());

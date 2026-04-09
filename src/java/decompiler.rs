@@ -2,17 +2,22 @@
 //!
 //! @author sky
 
+use std::collections::HashSet;
 use std::io::BufRead;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
+
+use rust_i18n::t;
 
 /// 反编译进度（跨线程共享）
 pub struct DecompileProgress {
     pub current: AtomicU32,
     pub total: AtomicU32,
+    /// 已完成反编译的类路径（不含 `.class` 后缀）及其文件夹前缀
+    pub decompiled: Mutex<HashSet<String>>,
 }
 
 /// 后台反编译任务句柄
@@ -55,8 +60,8 @@ fn kill_process_tree(pid: u32) {
 
 /// 从 JAVA_HOME 环境变量定位 java 可执行文件
 pub fn find_java() -> Result<PathBuf, String> {
-    let java_home = std::env::var("JAVA_HOME")
-        .map_err(|_| "JAVA_HOME environment variable is not set".to_string())?;
+    let java_home =
+        std::env::var("JAVA_HOME").map_err(|_| t!("decompiler.java_home_not_set").to_string())?;
     let java_home = PathBuf::from(java_home);
     let java = if cfg!(windows) {
         java_home.join("bin").join("java.exe")
@@ -64,7 +69,7 @@ pub fn find_java() -> Result<PathBuf, String> {
         java_home.join("bin").join("java")
     };
     if !java.exists() {
-        return Err(format!("Java executable not found at {}", java.display()));
+        return Err(t!("decompiler.java_not_found", path = java.display()).to_string());
     }
     Ok(java)
 }
@@ -74,13 +79,15 @@ pub fn vineflower_version() -> Option<String> {
     let path = find_vineflower().ok()?;
     let name = path.file_stem()?.to_str()?;
     let version = name.strip_prefix("vineflower-")?;
-    Some(format!("Vineflower {version}"))
+    Some(t!("decompiler.vineflower_version", version = version).to_string())
 }
 
 /// 定位 vineflower JAR（exe 同目录，匹配 vineflower-*.jar）
 pub fn find_vineflower() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe.parent().ok_or("Cannot determine exe directory")?;
+    let exe_dir = exe
+        .parent()
+        .ok_or_else(|| t!("decompiler.no_exe_dir").to_string())?;
     let entries = std::fs::read_dir(exe_dir).map_err(|e| e.to_string())?;
     for entry in entries.flatten() {
         let name = entry.file_name();
@@ -89,15 +96,12 @@ pub fn find_vineflower() -> Result<PathBuf, String> {
             return Ok(entry.path());
         }
     }
-    Err(format!(
-        "vineflower*.jar not found in {}",
-        exe_dir.display()
-    ))
+    Err(t!("decompiler.vineflower_not_found", path = exe_dir.display()).to_string())
 }
 
 /// 获取缓存根目录
 fn cache_root() -> Result<PathBuf, String> {
-    let base = dirs::cache_dir().ok_or("Cannot determine cache directory")?;
+    let base = dirs::cache_dir().ok_or_else(|| t!("decompiler.no_cache_dir").to_string())?;
     Ok(base.join("pervius").join("decompiled"))
 }
 
@@ -126,6 +130,8 @@ pub fn clear_cache(hash: &str) {
 pub struct CachedSource {
     pub source: String,
     pub is_kotlin: bool,
+    /// 反编译行 → 原始源码行号（1-indexed），None 表示无映射
+    pub line_mapping: Vec<Option<u32>>,
 }
 
 /// 获取缓存源码文件路径（不读取内容）
@@ -151,16 +157,67 @@ pub fn cached_source(hash: &str, class_path: &str) -> Option<CachedSource> {
     let base = class_to_base_path(class_path);
     for (ext, is_kt) in &[(".java", false), (".kt", true)] {
         let file = dir.join(format!("{base}{ext}"));
-        if let Ok(src) = std::fs::read_to_string(&file) {
+        if let Ok(raw) = std::fs::read_to_string(&file) {
             log::debug!("Cache hit: {}", file.display());
+            let (source, line_mapping) = strip_line_markers(&raw);
             return Some(CachedSource {
-                source: src,
+                source,
                 is_kotlin: *is_kt,
+                line_mapping,
             });
         }
     }
     log::warn!("Cache miss: {class_path} (tried .java and .kt)");
     None
+}
+
+/// 从 Vineflower 输出中提取行号标记并移除
+///
+/// Vineflower 在 `--bytecode-source-mapping=1 --__dump_original_lines__=1` 模式下
+/// 会在行尾追加 `// <line_number> [<line_number> ...]` 注释。
+/// 返回 (清理后的源码, 每行对应的原始行号映射)。
+fn strip_line_markers(raw: &str) -> (String, Vec<Option<u32>>) {
+    let mut cleaned = String::with_capacity(raw.len());
+    let mut mapping = Vec::new();
+    for line in raw.lines() {
+        let (text, line_no) = extract_line_marker(line);
+        cleaned.push_str(text);
+        cleaned.push('\n');
+        mapping.push(line_no);
+    }
+    // 移除末尾多余换行
+    if cleaned.ends_with('\n') && !raw.ends_with('\n') {
+        cleaned.pop();
+    }
+    (cleaned, mapping)
+}
+
+/// 提取行尾的 Vineflower 行号标记
+///
+/// 匹配行尾 `// <digits>[ <digits>...]` 格式，取第一个数字作为原始行号。
+/// 需要排除正常注释，仅匹配纯数字注释。
+fn extract_line_marker(line: &str) -> (&str, Option<u32>) {
+    // 从行尾向前查找最后一个 "//"
+    let Some(pos) = line.rfind("//") else {
+        return (line, None);
+    };
+    let after = line[pos + 2..].trim();
+    // 必须是纯数字（空格分隔），不包含其他字符
+    if after.is_empty() {
+        return (line, None);
+    }
+    let is_line_marker = after
+        .split_whitespace()
+        .all(|tok| tok.parse::<u32>().is_ok());
+    if !is_line_marker {
+        return (line, None);
+    }
+    // 取第一个数字作为行号
+    let first = after.split_whitespace().next().unwrap();
+    let line_no: u32 = first.parse().unwrap();
+    // 移除 "//" 和之前的尾部空格
+    let text = line[..pos].trim_end();
+    (text, Some(line_no))
 }
 
 /// .class 条目路径 → 去掉扩展名和内部类后缀的基础路径
@@ -190,7 +247,8 @@ pub fn start(
     std::fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
     let progress = Arc::new(DecompileProgress {
         current: AtomicU32::new(0),
-        total: AtomicU32::new(class_count),
+        total: AtomicU32::new(class_count * 2),
+        decompiled: Mutex::new(HashSet::new()),
     });
     let child_pid = Arc::new(AtomicU32::new(0));
     let (tx, rx) = mpsc::channel();
@@ -221,41 +279,91 @@ fn run_vineflower(
     let mut cmd = std::process::Command::new(java);
     cmd.arg("-jar")
         .arg(vineflower)
+        .arg("--bytecode-source-mapping=1")
+        .arg("--__dump_original_lines__=1")
         .arg(jar_path)
         .arg(output_dir)
-        .stdout(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     #[cfg(windows)]
     cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("Failed to spawn vineflower: {e}"))?;
+        .map_err(|e| t!("decompiler.spawn_failed", error = e).to_string())?;
     child_pid.store(child.id(), Ordering::Relaxed);
-    // 逐行读 stderr，匹配 "Decompiling class" 更新进度，其余行记日志
-    if let Some(stderr) = child.stderr.take() {
-        let reader = std::io::BufReader::new(stderr);
+    // Vineflower 日志输出到 stdout
+    // 进度阶段：
+    //   "Preprocessing class" — 分析阶段（每个根类一次）
+    //   "Decompiling class"   — 反编译输出阶段（每个根类一次）
+    // 两阶段都计入进度，总数按 class_count * 2 算
+    // "Decompiling class X" 出现时，上一个类已完成输出
+    let mut prev_class: Option<String> = None;
+    if let Some(stdout) = child.stdout.take() {
+        let reader = std::io::BufReader::new(stdout);
         for line in reader.lines() {
             let line = match line {
                 Ok(l) => l,
                 Err(_) => break,
             };
-            if line.contains("Decompiling class") {
+            if line.contains("Preprocessing class") {
                 progress.current.fetch_add(1, Ordering::Relaxed);
-            } else if line.contains("ERROR") || line.contains("Exception") {
+            } else if line.contains("Decompiling class") {
+                progress.current.fetch_add(1, Ordering::Relaxed);
+                if let Some(prev) = prev_class.take() {
+                    mark_decompiled(&progress.decompiled, &prev);
+                }
+                prev_class = extract_class_name(&line);
+                if let Some(name) = &prev_class {
+                    log::debug!("Decompiling: {name}");
+                }
+            } else if line.starts_with("ERROR:") {
                 log::error!("vineflower: {line}");
-            } else {
-                log::debug!("vineflower: {line}");
             }
         }
     }
+    // 最后一个类
+    if let Some(prev) = prev_class {
+        mark_decompiled(&progress.decompiled, &prev);
+    }
     let status = child
         .wait()
-        .map_err(|e| format!("Vineflower process error: {e}"))?;
+        .map_err(|e| t!("decompiler.process_error", error = e).to_string())?;
     child_pid.store(0, Ordering::Relaxed);
     if !status.success() {
-        return Err(format!("Vineflower exited with code {:?}", status.code()));
+        return Err(t!(
+            "decompiler.exit_code",
+            code = format!("{:?}", status.code())
+        )
+        .to_string());
     }
     // 写入完成标记
     let _ = std::fs::write(output_dir.join(".complete"), "");
     Ok(())
+}
+
+/// 从 Vineflower 日志行提取类名，统一为 `/` 分隔格式
+///
+/// Vineflower 日志可能输出 `com.example.Foo`（点）或 `com/example/Foo`（斜杠），
+/// 统一转为斜杠格式以匹配树节点路径。
+fn extract_class_name(line: &str) -> Option<String> {
+    let marker = "Decompiling class ";
+    let pos = line.find(marker)?;
+    let name = line[pos + marker.len()..].trim();
+    if name.is_empty() {
+        return None;
+    }
+    if name.contains('/') {
+        Some(name.to_string())
+    } else {
+        Some(name.replace('.', "/"))
+    }
+}
+
+/// 将类名及其文件夹前缀加入已反编译集合
+fn mark_decompiled(set: &Mutex<HashSet<String>>, class_name: &str) {
+    let mut guard = set.lock().unwrap();
+    guard.insert(class_name.to_string());
+    for (i, _) in class_name.match_indices('/') {
+        guard.insert(class_name[..i + 1].to_string());
+    }
 }

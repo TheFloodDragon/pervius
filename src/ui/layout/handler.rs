@@ -13,6 +13,7 @@ use crate::ui::explorer::tree;
 use eframe::egui;
 use egui_window_settings::SettingsFile;
 use rust_i18n::t;
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::{mpsc, Arc};
@@ -72,7 +73,7 @@ impl Layout {
             if let Some(path) = &file.path {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 match ext.to_ascii_lowercase().as_str() {
-                    "jar" | "zip" | "war" | "ear" => self.open_jar(path),
+                    "jar" | "zip" | "war" | "ear" => self.request_open_jar(path),
                     _ => {}
                 }
             }
@@ -137,6 +138,12 @@ impl Layout {
             Some(t) => t,
             None => return,
         };
+        // 快照已反编译类集合
+        if let Ok(set) = task.progress.decompiled.lock() {
+            if !set.is_empty() {
+                self.decompiled_classes = Some(set.clone());
+            }
+        }
         match task.receiver.try_recv() {
             Ok(Ok(())) => {
                 log::info!("Decompilation complete: {}", task.jar_name);
@@ -145,6 +152,7 @@ impl Layout {
                 self.toasts
                     .info(t!("layout.decompile_complete", name = task.jar_name));
                 self.decompiling = None;
+                self.decompiled_classes = None;
             }
             Ok(Err(e)) => {
                 log::error!("Decompilation failed: {e}");
@@ -163,8 +171,10 @@ impl Layout {
     fn start_decompile(&mut self, jar: &JarArchive) {
         if decompiler::is_cached(&jar.hash) {
             log::info!("Decompiled cache hit for {}", jar.name);
+            self.decompiled_classes = None;
             return;
         }
+        self.decompiled_classes = Some(HashSet::new());
         self.force_decompile(jar);
     }
 
@@ -179,6 +189,7 @@ impl Layout {
             return;
         }
         decompiler::clear_cache(&jar.hash);
+        self.decompiled_classes = Some(HashSet::new());
         // 需要 clone 出必要数据避免借用冲突
         let path = jar.path.clone();
         let name = jar.name.clone();
@@ -266,7 +277,7 @@ impl Layout {
             };
             let mut tab = EditorTab::new_class(title, entry_path, bytes.to_vec(), lang);
             if let Some(c) = cached {
-                tab.decompiled = c.source;
+                tab.set_decompiled(c.source, lang, c.line_mapping);
                 tab.active_view = ActiveView::Decompiled;
             }
             tab

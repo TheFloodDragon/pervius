@@ -316,7 +316,7 @@ fn icon_btn(icon: &str) -> FlatButton<'_> {
 fn text_for_view(tab: &EditorTab) -> &str {
     match tab.active_view {
         ActiveView::Decompiled => &tab.decompiled,
-        ActiveView::Bytecode => &tab.bytecode,
+        ActiveView::Bytecode => tab.selected_bytecode_text(),
         ActiveView::Hex => "",
     }
 }
@@ -385,52 +385,4 @@ fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
             .map_or(true, |c| !c.is_alphanumeric() && c != '_')
     };
     before && after
-}
-
-// -- 高亮绘制 --
-
-/// 在 TextEdit 输出上绘制查找匹配高亮
-pub fn paint_highlights(
-    ui: &egui::Ui,
-    output: &egui::text_edit::TextEditOutput,
-    text: &str,
-    matches: &[FindMatch],
-    current: Option<usize>,
-) {
-    if matches.is_empty() {
-        return;
-    }
-    let painter = ui.painter();
-    let galley = &output.galley;
-    let pos = output.galley_pos;
-    let clip = output.text_clip_rect;
-    for (i, m) in matches.iter().enumerate() {
-        let cs = byte_to_char(text, m.start);
-        let ce = byte_to_char(text, m.end);
-        let r0 = galley.pos_from_cursor(egui::text::CCursor::new(cs));
-        let r1 = galley.pos_from_cursor(egui::text::CCursor::new(ce));
-        let rect = egui::Rect::from_min_max(
-            egui::pos2(pos.x + r0.min.x, pos.y + r0.min.y),
-            egui::pos2(pos.x + r1.min.x, pos.y + r1.max.y),
-        );
-        if !rect.intersects(clip) {
-            continue;
-        }
-        let is_current = current == Some(i);
-        if is_current {
-            painter.rect_filled(rect, 2.0, theme::verdigris_alpha(60));
-            painter.rect_stroke(
-                rect,
-                2.0,
-                egui::Stroke::new(1.0, theme::VERDIGRIS),
-                egui::StrokeKind::Outside,
-            );
-        } else {
-            painter.rect_filled(rect, 2.0, theme::verdigris_alpha(25));
-        }
-    }
-}
-
-fn byte_to_char(text: &str, byte_offset: usize) -> usize {
-    text[..byte_offset.min(text.len())].chars().count()
 }

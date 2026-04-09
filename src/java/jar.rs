@@ -3,7 +3,7 @@
 //! @author sky
 
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -33,6 +33,8 @@ pub struct JarArchive {
     pub hash: String,
     /// 条目路径 → 原始字节
     entries: HashMap<String, Vec<u8>>,
+    /// 已修改但未落盘的条目路径
+    modified_entries: HashSet<String>,
 }
 
 impl JarArchive {
@@ -70,12 +72,34 @@ impl JarArchive {
             path: path.to_path_buf(),
             hash,
             entries,
+            modified_entries: HashSet::new(),
         })
     }
 
     /// 获取条目内容
     pub fn get(&self, path: &str) -> Option<&[u8]> {
         self.entries.get(path).map(|v| v.as_slice())
+    }
+
+    /// 更新条目内容（写回内存，标记为已修改）
+    pub fn put(&mut self, path: &str, data: Vec<u8>) {
+        self.modified_entries.insert(path.to_string());
+        self.entries.insert(path.to_string(), data);
+    }
+
+    /// 该条目是否已修改但未落盘
+    pub fn is_entry_modified(&self, path: &str) -> bool {
+        self.modified_entries.contains(path)
+    }
+
+    /// 是否有任何已修改但未落盘的条目
+    pub fn has_modified_entries(&self) -> bool {
+        !self.modified_entries.is_empty()
+    }
+
+    /// 已修改条目路径集合（只读引用）
+    pub fn modified_entry_paths(&self) -> &HashSet<String> {
+        &self.modified_entries
     }
 
     /// 获取排序后的条目路径列表

@@ -110,55 +110,80 @@ impl Language {
 /// 代码字体
 const CODE_FONT: egui::FontId = egui::FontId::monospace(13.0);
 
-/// 解析源码为 LayoutJob（供 TextEdit layouter 使用）
-pub fn highlight_layout(source: &str, lang: Language) -> LayoutJob {
-    let spans = collect_spans(source, lang);
-    build_layout_job(source, &spans)
+/// 预计算源码的语法 span（供虚拟滚动逐行渲染使用）
+pub fn compute_spans(source: &str, lang: Language) -> Vec<Span> {
+    collect_spans(source, lang)
 }
 
-/// 带 hash 缓存的 layouter 工厂（通用骨架）
-///
-/// `highlight_fn` 负责将源码转为 LayoutJob，缓存层在此统一处理。
-fn cached_layouter(
-    mut highlight_fn: impl FnMut(&str) -> LayoutJob,
-) -> impl FnMut(&egui::Ui, &str, f32) -> std::sync::Arc<egui::Galley> {
-    let mut cached_hash: u64 = 0;
-    let mut cached_job = LayoutJob::default();
-    move |ui: &egui::Ui, text: &str, wrap_width: f32| {
-        let hash = {
-            use std::hash::{Hash, Hasher};
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            text.hash(&mut h);
-            h.finish()
-        };
-        if hash != cached_hash {
-            cached_job = highlight_fn(text);
-            cached_hash = hash;
-        }
-        let mut job = cached_job.clone();
-        job.wrap.max_width = wrap_width;
-        ui.painter().layout_job(job)
+/// 预计算字节码的语法 span
+pub fn compute_bytecode_spans(source: &str) -> Vec<Span> {
+    bytecode::collect_spans(source)
+}
+
+/// 计算每行在源码中的字节偏移 + 最大行长（字节数）
+pub fn compute_line_starts(source: &str) -> (Vec<usize>, usize) {
+    let mut starts = Vec::new();
+    let mut max_len = 0usize;
+    let mut offset = 0usize;
+    for line in source.split('\n') {
+        starts.push(offset);
+        max_len = max_len.max(line.len());
+        offset += line.len() + 1;
     }
+    if starts.is_empty() {
+        starts.push(0);
+    }
+    (starts, max_len)
 }
 
-/// 供 TextEdit 使用的 layouter 回调工厂（tree-sitter 语言高亮）
-pub fn make_layouter(
-    lang: Language,
-) -> impl FnMut(&egui::Ui, &str, f32) -> std::sync::Arc<egui::Galley> {
-    cached_layouter(move |text| highlight_layout(text, lang))
+/// 从预计算数据中获取第 i 行的文本切片
+pub fn get_line<'a>(source: &'a str, line_starts: &[usize], i: usize) -> &'a str {
+    let start = line_starts[i];
+    let end = if i + 1 < line_starts.len() {
+        // 跳过 \n
+        (line_starts[i + 1] - 1).min(source.len())
+    } else {
+        source.len()
+    };
+    &source[start..end]
 }
 
-/// 字节码高亮的 layouter 回调工厂
-pub fn make_bytecode_layouter() -> impl FnMut(&egui::Ui, &str, f32) -> std::sync::Arc<egui::Galley>
-{
-    cached_layouter(|text| {
-        let spans = bytecode::collect_spans(text);
-        build_layout_job(text, &spans)
-    })
+/// 为单行构建带语法高亮的 LayoutJob
+///
+/// `all_spans` 是全文 span（已排序），自动裁剪到行范围并转换为行内偏移。
+pub fn build_single_line_job(
+    line_text: &str,
+    all_spans: &[Span],
+    line_byte_start: usize,
+) -> LayoutJob {
+    let line_byte_end = line_byte_start + line_text.len();
+    // 二分查找第一个可能重叠的 span
+    let first = all_spans.partition_point(|&(_, e, _)| e <= line_byte_start);
+    let mut job = LayoutJob::default();
+    let mut pos = 0usize;
+    for &(s, e, kind) in &all_spans[first..] {
+        if s >= line_byte_end {
+            break;
+        }
+        let cs = s.max(line_byte_start) - line_byte_start;
+        let ce = e.min(line_byte_end) - line_byte_start;
+        if cs > pos {
+            append_section(&mut job, &line_text[pos..cs], TokenKind::Plain);
+        }
+        let actual_start = cs.max(pos);
+        if ce > actual_start {
+            append_section(&mut job, &line_text[actual_start..ce], kind);
+            pos = ce;
+        }
+    }
+    if pos < line_text.len() {
+        append_section(&mut job, &line_text[pos..], TokenKind::Plain);
+    }
+    job
 }
 
 /// 一个 span = (byte_start, byte_end, kind)
-type Span = (usize, usize, TokenKind);
+pub type Span = (usize, usize, TokenKind);
 
 /// 收集所有着色 span（字节偏移）
 fn collect_spans(source: &str, lang: Language) -> Vec<Span> {
@@ -258,7 +283,7 @@ fn advance_cursor(cursor: &mut tree_sitter::TreeCursor) -> bool {
 }
 
 /// 从排序好的 span 列表构建 LayoutJob，自动填充 gap
-fn build_layout_job(source: &str, spans: &[Span]) -> LayoutJob {
+pub fn build_layout_job(source: &str, spans: &[Span]) -> LayoutJob {
     let mut job = LayoutJob::default();
     let mut pos = 0usize;
     for &(start, end, kind) in spans {

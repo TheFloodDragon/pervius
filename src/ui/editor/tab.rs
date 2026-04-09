@@ -2,12 +2,44 @@
 //!
 //! @author sky
 
-use super::highlight::{self, Language};
+use super::highlight::{self, Language, Span};
 use super::view_toggle::ActiveView;
-use eframe::egui;
+use crate::java::class_structure::ClassStructure;
 use egui_hex_view::HexViewState;
 use rust_i18n::t;
-use std::sync::Arc;
+
+/// 预处理后的代码视图数据（虚拟滚动用）
+pub struct CodeData {
+    /// 语法高亮 span（全文字节偏移，已排序）
+    pub spans: Vec<Span>,
+    /// 每行在源码中的起始字节偏移
+    pub line_starts: Vec<usize>,
+    /// 最长行字节数（用于计算水平滚动范围）
+    pub max_line_len: usize,
+}
+
+impl CodeData {
+    pub fn new(source: &str, spans: Vec<Span>) -> Self {
+        let (line_starts, max_line_len) = highlight::compute_line_starts(source);
+        Self {
+            spans,
+            line_starts,
+            max_line_len,
+        }
+    }
+
+    pub fn line_count(&self) -> usize {
+        self.line_starts.len()
+    }
+}
+
+/// 字节码面板导航选中状态
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BytecodeSelection {
+    ClassInfo,
+    Field(usize),
+    Method(usize),
+}
 
 /// 编辑器 Tab 数据
 pub struct EditorTab {
@@ -16,8 +48,6 @@ pub struct EditorTab {
     pub entry_path: Option<String>,
     /// 反编译源码（只读）
     pub decompiled: String,
-    /// 字节码文本（可编辑）
-    pub bytecode: String,
     /// 原始字节（只读，用于 hex 视图）
     pub raw_bytes: Vec<u8>,
     pub language: Language,
@@ -29,26 +59,33 @@ pub struct EditorTab {
     pub is_modified: bool,
     /// Hex 视图交互状态
     pub hex_state: HexViewState,
-    /// Decompiled 视图的 layouter 缓存
-    pub(super) layouter_decompiled: Box<dyn FnMut(&egui::Ui, &str, f32) -> Arc<egui::Galley>>,
-    /// Bytecode 视图的 layouter 缓存
-    pub(super) layouter_bytecode: Box<dyn FnMut(&egui::Ui, &str, f32) -> Arc<egui::Galley>>,
+    /// 反编译视图预处理数据
+    pub(super) decompiled_data: CodeData,
+    /// 反编译行 → 原始源码行号映射（1-indexed），None 表示无映射
+    pub decompiled_line_mapping: Vec<Option<u32>>,
+    /// 解析后的 class 结构化数据
+    pub class_structure: Option<ClassStructure>,
+    /// 字节码面板当前选中项
+    pub bc_selection: BytecodeSelection,
+    /// 字节码面板左侧导航栏宽度（可拖拽调整）
+    pub nav_width: f32,
+    /// 每个 method 的字节码高亮数据（与 class_structure.methods 平行）
+    pub(super) method_code_data: Vec<CodeData>,
 }
 
 impl EditorTab {
     pub fn new(
         title: impl Into<String>,
         decompiled: impl Into<String>,
-        bytecode: impl Into<String>,
         raw_bytes: Vec<u8>,
         language: Language,
     ) -> Self {
-        let lang = language;
+        let decompiled = decompiled.into();
+        let dec_data = CodeData::new(&decompiled, highlight::compute_spans(&decompiled, language));
         Self {
             title: title.into(),
             entry_path: None,
-            decompiled: decompiled.into(),
-            bytecode: bytecode.into(),
+            decompiled,
             raw_bytes,
             language,
             active_view: ActiveView::Decompiled,
@@ -56,8 +93,12 @@ impl EditorTab {
             class_info: None,
             is_modified: false,
             hex_state: HexViewState::default(),
-            layouter_decompiled: Box::new(highlight::make_layouter(lang)),
-            layouter_bytecode: Box::new(highlight::make_bytecode_layouter()),
+            decompiled_data: dec_data,
+            decompiled_line_mapping: Vec::new(),
+            class_structure: None,
+            bc_selection: BytecodeSelection::ClassInfo,
+            nav_width: 220.0,
+            method_code_data: Vec::new(),
         }
     }
 
@@ -68,17 +109,35 @@ impl EditorTab {
         raw_bytes: Vec<u8>,
         language: Language,
     ) -> Self {
-        let lang = language;
-        let class_info = parse_class_version(&raw_bytes);
-        let bytecode = match crate::java::bytecode::disassemble(&raw_bytes) {
-            Ok(text) => text,
-            Err(e) => t!("editor.disassemble_error", error = e).to_string(),
-        };
+        let cs = crate::java::bytecode::disassemble(&raw_bytes).ok();
+        let class_info = cs.as_ref().map(|c| c.info.version.clone());
+        let method_code_data = cs
+            .as_ref()
+            .map(|c| {
+                c.methods
+                    .iter()
+                    .map(|m| {
+                        CodeData::new(&m.bytecode, highlight::compute_bytecode_spans(&m.bytecode))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let bc_selection = cs
+            .as_ref()
+            .map(|c| {
+                if c.methods.is_empty() {
+                    BytecodeSelection::ClassInfo
+                } else {
+                    BytecodeSelection::Method(0)
+                }
+            })
+            .unwrap_or(BytecodeSelection::ClassInfo);
+        let decompiled = t!("editor.decompiler_placeholder").to_string();
+        let dec_data = CodeData::new(&decompiled, highlight::compute_spans(&decompiled, language));
         Self {
             title: title.into(),
             entry_path: Some(entry_path.into()),
-            decompiled: t!("editor.decompiler_placeholder").to_string(),
-            bytecode,
+            decompiled,
             raw_bytes,
             language,
             active_view: ActiveView::Hex,
@@ -86,8 +145,12 @@ impl EditorTab {
             class_info,
             is_modified: false,
             hex_state: HexViewState::default(),
-            layouter_decompiled: Box::new(highlight::make_layouter(lang)),
-            layouter_bytecode: Box::new(highlight::make_bytecode_layouter()),
+            decompiled_data: dec_data,
+            decompiled_line_mapping: Vec::new(),
+            class_structure: cs,
+            bc_selection,
+            nav_width: 220.0,
+            method_code_data,
         }
     }
 
@@ -99,12 +162,11 @@ impl EditorTab {
         raw_bytes: Vec<u8>,
         language: Language,
     ) -> Self {
-        let lang = language;
+        let dec_data = CodeData::new(&text, highlight::compute_spans(&text, language));
         Self {
             title: title.into(),
             entry_path: Some(entry_path.into()),
             decompiled: text,
-            bytecode: String::new(),
             raw_bytes,
             language,
             active_view: ActiveView::Decompiled,
@@ -112,8 +174,12 @@ impl EditorTab {
             class_info: None,
             is_modified: false,
             hex_state: HexViewState::default(),
-            layouter_decompiled: Box::new(highlight::make_layouter(lang)),
-            layouter_bytecode: Box::new(highlight::make_bytecode_layouter()),
+            decompiled_data: dec_data,
+            decompiled_line_mapping: Vec::new(),
+            class_structure: None,
+            bc_selection: BytecodeSelection::ClassInfo,
+            nav_width: 220.0,
+            method_code_data: Vec::new(),
         }
     }
 
@@ -127,7 +193,6 @@ impl EditorTab {
             title: title.into(),
             entry_path: Some(entry_path.into()),
             decompiled: String::new(),
-            bytecode: String::new(),
             raw_bytes,
             language: Language::Plain,
             active_view: ActiveView::Hex,
@@ -135,28 +200,48 @@ impl EditorTab {
             class_info: None,
             is_modified: false,
             hex_state: HexViewState::default(),
-            layouter_decompiled: Box::new(highlight::make_layouter(Language::Plain)),
-            layouter_bytecode: Box::new(highlight::make_bytecode_layouter()),
+            decompiled_data: CodeData::new("", vec![]),
+            decompiled_line_mapping: Vec::new(),
+            class_structure: None,
+            bc_selection: BytecodeSelection::ClassInfo,
+            nav_width: 220.0,
+            method_code_data: Vec::new(),
         }
     }
-}
 
-/// 从 .class 文件字节解析版本信息
-///
-/// class 文件头：`CAFEBABE` + minor(u16) + major(u16)
-fn parse_class_version(bytes: &[u8]) -> Option<String> {
-    if bytes.len() < 8 {
-        return None;
+    /// 更新反编译源码（反编译完成后调用）
+    pub fn set_decompiled(
+        &mut self,
+        source: String,
+        lang: Language,
+        line_mapping: Vec<Option<u32>>,
+    ) {
+        self.decompiled_data = CodeData::new(&source, highlight::compute_spans(&source, lang));
+        self.decompiled = source;
+        self.language = lang;
+        self.decompiled_line_mapping = line_mapping;
     }
-    if bytes[0..4] != [0xCA, 0xFE, 0xBA, 0xBE] {
-        return None;
+
+    /// 当前选中方法的字节码文本（find bar 用）
+    pub fn selected_bytecode_text(&self) -> &str {
+        if let (Some(cs), BytecodeSelection::Method(idx)) =
+            (&self.class_structure, self.bc_selection)
+        {
+            cs.methods
+                .get(idx)
+                .map(|m| m.bytecode.as_str())
+                .unwrap_or("")
+        } else {
+            ""
+        }
     }
-    let minor = u16::from_be_bytes([bytes[4], bytes[5]]);
-    let major = u16::from_be_bytes([bytes[6], bytes[7]]);
-    let java_ver = if major >= 49 {
-        format!("{}", major - 44)
-    } else {
-        format!("1.{}", major - 44)
-    };
-    Some(format!("Java {java_ver} (class {major}.{minor})"))
+
+    /// 当前选中方法的字节码 CodeData
+    pub fn selected_bytecode_data(&self) -> Option<&CodeData> {
+        if let BytecodeSelection::Method(idx) = self.bc_selection {
+            self.method_code_data.get(idx)
+        } else {
+            None
+        }
+    }
 }

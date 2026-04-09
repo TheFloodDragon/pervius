@@ -1,15 +1,14 @@
 use std::ops::RangeInclusive;
 
 use egui::{
-    emath::TSTransform, epaint::TextShape, lerp, pos2, vec2, Align, Align2, Button, Color32,
-    CornerRadius, CursorIcon, Frame, Id, Key, LayerId, Layout, NumExt, Order, Popup,
-    PopupCloseBehavior, Rect, Response, ScrollArea, Sense, Shape, Stroke, StrokeKind, TextStyle,
-    Ui, UiBuilder, Vec2, WidgetText,
+    emath::TSTransform, epaint::TextShape, lerp, pos2, vec2, Align, Align2, Color32, CornerRadius,
+    CursorIcon, Frame, Id, Key, LayerId, Layout, NumExt, Order, Popup, PopupCloseBehavior, Rect,
+    Response, ScrollArea, Sense, Shape, Stroke, StrokeKind, TextStyle, Ui, UiBuilder, Vec2,
+    WidgetText,
 };
 
 use crate::dock_area::tab_removal::{ForcedRemoval, TabRemoval};
 use crate::node::LeafNode;
-use crate::tab_viewer::OnCloseResponse;
 use crate::NodePath;
 use crate::{
     dock_area::{
@@ -296,7 +295,7 @@ impl<Tab> DockArea<'_, Tab> {
                     .expect("This node must be a leaf");
                 let style = fade.unwrap_or_else(|| self.style.as_ref().unwrap());
                 let tab_style = tab_viewer.tab_style_override(&leaf.tabs[tab_index.0], &style.tab);
-                let modified = tab_viewer.is_modified(&leaf.tabs[tab_index.0]);
+                let modified = tab_viewer.modification_color(&leaf.tabs[tab_index.0]);
                 (
                     leaf.active == tab_index || is_being_dragged,
                     tab_viewer.title(&mut leaf.tabs[tab_index.0]),
@@ -918,7 +917,7 @@ impl<Tab> DockArea<'_, Tab> {
         is_being_dragged: bool,
         preferred_width: Option<f32>,
         show_close_button: bool,
-        modified: bool,
+        modified: Option<Color32>,
         fade: Option<&Style>,
     ) -> (Response, Option<Response>) {
         let style = fade.unwrap_or_else(|| self.style.as_ref().unwrap());
@@ -1027,11 +1026,11 @@ impl<Tab> DockArea<'_, Tab> {
 
             let mut x_rect = close_button_rect;
             rect_set_size_centered(&mut x_rect, Vec2::splat(Style::TAB_CLOSE_X_SIZE));
-            if modified {
-                // 已修改：用实心圆替代 X
+            if let Some(dot_color) = modified {
+                // 已修改：用实心圆替代 X，颜色由调用方决定
                 let center = x_rect.center();
                 let radius = Style::TAB_CLOSE_X_SIZE * 0.35;
-                ui.painter().circle_filled(center, radius, color);
+                ui.painter().circle_filled(center, radius, dot_color);
             } else {
                 ui.painter().line_segment(
                     [x_rect.left_top(), x_rect.right_bottom()],

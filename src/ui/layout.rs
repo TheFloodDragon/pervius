@@ -9,7 +9,7 @@ use super::editor::EditorArea;
 use super::explorer::tree;
 use super::explorer::FilePanel;
 use super::search::SearchDialog;
-use super::settings_dialog::SettingsDialog;
+use super::settings::SettingsDialog;
 use super::status_bar::StatusBar;
 use crate::java::decompiler::DecompileTask;
 use crate::java::jar::JarArchive;
@@ -19,6 +19,9 @@ use eframe::egui;
 use egui_keybind::KeyMap;
 use egui_notify::Toasts;
 use egui_window_settings::SettingsFile;
+use rust_i18n::t;
+use std::collections::HashSet;
+use std::path::PathBuf;
 
 /// Explorer 面板最小宽度
 const EXPLORER_MIN_WIDTH: f32 = 160.0;
@@ -27,6 +30,13 @@ const EXPLORER_MAX_WIDTH: f32 = 600.0;
 
 /// Explorer 折叠/展开动画时长（秒）
 const EXPLORER_ANIM_DURATION: f32 = 0.08;
+
+/// 需要用户确认的破坏性动作
+pub enum ConfirmAction {
+    Close,
+    OpenDialog,
+    Open(PathBuf),
+}
 
 /// 主布局状态
 pub struct Layout {
@@ -48,6 +58,12 @@ pub struct Layout {
     loading: Option<handler::LoadingState>,
     /// 后台反编译任务
     decompiling: Option<DecompileTask>,
+    /// 已反编译的类集合（None = 全部已反编译，Some = 仅集合内的类已完成）
+    decompiled_classes: Option<HashSet<String>>,
+    /// FPS 叠加层开关（F12）
+    show_fps: bool,
+    /// 待确认的破坏性动作
+    pub pending_confirm: Option<ConfirmAction>,
 }
 
 struct LayoutRects {
@@ -74,11 +90,20 @@ impl Layout {
             jar: None,
             loading: None,
             decompiling: None,
+            decompiled_classes: None,
+            show_fps: false,
+            pending_confirm: None,
         }
     }
 
     /// 在 CentralPanel 内绘制完整布局
     pub fn render(&mut self, ui: &mut egui::Ui) {
+        // 拦截窗口关闭请求
+        if ui.ctx().input(|i| i.viewport().close_requested()) && self.has_unsaved_changes() {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.pending_confirm = Some(ConfirmAction::Close);
+        }
         self.handle_dropped_files(ui.ctx());
         self.handle_pending_open();
         self.handle_pending_reveal();
@@ -115,6 +140,31 @@ impl Layout {
             }
         }
         self.toasts.show(ui.ctx());
+        if ui.input(|i| i.key_pressed(egui::Key::F12)) {
+            self.show_fps = !self.show_fps;
+        }
+        if self.show_fps {
+            self.render_fps_overlay(ui);
+        }
+        self.render_confirm(ui.ctx());
+    }
+
+    /// 左上角 FPS 叠加层（调试用）
+    fn render_fps_overlay(&self, ui: &egui::Ui) {
+        let dt = ui.input(|i| i.stable_dt);
+        let fps = if dt > 0.0 { 1.0 / dt } else { 0.0 };
+        let text = format!("{fps:.0} fps  {:.1} ms", dt * 1000.0);
+        let pos = ui.max_rect().left_top() + egui::vec2(8.0, 8.0);
+        let font = egui::FontId::monospace(11.0);
+        let painter = ui.painter();
+        // 半透明背景
+        let galley = painter.layout_no_wrap(text, font, egui::Color32::WHITE);
+        let bg = egui::Rect::from_min_size(
+            pos - egui::vec2(4.0, 2.0),
+            galley.size() + egui::vec2(8.0, 4.0),
+        );
+        painter.rect_filled(bg, 3.0, egui::Color32::from_black_alpha(160));
+        painter.galley(pos, galley, egui::Color32::WHITE);
     }
 
     /// 获取 explorer 折叠/展开动画插值（同一帧内缓存）
@@ -125,13 +175,19 @@ impl Layout {
 
     fn render_explorer(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
         island::paint(ui, rect);
+        let (tab_modified, jar_modified) = self.split_modified_entries();
         let mut child = ui.new_child(
             egui::UiBuilder::new()
                 .id(egui::Id::new("explorer_island"))
                 .max_rect(rect),
         );
         child.set_clip_rect(rect);
-        self.file_panel.render(&mut child);
+        self.file_panel.render(
+            &mut child,
+            &tab_modified,
+            &jar_modified,
+            self.decompiled_classes.as_ref(),
+        );
         island::paint_corner_mask(ui, rect);
     }
 
@@ -141,12 +197,18 @@ impl Layout {
             handler::paint_loading(ui, rect, loading);
             ui.ctx().request_repaint();
         } else {
+            let jar_modified = self
+                .jar
+                .as_ref()
+                .map(|j| j.modified_entry_paths().clone())
+                .unwrap_or_default();
             self.editor.render(
                 &mut ui.new_child(
                     egui::UiBuilder::new()
                         .id(egui::Id::new("editor_island"))
                         .max_rect(rect),
                 ),
+                &jar_modified,
             );
         }
         island::paint_corner_mask(ui, rect);
@@ -264,8 +326,205 @@ impl Layout {
         }
     }
 
+    /// 分别收集 tab 级别（橙色）和 JAR 级别（绿色）已修改条目路径（含父级目录）
+    fn split_modified_entries(&self) -> (HashSet<String>, HashSet<String>) {
+        let mut tab_set = HashSet::new();
+        let mut jar_set = HashSet::new();
+        for (_, tab) in self.editor.dock_state.iter_all_tabs() {
+            if tab.is_modified {
+                if let Some(path) = &tab.entry_path {
+                    Self::insert_with_parents(&mut tab_set, path);
+                }
+            }
+        }
+        if let Some(jar) = &self.jar {
+            for path in jar.modified_entry_paths() {
+                Self::insert_with_parents(&mut jar_set, path);
+            }
+        }
+        (tab_set, jar_set)
+    }
+
+    /// 将路径及其所有父级目录加入集合
+    fn insert_with_parents(set: &mut HashSet<String>, path: &str) {
+        set.insert(path.to_string());
+        let mut p = path;
+        while let Some(idx) = p.rfind('/') {
+            let parent = &p[..idx + 1];
+            if !set.insert(parent.to_string()) {
+                break;
+            }
+            p = &p[..idx];
+        }
+        set.insert(String::new());
+    }
+
+    /// 保存当前聚焦 tab 的修改到 JAR 内存
+    pub fn save_active_tab(&mut self) {
+        let tab = match self.editor.focused_tab_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        if !tab.is_modified {
+            return;
+        }
+        let entry_path = match tab.entry_path.clone() {
+            Some(p) => p,
+            None => return,
+        };
+        let cs = match &tab.class_structure {
+            Some(cs) => cs,
+            None => return,
+        };
+        match crate::java::save::apply_structure(&tab.raw_bytes, cs) {
+            Ok(new_bytes) => {
+                tab.raw_bytes = new_bytes.clone();
+                tab.is_modified = false;
+                if let Some(jar) = &mut self.jar {
+                    jar.put(&entry_path, new_bytes);
+                }
+                log::info!("Saved: {entry_path}");
+            }
+            Err(e) => {
+                log::error!("Save failed: {entry_path}: {e}");
+                self.toasts.error(t!("editor.save_failed", error = e));
+            }
+        }
+    }
+
     /// 打开设置对话框
     pub fn open_settings(&mut self) {
         self.settings_dialog.open(&self.settings);
+    }
+
+    /// 是否有未保存的变更（tab 级别编辑 或 JAR 内存级别修改）
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.jar.as_ref().is_some_and(|j| j.has_modified_entries())
+            || self
+                .editor
+                .dock_state
+                .iter_all_tabs()
+                .any(|(_, tab)| tab.is_modified)
+    }
+
+    /// 带确认的关闭请求
+    pub fn request_close(&mut self, ctx: &egui::Context) {
+        if self.has_unsaved_changes() {
+            self.pending_confirm = Some(ConfirmAction::Close);
+        } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
+
+    /// 带确认的打开 JAR 对话框
+    pub fn request_open_jar_dialog(&mut self) {
+        if self.has_unsaved_changes() {
+            self.pending_confirm = Some(ConfirmAction::OpenDialog);
+        } else {
+            self.open_jar_dialog();
+        }
+    }
+
+    /// 带确认的打开指定 JAR
+    pub fn request_open_jar(&mut self, path: &std::path::Path) {
+        if self.has_unsaved_changes() {
+            self.pending_confirm = Some(ConfirmAction::Open(path.to_path_buf()));
+        } else {
+            self.open_jar(path);
+        }
+    }
+
+    /// 执行已确认的动作
+    fn execute_confirmed(&mut self, action: ConfirmAction, ctx: &egui::Context) {
+        match action {
+            ConfirmAction::Close => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            ConfirmAction::OpenDialog => {
+                self.open_jar_dialog();
+            }
+            ConfirmAction::Open(path) => {
+                self.open_jar(&path);
+            }
+        }
+    }
+
+    /// 渲染确认对话框（模态遮罩 + 居中面板）
+    fn render_confirm(&mut self, ctx: &egui::Context) {
+        if self.pending_confirm.is_none() {
+            return;
+        }
+        // Escape 取消
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.pending_confirm = None;
+            return;
+        }
+        // 半透明遮罩
+        let screen = ctx.screen_rect();
+        let backdrop_layer =
+            egui::LayerId::new(egui::Order::Foreground, egui::Id::new("confirm_backdrop"));
+        let painter = ctx.layer_painter(backdrop_layer);
+        painter.rect_filled(screen, 0.0, egui::Color32::from_black_alpha(120));
+        // 遮罩区域拦截点击（通过 Area 实现）
+        egui::Area::new(egui::Id::new("confirm_backdrop_area"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(screen.left_top())
+            .show(ctx, |ui| {
+                let resp = ui.allocate_response(screen.size(), egui::Sense::click());
+                if resp.clicked() {
+                    self.pending_confirm = None;
+                }
+            });
+        if self.pending_confirm.is_none() {
+            return;
+        }
+        // 居中对话框
+        egui::Area::new(egui::Id::new("confirm_dialog"))
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style())
+                    .fill(theme::BG_MEDIUM)
+                    .stroke(egui::Stroke::new(1.0, theme::BORDER))
+                    .corner_radius(8.0)
+                    .inner_margin(24.0)
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(t!("confirm.unsaved_title"))
+                                .size(14.0)
+                                .color(theme::TEXT_PRIMARY)
+                                .strong(),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(t!("confirm.unsaved_message"))
+                                .size(12.0)
+                                .color(theme::TEXT_SECONDARY),
+                        );
+                        ui.add_space(16.0);
+                        ui.horizontal(|ui| {
+                            if ui
+                                .add(
+                                    super::widget::FlatButton::new(&t!("confirm.discard"))
+                                        .min_size(egui::vec2(80.0, 28.0)),
+                                )
+                                .clicked()
+                            {
+                                let action = self.pending_confirm.take().unwrap();
+                                self.execute_confirmed(action, ui.ctx());
+                            }
+                            ui.add_space(8.0);
+                            if ui
+                                .add(
+                                    super::widget::FlatButton::new(&t!("confirm.cancel"))
+                                        .min_size(egui::vec2(80.0, 28.0)),
+                                )
+                                .clicked()
+                            {
+                                self.pending_confirm = None;
+                            }
+                        });
+                    });
+            });
     }
 }

@@ -1,4 +1,4 @@
-use egui::{Id, Ui, WidgetText};
+use egui::{Color32, Id, Ui, WidgetText};
 
 use crate::{NodePath, TabStyle};
 
@@ -100,11 +100,12 @@ pub trait TabViewer {
         true
     }
 
-    /// Returns `true` if the tab has been modified (unsaved changes).
+    /// 返回修改状态的指示颜色。
     ///
-    /// When modified, the close button renders as a filled circle instead of X.
-    fn is_modified(&self, _tab: &Self::Tab) -> bool {
-        false
+    /// - `None` → 正常 X 关闭按钮
+    /// - `Some(color)` → 用该颜色画实心圆替代 X
+    fn modification_color(&self, _tab: &Self::Tab) -> Option<Color32> {
+        None
     }
 
     /// Returns `true` if the horizontal and vertical scroll bars will be shown for `tab`.

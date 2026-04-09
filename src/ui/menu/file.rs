@@ -15,7 +15,7 @@ pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
         &t!("menu.open_jar"),
         Some(&layout.settings.keymap.open_jar),
     ) {
-        layout.open_jar_dialog();
+        layout.request_open_jar_dialog();
     }
     // Open Recent submenu
     let recent = layout.settings.recent.clone();
@@ -48,7 +48,7 @@ pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
         }
     });
     if let Some(path) = open_path {
-        layout.open_jar(&path);
+        layout.request_open_jar(&path);
     }
     if clear {
         layout.settings.clear_recent();
@@ -73,6 +73,6 @@ pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
     }
     ui.separator();
     if menu_item_raw(ui, &t!("menu.exit"), "Alt+F4") {
-        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        layout.request_close(ui.ctx());
     }
 }

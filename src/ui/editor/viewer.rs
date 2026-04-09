@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+use super::bytecode_panel;
 use super::find::FindBar;
 use super::render;
 use super::tab::EditorTab;
@@ -10,8 +11,10 @@ use crate::shell::{codicon, theme};
 use crate::ui::keybindings;
 use crate::ui::menu::item::menu_item;
 use eframe::egui;
-use egui_dock::{NodePath, TabViewer};
+use egui_dock::{tab_viewer::OnCloseResponse, NodePath, TabViewer};
 use rust_i18n::t;
+
+use std::collections::HashSet;
 
 /// Tab 右键菜单触发的动作
 pub enum TabAction {
@@ -25,8 +28,12 @@ pub enum TabAction {
 }
 
 pub struct EditorTabViewer<'a> {
+    /// 右键菜单触发的动作（每帧最多一个，由 EditorArea 消费）
     pub action: Option<TabAction>,
+    /// 编辑器内查找栏状态
     pub find_bar: &'a mut FindBar,
+    /// JAR 中已保存但未落盘的条目路径
+    pub jar_modified: &'a HashSet<String>,
 }
 
 impl TabViewer for EditorTabViewer<'_> {
@@ -54,18 +61,6 @@ impl TabViewer for EditorTabViewer<'_> {
                 ..Default::default()
             },
         );
-        if tab.is_modified {
-            job.append(" ", 0.0, egui::TextFormat::default());
-            job.append(
-                codicon::CIRCLE_FILLED,
-                0.0,
-                egui::TextFormat {
-                    font_id: egui::FontId::proportional(6.0),
-                    color: theme::ACCENT_ORANGE,
-                    ..Default::default()
-                },
-            );
-        }
         job.append("", 4.0, egui::TextFormat::default());
         job.into()
     }
@@ -85,7 +80,7 @@ impl TabViewer for EditorTabViewer<'_> {
         // 渲染内容
         match tab.active_view {
             ActiveView::Decompiled => render::render_decompiled(ui, tab, &matches, current),
-            ActiveView::Bytecode => render::render_bytecode(ui, tab, &matches, current),
+            ActiveView::Bytecode => bytecode_panel::render_bytecode_panel(ui, tab),
             ActiveView::Hex => render::render_hex(ui, tab),
         }
         // 浮动查找栏（overlay）
@@ -130,5 +125,23 @@ impl TabViewer for EditorTabViewer<'_> {
 
     fn allowed_in_windows(&self, _tab: &mut Self::Tab) -> bool {
         false
+    }
+
+    fn on_close(&mut self, tab: &mut Self::Tab) -> OnCloseResponse {
+        // 点 X 关闭 = 放弃该 tab 的未保存编辑
+        tab.is_modified = false;
+        OnCloseResponse::Close
+    }
+
+    fn modification_color(&self, tab: &Self::Tab) -> Option<egui::Color32> {
+        if tab.is_modified {
+            return Some(theme::ACCENT_ORANGE);
+        }
+        if let Some(path) = &tab.entry_path {
+            if self.jar_modified.contains(path) {
+                return Some(theme::ACCENT_GREEN);
+            }
+        }
+        None
     }
 }

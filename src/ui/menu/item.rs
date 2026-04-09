@@ -103,7 +103,6 @@ pub fn menu_submenu(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&m
     let sub_id = ui.id().with(label).with("_sub");
     let was_open: bool = ui.data(|d| d.get_temp(sub_id).unwrap_or(false));
     if resp.hovered() || was_open {
-        // 上一帧子菜单内容宽度（第一帧为 0，项按自身内容宽度分配）
         let width_id = sub_id.with("_w");
         let cached_width: f32 = ui.ctx().data(|d| d.get_temp(width_id).unwrap_or(0.0));
         let fill_key = egui::Id::new(MENU_FILL_WIDTH);
@@ -116,21 +115,23 @@ pub fn menu_submenu(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&m
             .show(ui.ctx(), |ui| {
                 frame.show(ui, |ui| {
                     ui.style_mut().visuals.widgets.hovered.bg_fill = theme::BG_HOVER;
+                    ui.set_min_width(cached_width);
                     add_contents(ui);
-                    // 缓存本帧内容宽度供下一帧使用
                     let w = ui.min_rect().width();
+                    if (w - cached_width).abs() > 1.0 {
+                        ui.ctx().request_repaint();
+                    }
                     ui.ctx().data_mut(|d| d.insert_temp(width_id, w));
                 });
             });
         // 清除全局 key，不影响其他菜单
         ui.ctx().data_mut(|d| d.insert_temp(fill_key, 0.0f32));
-        // trigger 或 popup 任一区域有 hover 就保持打开
+        // trigger 或 popup 区域内有 hover 就保持打开（不用 union 避免覆盖到父菜单其他项）
         let popup_rect = area_resp.response.rect;
-        let hover_zone = rect.union(popup_rect).expand(4.0);
         let still_hovering = ui.ctx().input(|i| {
             i.pointer
                 .hover_pos()
-                .is_some_and(|p| hover_zone.contains(p))
+                .is_some_and(|p| rect.expand(4.0).contains(p) || popup_rect.expand(4.0).contains(p))
         });
         ui.data_mut(|d| d.insert_temp(sub_id, still_hovering));
     } else {

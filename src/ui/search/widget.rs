@@ -4,6 +4,7 @@
 
 use super::result::{SearchMatch, SearchResultGroup, SourcePreview};
 use crate::shell::{codicon, theme};
+use crate::ui::widget::FlatButton;
 use eframe::egui;
 use rust_i18n::t;
 
@@ -27,31 +28,13 @@ pub fn preview_for(m: &SearchMatch, mode: SearchMode) -> &SourcePreview {
 }
 
 pub fn toggle_icon(ui: &mut egui::Ui, icon: &str, active: bool, tooltip: &str) -> bool {
-    let color = if active {
-        theme::VERDIGRIS
-    } else {
-        theme::TEXT_MUTED
-    };
-    let fill = if active {
-        theme::BG_LIGHT
-    } else {
-        egui::Color32::TRANSPARENT
-    };
-    let stroke = if active {
-        egui::Stroke::new(1.0, theme::BORDER_LIGHT)
-    } else {
-        egui::Stroke::NONE
-    };
     ui.add(
-        egui::Button::new(
-            egui::RichText::new(icon)
-                .font(egui::FontId::new(15.0, codicon::family()))
-                .color(color),
-        )
-        .fill(fill)
-        .stroke(stroke)
-        .corner_radius(4)
-        .min_size(egui::vec2(28.0, 24.0)),
+        FlatButton::new(icon)
+            .font_size(15.0)
+            .font_family(codicon::family())
+            .active(active)
+            .inactive_color(theme::TEXT_MUTED)
+            .min_size(egui::vec2(28.0, 24.0)),
     )
     .on_hover_text(tooltip)
     .clicked()
