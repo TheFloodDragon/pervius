@@ -32,13 +32,23 @@ pub fn sidebar_item(
     let (rect, resp) =
         ui.allocate_exact_size(egui::vec2(avail_w, SIDEBAR_ITEM_H), egui::Sense::click());
     let painter = ui.painter();
+    // 选中 / hover 背景动画
+    let anim = egui_animation::Anim::new(ui, 0.1).with(label);
+    let target_bg = if active {
+        theme.bg_hover
+    } else if resp.hovered() {
+        theme.bg_light
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+    let bg = anim.color("bg", target_bg);
+    if bg.a() > 0 {
+        painter.rect_filled(rect, 0.0, bg);
+    }
     if active {
-        painter.rect_filled(rect, 0.0, theme.bg_hover);
         let bar =
             egui::Rect::from_min_size(rect.left_top(), egui::vec2(ACCENT_BAR_W, rect.height()));
         painter.rect_filled(bar, 0.0, theme.accent);
-    } else if resp.hovered() {
-        painter.rect_filled(rect, 0.0, theme.bg_light);
     }
     let mid_y = rect.center().y;
     let icon_color = if active {

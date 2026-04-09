@@ -16,13 +16,21 @@ const GRAB: f32 = 5.0;
 /// 基于 `egui::Area`（movable=false）+ `egui::Frame` 自绘。
 /// 移动通过 header 拖拽实现，resize 通过四边/四角手柄实现，互不冲突。
 pub struct FloatingWindow {
+    /// 窗口唯一标识
     id: egui::Id,
+    /// 标题栏文字
     title: String,
+    /// 标题栏图标（codicon 字符串）
     icon: Option<&'static str>,
+    /// 初始尺寸
     default_size: egui::Vec2,
+    /// 最小尺寸
     min_size: egui::Vec2,
+    /// 是否可拖拽缩放
     resizable: bool,
+    /// 是否打开
     pub open: bool,
+    /// 是否固定（pin 后点击外部不关闭、Escape 不关闭）
     pub pinned: bool,
     /// 当前窗口尺寸，None 表示使用 default_size
     size: Option<egui::Vec2>,
@@ -51,6 +59,7 @@ impl Default for FloatingWindow {
 }
 
 impl FloatingWindow {
+    /// 创建浮动窗口
     pub fn new(id: impl Into<egui::Id>, title: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -59,31 +68,37 @@ impl FloatingWindow {
         }
     }
 
+    /// 设置标题栏图标（codicon 字符串）
     pub fn icon(mut self, icon: &'static str) -> Self {
         self.icon = Some(icon);
         self
     }
 
+    /// 设置初始尺寸
     pub fn default_size(mut self, size: impl Into<egui::Vec2>) -> Self {
         self.default_size = size.into();
         self
     }
 
+    /// 设置最小尺寸
     pub fn min_size(mut self, size: impl Into<egui::Vec2>) -> Self {
         self.min_size = size.into();
         self
     }
 
+    /// 设置是否可拖拽缩放
     pub fn resizable(mut self, resizable: bool) -> Self {
         self.resizable = resizable;
         self
     }
 
+    /// 打开窗口（重置位置为居中）
     pub fn open(&mut self) {
         self.open = true;
         self.pos = None;
     }
 
+    /// 关闭窗口并取消 pin
     pub fn close(&mut self) {
         self.open = false;
         self.pinned = false;
