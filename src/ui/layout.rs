@@ -92,6 +92,7 @@ impl Layout {
             self.render_resize_handle(ui, &rects);
         }
         self.render_editor(ui, rects.editor);
+        self.sync_explorer_selection();
         self.render_status_bar(ui, rects.status);
         self.search.render(ui.ctx());
         if let Some(new_settings) = self.settings_dialog.render(ui.ctx()) {
@@ -232,6 +233,15 @@ impl Layout {
         let t = ctx.animate_bool_with_time(anim_id, self.explorer_visible, EXPLORER_ANIM_DURATION);
         ctx.data_mut(|d| d.insert_temp::<(u64, f32)>(cache_id, (frame, t)));
         t
+    }
+
+    /// 编辑器聚焦 tab 变化时同步 explorer 选中状态
+    fn sync_explorer_selection(&mut self) {
+        if let Some(path) = self.editor.focused_entry_path() {
+            if self.file_panel.selected.as_ref() != Some(&path) {
+                self.file_panel.selected = Some(path);
+            }
+        }
     }
 
     /// 打开设置对话框
