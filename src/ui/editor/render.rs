@@ -91,33 +91,20 @@ fn render_code_view(
 
 /// 反编译视图：只读，带语法高亮
 pub fn render_decompiled(ui: &mut egui::Ui, tab: &mut EditorTab) {
-    let id = format!("te_dec_{}", tab.title);
+    let id = format!("te_{}", tab.title);
     let layouter = &mut tab.layouter_decompiled;
     render_code_view(ui, &id, &mut tab.decompiled, false, layouter);
 }
 
 /// 字节码视图：可编辑，带语法高亮
 pub fn render_bytecode(ui: &mut egui::Ui, tab: &mut EditorTab) {
-    let id = format!("te_bc_{}", tab.title);
+    let id = format!("te_{}", tab.title);
     let layouter = &mut tab.layouter_bytecode;
     render_code_view(ui, &id, &mut tab.bytecode, true, layouter);
 }
 
-/// Hex 视图：只读 hex dump（无行号）
+/// Hex 视图：自绘 HexGrid（字节级点击 + 双向联动高亮）
 pub fn render_hex(ui: &mut egui::Ui, tab: &mut EditorTab) {
-    let min = egui::vec2(ui.available_width(), ui.available_height());
-    ui.add(
-        egui::TextEdit::multiline(&mut tab.hex_dump)
-            .id_salt(format!("te_hex_{}", tab.title))
-            .font(egui::FontId::monospace(13.0))
-            .code_editor()
-            .frame(
-                egui::Frame::NONE
-                    .fill(theme::BG_MEDIUM)
-                    .inner_margin(egui::Margin::symmetric(8, 4)),
-            )
-            .interactive(false)
-            .min_size(min)
-            .desired_width(f32::INFINITY),
-    );
+    let theme = super::style::hex::hex_theme();
+    egui_hex_view::show(ui, &tab.raw_bytes, &mut tab.hex_state, &theme);
 }

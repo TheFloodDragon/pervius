@@ -1,12 +1,19 @@
+[workspace]
+members = [".", "crates/egui-hex-view", "crates/egui-shell"]
+
 [package]
 name = "pervius"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+log = "0.4"
+env_logger = "0.11"
 eframe = { version = "0.34.1", default-features = false, features = ["glow", "default_fonts"] }
 egui_dock = "0.19"
 egui-notify = "0.22"
+egui-hex-view = { path = "crates/egui-hex-view" }
+egui-shell = { path = "crates/egui-shell" }
 tree-sitter = "0.24"
 tree-sitter-java = "0.23"
 tree-sitter-xml = "0.7"

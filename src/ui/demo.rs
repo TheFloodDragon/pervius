@@ -270,27 +270,45 @@ const DEMO_HEX: &str = r#"00000000  CA FE BA BE 00 00 00 3D  00 2A 0A 00 02 00 0
 000001A0  00 29 00 2A 01 00 0E 6A  61 76 61 2F 75 74 69 6C  |.).*...java/util|
 000001B0  2F 4C 69 73 74 01 00 03  61 64 64 01 00 15 28 4C  |/List...add...(L|"#;
 
+/// 从 demo hex dump 文本反向解析出原始字节
+fn parse_demo_hex() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for line in DEMO_HEX.lines() {
+        // 跳过偏移地址（前 10 个字符："XXXXXXXX  "）
+        let hex_part = &line[10..];
+        // hex 部分到 "|" 之前
+        let hex_end = hex_part.find('|').unwrap_or(hex_part.len());
+        for token in hex_part[..hex_end].split_whitespace() {
+            if let Ok(b) = u8::from_str_radix(token, 16) {
+                bytes.push(b);
+            }
+        }
+    }
+    bytes
+}
+
 pub fn editor_tabs() -> Vec<EditorTab> {
+    let demo_bytes = parse_demo_hex();
     vec![
         EditorTab::new(
             "MinecraftServer",
             DEMO_JAVA,
             DEMO_BYTECODE,
-            DEMO_HEX,
+            demo_bytes.clone(),
             Language::Java,
         ),
         EditorTab::new(
             "ServerLevel",
             "// ServerLevel.java\npublic class ServerLevel {\n}",
             "// class version 61.0 (Java 17)\npublic class net/minecraft/server/ServerLevel {\n}",
-            "00000000  CA FE BA BE 00 00 00 3D  |.......=|",
+            vec![0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x3D],
             Language::Java,
         ),
         EditorTab::new(
             "ServerPlayer",
             "// ServerPlayer.java\npublic class ServerPlayer {\n}",
             "// class version 61.0 (Java 17)\npublic class net/minecraft/server/ServerPlayer {\n}",
-            "00000000  CA FE BA BE 00 00 00 3D  |.......=|",
+            vec![0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x3D],
             Language::Java,
         ),
     ]

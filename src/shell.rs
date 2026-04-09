@@ -1,15 +1,8 @@
-//! 窗口壳子基建
-//!
-//! 封装无框窗口、标题栏、平台适配、字体加载等基础设施，
-//! 业务层只需实现 `AppContent` trait。
+//! 窗口壳子：re-export egui-shell + classview 专属色板和图标
 //!
 //! @author sky
 
-pub mod app;
 pub mod codicon;
-pub mod fonts;
-pub mod platform;
 pub mod theme;
-pub mod titlebar;
 
-pub use app::{run, AppContent, ShellOptions};
+pub use egui_shell::{run, AppContent, ShellOptions, ShellTheme};

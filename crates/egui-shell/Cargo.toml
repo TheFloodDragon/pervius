@@ -1,0 +1,9 @@
+[package]
+name = "egui-shell"
+version = "0.1.0"
+edition = "2024"
+description = "Custom-titlebar window shell for eframe (decorations=false)"
+license = "MIT"
+
+[dependencies]
+eframe = { version = "0.34.1", default-features = false, features = ["glow"] }

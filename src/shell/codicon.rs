@@ -67,7 +67,7 @@ pub const COPY: &str = "\u{EBCC}";
 /// 修改标记（实心圆点，Unicode 通用符号，非 Codicon 字体）
 pub const CIRCLE_FILLED: &str = "\u{25CF}";
 
-/// Codicon 字体族
+/// Codicon 字体族（来自 egui-shell）
 pub fn family() -> egui::FontFamily {
-    egui::FontFamily::Name("codicon".into())
+    egui_shell::codicon_family()
 }

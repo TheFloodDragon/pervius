@@ -2,8 +2,8 @@
 //!
 //! @author sky
 
-use super::dock_style;
 use super::render::{self, line_number_width};
+use super::style::dock;
 use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
 use super::viewer::EditorTabViewer;
@@ -33,7 +33,7 @@ impl EditorArea {
         if let Some(gutter_w) = self.active_gutter_width() {
             render::paint_editor_bg(ui, rect, gutter_w);
         }
-        let style = dock_style::build(ui.style());
+        let style = dock::build(ui.style());
         DockArea::new(&mut self.dock_state)
             .style(style)
             .show_leaf_collapse_buttons(false)
@@ -118,7 +118,7 @@ impl EditorArea {
             .map(|(_, t)| t)
     }
 
-    /// 当前活跃 tab 的行号栏宽度（Hex 视图无行号返回 None）
+    /// 当前活跃 tab 的行号栏宽度（Hex 视图返回 None，自己画地址列）
     fn active_gutter_width(&mut self) -> Option<f32> {
         let tab = self.focused_tab()?;
         let text = match tab.active_view {

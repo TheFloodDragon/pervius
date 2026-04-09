@@ -1,0 +1,9 @@
+[package]
+name = "egui-hex-view"
+version = "0.1.0"
+edition = "2024"
+description = "Interactive hex viewer widget for egui"
+license = "MIT"
+
+[dependencies]
+eframe = { version = "0.34.1", default-features = false, features = ["glow"] }

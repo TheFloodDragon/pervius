@@ -5,22 +5,28 @@
 //!
 //! @author sky
 
-use super::{codicon, theme};
+use super::app::ShellTheme;
+use super::codicon;
 use eframe::egui;
 
 /// caption button 宽度
 const CAPTION_BTN_W: f32 = 46.0;
 
 /// 渲染标题栏，菜单内容由调用方通过闭包注入
-pub fn render(ui: &mut egui::Ui, title: &str, menu_bar: impl FnOnce(&mut egui::Ui)) {
+pub fn render(
+    ui: &mut egui::Ui,
+    title: &str,
+    theme: &ShellTheme,
+    menu_bar: impl FnOnce(&mut egui::Ui),
+) {
     let ctx = ui.ctx().clone();
     egui::Panel::top("title_bar")
-        .frame(egui::Frame::NONE.fill(theme::BG_DARK))
+        .frame(egui::Frame::NONE.fill(theme.bg))
         .show_separator_line(false)
         .show_inside(ui, |ui| {
-            ui.set_height(theme::TITLE_BAR_HEIGHT);
+            ui.set_height(theme.title_bar_height);
             let bar = ui.max_rect();
-            // 底层：拖拽区域（先注册 = 优先级最低，被后续控件覆盖）
+            // 底层：拖拽区域（先注册 = 优先级最低）
             let drag = ui.interact(bar, ui.id().with("drag"), egui::Sense::click_and_drag());
             #[cfg(not(target_os = "macos"))]
             if drag.double_clicked() {
@@ -33,7 +39,7 @@ pub fn render(ui: &mut egui::Ui, title: &str, menu_bar: impl FnOnce(&mut egui::U
             if drag.drag_started() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
             }
-            // 菜单栏（左侧，排除右侧 caption buttons 区域）
+            // 菜单栏（左侧）
             #[cfg(not(target_os = "macos"))]
             let menu_w = bar.width() - CAPTION_BTN_W * 3.0;
             #[cfg(target_os = "macos")]
@@ -42,18 +48,17 @@ pub fn render(ui: &mut egui::Ui, title: &str, menu_bar: impl FnOnce(&mut egui::U
                 egui::Rect::from_min_size(bar.left_top(), egui::vec2(menu_w, bar.height()));
             ui.new_child(egui::UiBuilder::new().max_rect(menu_rect))
                 .horizontal_centered(|ui| {
-                    // 菜单按钮样式：hover 时背景变亮 + 文字变亮
                     let visuals = &mut ui.style_mut().visuals;
                     visuals.widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
                     visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
                     visuals.widgets.inactive.fg_stroke =
-                        egui::Stroke::new(1.0, theme::TEXT_SECONDARY);
-                    visuals.widgets.hovered.weak_bg_fill = theme::BG_HOVER;
+                        egui::Stroke::new(1.0, theme.text_secondary);
+                    visuals.widgets.hovered.weak_bg_fill = theme.bg_hover;
                     visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-                    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, theme::TEXT_PRIMARY);
-                    visuals.widgets.active.weak_bg_fill = theme::BG_HOVER;
+                    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, theme.text_primary);
+                    visuals.widgets.active.weak_bg_fill = theme.bg_hover;
                     visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
-                    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, theme::TEXT_PRIMARY);
+                    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, theme.text_primary);
                     ui.spacing_mut().item_spacing.x = 0.0;
                     #[cfg(target_os = "macos")]
                     ui.add_space(72.0);
@@ -72,24 +77,25 @@ pub fn render(ui: &mut egui::Ui, title: &str, menu_bar: impl FnOnce(&mut egui::U
                 caption_buttons(
                     &mut ui.new_child(egui::UiBuilder::new().max_rect(rect)),
                     &ctx,
+                    theme,
                 );
             }
-            // 标题居中（纯绘制）
+            // 标题居中
             ui.painter().text(
                 bar.center(),
                 egui::Align2::CENTER_CENTER,
                 title,
                 egui::FontId::proportional(14.0),
-                theme::VERDIGRIS,
+                theme.accent,
             );
         });
 }
 
 #[cfg(not(target_os = "macos"))]
-fn caption_buttons(ui: &mut egui::Ui, ctx: &egui::Context) {
+fn caption_buttons(ui: &mut egui::Ui, ctx: &egui::Context, theme: &ShellTheme) {
     ui.horizontal_centered(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        if caption_button(ui, Caption::Minimize) {
+        if caption_button(ui, Caption::Minimize, theme) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
         let maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
@@ -98,10 +104,10 @@ fn caption_buttons(ui: &mut egui::Ui, ctx: &egui::Context) {
         } else {
             Caption::Maximize
         };
-        if caption_button(ui, icon) {
+        if caption_button(ui, icon, theme) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
         }
-        if caption_button(ui, Caption::Close) {
+        if caption_button(ui, Caption::Close, theme) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     });
@@ -132,23 +138,23 @@ impl Caption {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn caption_button(ui: &mut egui::Ui, icon: Caption) -> bool {
+fn caption_button(ui: &mut egui::Ui, icon: Caption, theme: &ShellTheme) -> bool {
     let (rect, response) = ui.allocate_exact_size(
-        egui::vec2(CAPTION_BTN_W, theme::TITLE_BAR_HEIGHT),
+        egui::vec2(CAPTION_BTN_W, theme.title_bar_height),
         egui::Sense::click(),
     );
     if response.hovered() {
         let bg = if icon.is_close() {
-            theme::CLOSE_HOVER
+            theme.close_hover
         } else {
-            theme::CAPTION_HOVER
+            theme.caption_hover
         };
         ui.painter().rect_filled(rect, 0.0, bg);
     }
     let fg = if response.hovered() && icon.is_close() {
         egui::Color32::WHITE
     } else {
-        theme::TEXT_SECONDARY
+        theme.text_secondary
     };
     ui.painter().text(
         rect.center(),

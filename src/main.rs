@@ -9,7 +9,23 @@ use eframe::egui;
 use ui::layout::Layout;
 
 fn main() -> eframe::Result {
-    shell::run(shell::ShellOptions::default(), |_cc| {
+    env_logger::init();
+    let options = shell::ShellOptions {
+        title: "Pervius".to_owned(),
+        size: [1280.0, 800.0],
+        theme: shell::ShellTheme {
+            bg: shell::theme::BG_DARK,
+            bg_editor: shell::theme::BG_MEDIUM,
+            bg_hover: shell::theme::BG_HOVER,
+            text_primary: shell::theme::TEXT_PRIMARY,
+            text_secondary: shell::theme::TEXT_SECONDARY,
+            accent: shell::theme::VERDIGRIS,
+            caption_hover: shell::theme::CAPTION_HOVER,
+            close_hover: shell::theme::CLOSE_HOVER,
+            title_bar_height: shell::theme::TITLE_BAR_HEIGHT,
+        },
+    };
+    shell::run(options, |_cc| {
         Box::new(PervApp {
             layout: Layout::new(),
         })

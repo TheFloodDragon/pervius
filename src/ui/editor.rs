@@ -3,9 +3,9 @@
 //! @author sky
 
 mod area;
-mod dock_style;
 pub mod highlight;
 mod render;
+pub mod style;
 mod tab;
 pub mod view_toggle;
 mod viewer;

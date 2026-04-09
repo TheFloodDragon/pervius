@@ -10,7 +10,7 @@ pub fn setup(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
         "codicon".to_owned(),
-        egui::FontData::from_static(include_bytes!("../../fonts/codicon.ttf")).into(),
+        egui::FontData::from_static(include_bytes!("../fonts/codicon.ttf")).into(),
     );
     fonts
         .families

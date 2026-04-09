@@ -5,6 +5,7 @@
 use super::highlight::{self, Language};
 use super::view_toggle::ActiveView;
 use eframe::egui;
+use egui_hex_view::HexViewState;
 use std::sync::Arc;
 
 /// 编辑器 Tab 数据
@@ -14,11 +15,13 @@ pub struct EditorTab {
     pub decompiled: String,
     /// 字节码文本（可编辑）
     pub bytecode: String,
-    /// Hex dump 文本（只读）
-    pub hex_dump: String,
+    /// 原始字节（只读，用于 hex 视图）
+    pub raw_bytes: Vec<u8>,
     pub language: Language,
     pub active_view: ActiveView,
     pub is_modified: bool,
+    /// Hex 视图交互状态
+    pub hex_state: HexViewState,
     /// Decompiled 视图的 layouter 缓存
     pub(super) layouter_decompiled: Box<dyn FnMut(&egui::Ui, &str, f32) -> Arc<egui::Galley>>,
     /// Bytecode 视图的 layouter 缓存
@@ -30,7 +33,7 @@ impl EditorTab {
         title: impl Into<String>,
         decompiled: impl Into<String>,
         bytecode: impl Into<String>,
-        hex_dump: impl Into<String>,
+        raw_bytes: Vec<u8>,
         language: Language,
     ) -> Self {
         let lang = language;
@@ -38,10 +41,11 @@ impl EditorTab {
             title: title.into(),
             decompiled: decompiled.into(),
             bytecode: bytecode.into(),
-            hex_dump: hex_dump.into(),
+            raw_bytes,
             language,
             active_view: ActiveView::Decompiled,
             is_modified: false,
+            hex_state: HexViewState::default(),
             layouter_decompiled: Box::new(highlight::make_layouter(lang)),
             layouter_bytecode: Box::new(highlight::make_bytecode_layouter()),
         }

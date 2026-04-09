@@ -2,7 +2,7 @@
 //!
 //! @author sky
 
-use super::{fonts, platform, theme, titlebar};
+use super::{fonts, platform, titlebar};
 use eframe::egui;
 
 /// 业务层只需实现这个 trait
@@ -13,17 +13,52 @@ pub trait AppContent {
     fn menu_bar(&mut self, _ui: &mut egui::Ui) {}
 }
 
+/// 窗口壳子主题配色
+#[derive(Clone)]
+pub struct ShellTheme {
+    /// 窗口 / 标题栏 / 状态栏背景
+    pub bg: egui::Color32,
+    /// 输入框 / 编辑区背景（visuals.extreme_bg_color）
+    pub bg_editor: egui::Color32,
+    /// 悬停背景（菜单按钮 hover）
+    pub bg_hover: egui::Color32,
+    /// 主要文字
+    pub text_primary: egui::Color32,
+    /// 次要文字（caption button 图标、菜单 idle）
+    pub text_secondary: egui::Color32,
+    /// 强调色（标题文字）
+    pub accent: egui::Color32,
+    /// 标题栏按钮 hover 背景
+    pub caption_hover: egui::Color32,
+    /// 关闭按钮 hover 背景
+    pub close_hover: egui::Color32,
+    /// 标题栏高度
+    pub title_bar_height: f32,
+}
+
 /// 窗口启动配置
 pub struct ShellOptions {
     pub title: String,
     pub size: [f32; 2],
+    pub theme: ShellTheme,
 }
 
 impl Default for ShellOptions {
     fn default() -> Self {
         Self {
-            title: "Pervius".to_owned(),
+            title: "App".to_owned(),
             size: [1280.0, 800.0],
+            theme: ShellTheme {
+                bg: egui::Color32::from_rgb(21, 21, 22),
+                bg_editor: egui::Color32::from_rgb(28, 28, 30),
+                bg_hover: egui::Color32::from_rgb(46, 46, 49),
+                text_primary: egui::Color32::from_rgb(236, 236, 239),
+                text_secondary: egui::Color32::from_rgb(160, 160, 171),
+                accent: egui::Color32::from_rgb(67, 179, 174),
+                caption_hover: egui::Color32::from_rgb(42, 42, 47),
+                close_hover: egui::Color32::from_rgb(196, 43, 28),
+                title_bar_height: 36.0,
+            },
         }
     }
 }
@@ -39,21 +74,22 @@ where
         ..Default::default()
     };
     let title = options.title.clone();
+    let theme = options.theme.clone();
     eframe::run_native(
         &options.title,
         native,
         Box::new(move |cc| {
             cc.egui_ctx.set_visuals({
                 let mut v = egui::Visuals::dark();
-                // #1A1A21 — 编辑器代码区背景，替换 egui 默认的 rgb(10,10,10)
-                v.extreme_bg_color = theme::BG_MEDIUM;
-                v.code_bg_color = theme::BG_MEDIUM;
+                v.extreme_bg_color = theme.bg_editor;
+                v.code_bg_color = theme.bg_editor;
                 v
             });
             fonts::setup(&cc.egui_ctx);
             let content = create(cc);
             Ok(Box::new(ShellApp {
                 title,
+                theme,
                 content,
                 #[cfg(target_os = "windows")]
                 corners_set: false,
@@ -64,6 +100,7 @@ where
 
 struct ShellApp {
     title: String,
+    theme: ShellTheme,
     content: Box<dyn AppContent>,
     #[cfg(target_os = "windows")]
     corners_set: bool,
@@ -80,12 +117,13 @@ impl eframe::App for ShellApp {
         // 保存完整窗口 rect（titlebar Panel 会缩小 max_rect）
         #[cfg(not(target_os = "macos"))]
         let full_rect = ui.max_rect();
-        titlebar::render(ui, &self.title, |ui| self.content.menu_bar(ui));
-        // 窗口边缘 resize 在 titlebar 之后注册（后注册优先级更高，覆盖 titlebar drag）
+        titlebar::render(ui, &self.title, &self.theme, |ui| {
+            self.content.menu_bar(ui);
+        });
         #[cfg(not(target_os = "macos"))]
         handle_window_resize(ui, &ctx, full_rect);
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(theme::BG_DARK))
+            .frame(egui::Frame::NONE.fill(self.theme.bg))
             .show_inside(ui, |ui| {
                 self.content.ui(ui, &ctx);
             });
@@ -136,7 +174,6 @@ fn handle_window_resize(ui: &mut egui::Ui, ctx: &egui::Context, rect: egui::Rect
             }
         };
         ctx.set_cursor_icon(cursor);
-        // 用完整窗口 rect 注册 interact，后注册覆盖 titlebar 的 drag
         let edge_id = ui.id().with("window_resize");
         let response = ui.interact(rect, edge_id, egui::Sense::drag());
         if response.drag_started() {
