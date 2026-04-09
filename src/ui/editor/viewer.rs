@@ -65,4 +65,9 @@ impl TabViewer for EditorTabViewer {
             ActiveView::Hex => render::render_hex(ui, tab),
         }
     }
+
+    /// 禁止拖拽 tab 脱离为独立窗口（样式难以维护），保留拖拽分屏
+    fn allowed_in_windows(&self, _tab: &mut Self::Tab) -> bool {
+        false
+    }
 }

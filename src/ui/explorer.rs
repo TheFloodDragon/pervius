@@ -56,9 +56,8 @@ impl FilePanel {
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
                 ui.add_space(4.0);
-                for i in 0..self.tree_nodes.len() {
-                    let selected = i == self.selected_index;
-                    if tree::tree_row(ui, &self.tree_nodes[i], selected) {
+                for (i, node) in self.tree_nodes.iter().enumerate() {
+                    if tree::tree_row(ui, node, i == self.selected_index) {
                         self.selected_index = i;
                     }
                 }

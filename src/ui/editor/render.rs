@@ -59,15 +59,20 @@ fn paint_line_numbers(ui: &egui::Ui, text_rect: egui::Rect, text: &str, gutter_w
     }
 }
 
-/// 反编译视图：只读，带语法高亮
-pub fn render_decompiled(ui: &mut egui::Ui, tab: &mut EditorTab) {
-    let layouter = &mut tab.layouter_decompiled;
-    let line_count = tab.decompiled.lines().count().max(1);
+/// 带行号 + 语法高亮的代码视图通用渲染
+fn render_code_view(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    text: &mut String,
+    interactive: bool,
+    layouter: &mut dyn FnMut(&egui::Ui, &str, f32) -> std::sync::Arc<egui::Galley>,
+) {
+    let line_count = text.lines().count().max(1);
     let gutter_w = line_number_width(line_count);
     let min = egui::vec2(ui.available_width(), ui.available_height());
     let response = ui.add(
-        egui::TextEdit::multiline(&mut tab.decompiled)
-            .id_salt(format!("te_dec_{}", tab.title))
+        egui::TextEdit::multiline(text)
+            .id_salt(id_salt)
             .font(egui::FontId::monospace(13.0))
             .code_editor()
             .frame(egui::Frame::NONE.inner_margin(egui::Margin {
@@ -76,36 +81,26 @@ pub fn render_decompiled(ui: &mut egui::Ui, tab: &mut EditorTab) {
                 top: 4,
                 bottom: 4,
             }))
-            .interactive(false)
+            .interactive(interactive)
             .min_size(min)
             .desired_width(f32::INFINITY)
-            .layouter(&mut |ui, text, wrap_width| layouter(ui, text.as_str(), wrap_width)),
+            .layouter(&mut |ui, s, wrap_width| layouter(ui, s.as_str(), wrap_width)),
     );
-    paint_line_numbers(ui, response.rect, &tab.decompiled, gutter_w);
+    paint_line_numbers(ui, response.rect, text, gutter_w);
+}
+
+/// 反编译视图：只读，带语法高亮
+pub fn render_decompiled(ui: &mut egui::Ui, tab: &mut EditorTab) {
+    let id = format!("te_dec_{}", tab.title);
+    let layouter = &mut tab.layouter_decompiled;
+    render_code_view(ui, &id, &mut tab.decompiled, false, layouter);
 }
 
 /// 字节码视图：可编辑，带语法高亮
 pub fn render_bytecode(ui: &mut egui::Ui, tab: &mut EditorTab) {
+    let id = format!("te_bc_{}", tab.title);
     let layouter = &mut tab.layouter_bytecode;
-    let line_count = tab.bytecode.lines().count().max(1);
-    let gutter_w = line_number_width(line_count);
-    let min = egui::vec2(ui.available_width(), ui.available_height());
-    let response = ui.add(
-        egui::TextEdit::multiline(&mut tab.bytecode)
-            .id_salt(format!("te_bc_{}", tab.title))
-            .font(egui::FontId::monospace(13.0))
-            .code_editor()
-            .frame(egui::Frame::NONE.inner_margin(egui::Margin {
-                left: (gutter_w + GUTTER_PAD) as i8,
-                right: 8,
-                top: 4,
-                bottom: 4,
-            }))
-            .min_size(min)
-            .desired_width(f32::INFINITY)
-            .layouter(&mut |ui, text, wrap_width| layouter(ui, text.as_str(), wrap_width)),
-    );
-    paint_line_numbers(ui, response.rect, &tab.bytecode, gutter_w);
+    render_code_view(ui, &id, &mut tab.bytecode, true, layouter);
 }
 
 /// Hex 视图：只读 hex dump（无行号）

@@ -4,7 +4,7 @@
 
 use super::editor::EditorArea;
 use super::explorer::FilePanel;
-use super::status_bar::{Alignment, StatusBar, TextItem, ViewToggleItem};
+use super::status_bar::StatusBar;
 use crate::shell::theme;
 use eframe::egui;
 use egui_notify::Toasts;
@@ -17,91 +17,81 @@ pub struct Layout {
     pub toasts: Toasts,
 }
 
+struct LayoutRects {
+    explorer: egui::Rect,
+    editor: egui::Rect,
+    status: egui::Rect,
+}
+
 impl Layout {
     pub fn new() -> Self {
         use super::demo;
-        let mut status_bar = StatusBar::new();
-        status_bar.add(TextItem::new(
-            "Pervius v0.1.0",
-            theme::TEXT_MUTED,
-            Alignment::Left,
-        ));
-        status_bar.add(TextItem::new(
-            "Java 17 (class 61.0)",
-            theme::TEXT_SECONDARY,
-            Alignment::Left,
-        ));
-        status_bar.add(TextItem::new(
-            "UTF-8  |  LF",
-            theme::TEXT_MUTED,
-            Alignment::Right,
-        ));
-        status_bar.add(TextItem::new(
-            "CFR 0.152",
-            theme::ACCENT_GREEN,
-            Alignment::Right,
-        ));
-        status_bar.add(ViewToggleItem::new());
         Self {
             file_panel: FilePanel::new(demo::tree_nodes(), demo::search_results()),
             editor: EditorArea::new(demo::editor_tabs()),
-            status_bar,
+            status_bar: StatusBar::default(),
             toasts: Toasts::default(),
         }
     }
 
     /// 在 CentralPanel 内绘制完整布局
     pub fn render(&mut self, ui: &mut egui::Ui) {
-        let total = ui.max_rect();
+        let rects = Self::compute_rects(ui.max_rect());
+        self.render_explorer(ui, rects.explorer);
+        self.render_editor(ui, rects.editor);
+        self.render_status_bar(ui, rects.status);
+        self.toasts.show(ui.ctx());
+    }
+
+    fn render_explorer(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        Self::paint_island(ui, rect);
+        self.file_panel
+            .render(&mut ui.new_child(egui::UiBuilder::new().max_rect(rect)));
+        Self::paint_island_corner_mask(ui, rect);
+    }
+
+    fn render_editor(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        Self::paint_island(ui, rect);
+        self.editor
+            .render(&mut ui.new_child(egui::UiBuilder::new().max_rect(rect)));
+        Self::paint_island_corner_mask(ui, rect);
+    }
+
+    fn render_status_bar(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        self.status_bar.sync_view(self.editor.focused_view());
+        self.status_bar
+            .render(&mut ui.new_child(egui::UiBuilder::new().max_rect(rect)));
+        if let Some(v) = self.status_bar.take_view_change() {
+            self.editor.set_focused_view(v);
+        }
+    }
+
+    /// 从总 rect 计算各区域的 rect
+    fn compute_rects(total: egui::Rect) -> LayoutRects {
         let mh = theme::ISLAND_MARGIN_H;
         let mv = theme::ISLAND_MARGIN_V;
-        let gap = theme::ISLAND_GAP;
-        // StatusBar 在最底部全宽（不在 island 内），底部留边距
-        let status_bottom_margin = mv;
-        let status_top = total.bottom() - theme::STATUS_BAR_HEIGHT - status_bottom_margin;
-        // Island 区域：标题栏下方到 StatusBar 上方，四周留 margin
+        let status_top = total.bottom() - theme::STATUS_BAR_HEIGHT - mv;
         let island_top = total.top() + mv;
         let island_bottom = status_top - mv;
         let island_left = total.left() + mh;
         let island_right = total.right() - mh;
-        // Explorer island
-        let explorer_rect = egui::Rect::from_min_max(
+        let explorer = egui::Rect::from_min_max(
             egui::pos2(island_left, island_top),
             egui::pos2(island_left + theme::FILE_PANEL_WIDTH, island_bottom),
         );
-        Self::paint_island(ui, explorer_rect);
-        self.file_panel
-            .render(&mut ui.new_child(egui::UiBuilder::new().max_rect(explorer_rect)));
-        Self::paint_island_corner_mask(ui, explorer_rect);
-        // Editor island
-        let editor_rect = egui::Rect::from_min_max(
-            egui::pos2(explorer_rect.right() + gap, island_top),
+        let editor = egui::Rect::from_min_max(
+            egui::pos2(explorer.right() + theme::ISLAND_GAP, island_top),
             egui::pos2(island_right, island_bottom),
         );
-        Self::paint_island(ui, editor_rect);
-        self.editor
-            .render(&mut ui.new_child(egui::UiBuilder::new().max_rect(editor_rect)));
-        Self::paint_island_corner_mask(ui, editor_rect);
-        // StatusBar（全宽，不在 island 内，底部留 status_bottom_margin）
-        let status_rect = egui::Rect::from_min_size(
+        let status = egui::Rect::from_min_size(
             egui::pos2(total.left(), status_top),
             egui::vec2(total.width(), theme::STATUS_BAR_HEIGHT),
         );
-        // 渲染前同步 ViewToggle 状态
-        let active_view = self.editor.focused_view();
-        if let Some(vt) = self.status_bar.item_mut::<ViewToggleItem>() {
-            vt.set_active(active_view);
+        LayoutRects {
+            explorer,
+            editor,
+            status,
         }
-        self.status_bar
-            .render(&mut ui.new_child(egui::UiBuilder::new().max_rect(status_rect)));
-        // 渲染后读取用户切换的视图
-        if let Some(vt) = self.status_bar.item_mut::<ViewToggleItem>() {
-            if let Some(v) = vt.take_changed() {
-                self.editor.set_focused_view(v);
-            }
-        }
-        // Toast 通知
-        self.toasts.show(ui.ctx());
     }
 
     /// 绘制 island 圆角背景（深色，与窗口底色 BG_DARK 形成对比）

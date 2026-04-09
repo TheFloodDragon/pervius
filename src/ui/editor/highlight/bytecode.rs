@@ -6,197 +6,191 @@
 
 use super::{Span, TokenKind};
 
-/// JVM 操作码（全大写指令）
-fn is_opcode(word: &str) -> bool {
-    matches!(
-        word,
-        "NOP"
-            | "ACONST_NULL"
-            | "ICONST_M1"
-            | "ICONST_0"
-            | "ICONST_1"
-            | "ICONST_2"
-            | "ICONST_3"
-            | "ICONST_4"
-            | "ICONST_5"
-            | "LCONST_0"
-            | "LCONST_1"
-            | "FCONST_0"
-            | "FCONST_1"
-            | "FCONST_2"
-            | "DCONST_0"
-            | "DCONST_1"
-            | "BIPUSH"
-            | "SIPUSH"
-            | "LDC"
-            | "LDC_W"
-            | "LDC2_W"
-            | "ILOAD"
-            | "LLOAD"
-            | "FLOAD"
-            | "DLOAD"
-            | "ALOAD"
-            | "IALOAD"
-            | "LALOAD"
-            | "FALOAD"
-            | "DALOAD"
-            | "AALOAD"
-            | "BALOAD"
-            | "CALOAD"
-            | "SALOAD"
-            | "ISTORE"
-            | "LSTORE"
-            | "FSTORE"
-            | "DSTORE"
-            | "ASTORE"
-            | "IASTORE"
-            | "LASTORE"
-            | "FASTORE"
-            | "DASTORE"
-            | "AASTORE"
-            | "BASTORE"
-            | "CASTORE"
-            | "SASTORE"
-            | "POP"
-            | "POP2"
-            | "DUP"
-            | "DUP_X1"
-            | "DUP_X2"
-            | "DUP2"
-            | "DUP2_X1"
-            | "DUP2_X2"
-            | "SWAP"
-            | "IADD"
-            | "LADD"
-            | "FADD"
-            | "DADD"
-            | "ISUB"
-            | "LSUB"
-            | "FSUB"
-            | "DSUB"
-            | "IMUL"
-            | "LMUL"
-            | "FMUL"
-            | "DMUL"
-            | "IDIV"
-            | "LDIV"
-            | "FDIV"
-            | "DDIV"
-            | "IREM"
-            | "LREM"
-            | "FREM"
-            | "DREM"
-            | "INEG"
-            | "LNEG"
-            | "FNEG"
-            | "DNEG"
-            | "ISHL"
-            | "LSHL"
-            | "ISHR"
-            | "LSHR"
-            | "IUSHR"
-            | "LUSHR"
-            | "IAND"
-            | "LAND"
-            | "IOR"
-            | "LOR"
-            | "IXOR"
-            | "LXOR"
-            | "IINC"
-            | "I2L"
-            | "I2F"
-            | "I2D"
-            | "L2I"
-            | "L2F"
-            | "L2D"
-            | "F2I"
-            | "F2L"
-            | "F2D"
-            | "D2I"
-            | "D2L"
-            | "D2F"
-            | "I2B"
-            | "I2C"
-            | "I2S"
-            | "LCMP"
-            | "FCMPL"
-            | "FCMPG"
-            | "DCMPL"
-            | "DCMPG"
-            | "IFEQ"
-            | "IFNE"
-            | "IFLT"
-            | "IFGE"
-            | "IFGT"
-            | "IFLE"
-            | "IF_ICMPEQ"
-            | "IF_ICMPNE"
-            | "IF_ICMPLT"
-            | "IF_ICMPGE"
-            | "IF_ICMPGT"
-            | "IF_ICMPLE"
-            | "IF_ACMPEQ"
-            | "IF_ACMPNE"
-            | "GOTO"
-            | "JSR"
-            | "RET"
-            | "TABLESWITCH"
-            | "LOOKUPSWITCH"
-            | "IRETURN"
-            | "LRETURN"
-            | "FRETURN"
-            | "DRETURN"
-            | "ARETURN"
-            | "RETURN"
-            | "GETSTATIC"
-            | "PUTSTATIC"
-            | "GETFIELD"
-            | "PUTFIELD"
-            | "INVOKEVIRTUAL"
-            | "INVOKESPECIAL"
-            | "INVOKESTATIC"
-            | "INVOKEINTERFACE"
-            | "INVOKEDYNAMIC"
-            | "NEW"
-            | "NEWARRAY"
-            | "ANEWARRAY"
-            | "ARRAYLENGTH"
-            | "ATHROW"
-            | "CHECKCAST"
-            | "INSTANCEOF"
-            | "MONITORENTER"
-            | "MONITOREXIT"
-            | "MULTIANEWARRAY"
-            | "IFNULL"
-            | "IFNONNULL"
-    )
-}
+/// 全部 JVM 操作码（按字典序排列，用于二分查找）
+const OPCODES: &[&str] = &[
+    "AALOAD",
+    "AASTORE",
+    "ACONST_NULL",
+    "ALOAD",
+    "ANEWARRAY",
+    "ARETURN",
+    "ARRAYLENGTH",
+    "ASTORE",
+    "ATHROW",
+    "BALOAD",
+    "BASTORE",
+    "BIPUSH",
+    "CALOAD",
+    "CASTORE",
+    "CHECKCAST",
+    "D2F",
+    "D2I",
+    "D2L",
+    "DADD",
+    "DALOAD",
+    "DASTORE",
+    "DCMPG",
+    "DCMPL",
+    "DCONST_0",
+    "DCONST_1",
+    "DDIV",
+    "DLOAD",
+    "DMUL",
+    "DNEG",
+    "DREM",
+    "DRETURN",
+    "DSTORE",
+    "DSUB",
+    "DUP",
+    "DUP2",
+    "DUP2_X1",
+    "DUP2_X2",
+    "DUP_X1",
+    "DUP_X2",
+    "F2D",
+    "F2I",
+    "F2L",
+    "FADD",
+    "FALOAD",
+    "FASTORE",
+    "FCMPG",
+    "FCMPL",
+    "FCONST_0",
+    "FCONST_1",
+    "FCONST_2",
+    "FDIV",
+    "FLOAD",
+    "FMUL",
+    "FNEG",
+    "FREM",
+    "FRETURN",
+    "FSTORE",
+    "FSUB",
+    "GETFIELD",
+    "GETSTATIC",
+    "GOTO",
+    "I2B",
+    "I2C",
+    "I2D",
+    "I2F",
+    "I2L",
+    "I2S",
+    "IADD",
+    "IALOAD",
+    "IAND",
+    "IASTORE",
+    "ICONST_0",
+    "ICONST_1",
+    "ICONST_2",
+    "ICONST_3",
+    "ICONST_4",
+    "ICONST_5",
+    "ICONST_M1",
+    "IDIV",
+    "IFEQ",
+    "IFGE",
+    "IFGT",
+    "IFLE",
+    "IFLT",
+    "IFNE",
+    "IFNONNULL",
+    "IFNULL",
+    "IF_ACMPEQ",
+    "IF_ACMPNE",
+    "IF_ICMPEQ",
+    "IF_ICMPGE",
+    "IF_ICMPGT",
+    "IF_ICMPLE",
+    "IF_ICMPLT",
+    "IF_ICMPNE",
+    "IINC",
+    "ILOAD",
+    "IMUL",
+    "INEG",
+    "INSTANCEOF",
+    "INVOKEDYNAMIC",
+    "INVOKEINTERFACE",
+    "INVOKESPECIAL",
+    "INVOKESTATIC",
+    "INVOKEVIRTUAL",
+    "IOR",
+    "IREM",
+    "IRETURN",
+    "ISHL",
+    "ISHR",
+    "ISTORE",
+    "ISUB",
+    "IUSHR",
+    "IXOR",
+    "JSR",
+    "L2D",
+    "L2F",
+    "L2I",
+    "LADD",
+    "LALOAD",
+    "LAND",
+    "LASTORE",
+    "LCMP",
+    "LCONST_0",
+    "LCONST_1",
+    "LDC",
+    "LDC2_W",
+    "LDC_W",
+    "LDIV",
+    "LLOAD",
+    "LMUL",
+    "LNEG",
+    "LOOKUPSWITCH",
+    "LOR",
+    "LREM",
+    "LRETURN",
+    "LSHL",
+    "LSHR",
+    "LSTORE",
+    "LSUB",
+    "LUSHR",
+    "LXOR",
+    "MONITORENTER",
+    "MONITOREXIT",
+    "MULTIANEWARRAY",
+    "NEW",
+    "NEWARRAY",
+    "NOP",
+    "POP",
+    "POP2",
+    "PUTFIELD",
+    "PUTSTATIC",
+    "RET",
+    "RETURN",
+    "SALOAD",
+    "SASTORE",
+    "SIPUSH",
+    "SWAP",
+    "TABLESWITCH",
+];
 
 /// 访问修饰符和声明关键字
-fn is_keyword(word: &str) -> bool {
-    matches!(
-        word,
-        "public"
-            | "private"
-            | "protected"
-            | "static"
-            | "final"
-            | "abstract"
-            | "native"
-            | "synchronized"
-            | "transient"
-            | "volatile"
-            | "strictfp"
-            | "synthetic"
-            | "bridge"
-            | "varargs"
-            | "class"
-            | "interface"
-            | "enum"
-            | "extends"
-            | "implements"
-    )
-}
+const KEYWORDS: &[&str] = &[
+    "abstract",
+    "bridge",
+    "class",
+    "enum",
+    "extends",
+    "final",
+    "implements",
+    "interface",
+    "native",
+    "private",
+    "protected",
+    "public",
+    "static",
+    "strictfp",
+    "synchronized",
+    "synthetic",
+    "transient",
+    "varargs",
+    "volatile",
+];
 
 pub fn collect_spans(source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
@@ -273,10 +267,10 @@ fn tokenize_line(line: &str, base: usize, spans: &mut Vec<Span>) {
 }
 
 fn classify_word(word: &str) -> TokenKind {
-    if is_opcode(word) {
+    if OPCODES.binary_search(&word).is_ok() {
         return TokenKind::Keyword;
     }
-    if is_keyword(word) {
+    if KEYWORDS.binary_search(&word).is_ok() {
         return TokenKind::Keyword;
     }
     // 数字（十进制、十六进制）

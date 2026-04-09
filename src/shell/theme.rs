@@ -4,8 +4,6 @@
 //!
 //! @author sky
 
-#![allow(dead_code)]
-
 use eframe::egui;
 
 // -- 背景层级 --

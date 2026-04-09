@@ -5,8 +5,6 @@
 //!
 //! @author sky
 
-#![allow(dead_code)]
-
 use eframe::egui;
 
 // -- 窗口控制 --

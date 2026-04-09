@@ -112,12 +112,11 @@ pub fn highlight_layout(source: &str, lang: Language) -> LayoutJob {
     build_layout_job(source, &spans)
 }
 
-/// 供 TextEdit 使用的 layouter 回调工厂
+/// 带 hash 缓存的 layouter 工厂（通用骨架）
 ///
-/// 返回一个闭包，TextEdit 每次需要重新排版时调用。
-/// 内部用上次的 hash 做缓存，源码不变时返回上次结果。
-pub fn make_layouter(
-    lang: Language,
+/// `highlight_fn` 负责将源码转为 LayoutJob，缓存层在此统一处理。
+fn cached_layouter(
+    mut highlight_fn: impl FnMut(&str) -> LayoutJob,
 ) -> impl FnMut(&egui::Ui, &str, f32) -> std::sync::Arc<egui::Galley> {
     let mut cached_hash: u64 = 0;
     let mut cached_job = LayoutJob::default();
@@ -129,13 +128,29 @@ pub fn make_layouter(
             h.finish()
         };
         if hash != cached_hash {
-            cached_job = highlight_layout(text, lang);
+            cached_job = highlight_fn(text);
             cached_hash = hash;
         }
         let mut job = cached_job.clone();
         job.wrap.max_width = wrap_width;
         ui.painter().layout_job(job)
     }
+}
+
+/// 供 TextEdit 使用的 layouter 回调工厂（tree-sitter 语言高亮）
+pub fn make_layouter(
+    lang: Language,
+) -> impl FnMut(&egui::Ui, &str, f32) -> std::sync::Arc<egui::Galley> {
+    cached_layouter(move |text| highlight_layout(text, lang))
+}
+
+/// 字节码高亮的 layouter 回调工厂
+pub fn make_bytecode_layouter() -> impl FnMut(&egui::Ui, &str, f32) -> std::sync::Arc<egui::Galley>
+{
+    cached_layouter(|text| {
+        let spans = bytecode::collect_spans(text);
+        build_layout_job(text, &spans)
+    })
 }
 
 /// 一个 span = (byte_start, byte_end, kind)
@@ -150,29 +165,6 @@ fn collect_spans(source: &str, lang: Language) -> Vec<Span> {
     }
 }
 
-/// 字节码高亮的 layouter 回调工厂
-pub fn make_bytecode_layouter() -> impl FnMut(&egui::Ui, &str, f32) -> std::sync::Arc<egui::Galley>
-{
-    let mut cached_hash: u64 = 0;
-    let mut cached_job = LayoutJob::default();
-    move |ui: &egui::Ui, text: &str, wrap_width: f32| {
-        let hash = {
-            use std::hash::{Hash, Hasher};
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            text.hash(&mut h);
-            h.finish()
-        };
-        if hash != cached_hash {
-            let spans = bytecode::collect_spans(text);
-            cached_job = build_layout_job(text, &spans);
-            cached_hash = hash;
-        }
-        let mut job = cached_job.clone();
-        job.wrap.max_width = wrap_width;
-        ui.painter().layout_job(job)
-    }
-}
-
 fn collect_treesitter_spans(source: &str, lang: Language) -> Vec<Span> {
     let mut parser = tree_sitter::Parser::new();
     let ts_lang: tree_sitter::Language = match lang {
@@ -182,12 +174,15 @@ fn collect_treesitter_spans(source: &str, lang: Language) -> Vec<Span> {
         Language::Json => tree_sitter_json::LANGUAGE.into(),
         Language::Html => tree_sitter_html::LANGUAGE.into(),
         Language::Sql => tree_sitter_sequel::LANGUAGE.into(),
-        Language::Properties | Language::Plain => unreachable!(),
+        Language::Properties | Language::Plain => return vec![(0, source.len(), TokenKind::Plain)],
     };
-    parser
-        .set_language(&ts_lang)
-        .expect("Failed to load grammar");
-    let tree = parser.parse(source, None).expect("Failed to parse");
+    if parser.set_language(&ts_lang).is_err() {
+        return vec![(0, source.len(), TokenKind::Plain)];
+    }
+    let tree = match parser.parse(source, None) {
+        Some(t) => t,
+        None => return vec![(0, source.len(), TokenKind::Plain)],
+    };
     let color_fn: ColorFn = match lang {
         Language::Java | Language::Kotlin => java::classify,
         Language::Xml => xml::classify,
@@ -195,7 +190,7 @@ fn collect_treesitter_spans(source: &str, lang: Language) -> Vec<Span> {
         Language::Json => json::classify,
         Language::Html => html::classify,
         Language::Sql => sql::classify,
-        Language::Properties | Language::Plain => unreachable!(),
+        Language::Properties | Language::Plain => return vec![(0, source.len(), TokenKind::Plain)],
     };
     let mut spans = Vec::new();
     collect_node_spans(&mut tree.root_node().walk(), &mut spans, color_fn);
