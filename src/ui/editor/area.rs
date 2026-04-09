@@ -172,6 +172,16 @@ impl EditorArea {
         }
     }
 
+    /// 循环切换聚焦 tab 的视图（仅 .class 文件）
+    pub fn cycle_view(&mut self) {
+        if let Some(tab) = self.focused_tab() {
+            if !tab.is_class {
+                return;
+            }
+            tab.active_view = tab.active_view.next();
+        }
+    }
+
     /// 反编译完成后，刷新所有已打开的 .class tab 的源码
     pub fn refresh_class_tabs(&mut self, jar_hash: Option<&str>) {
         let hash = match jar_hash {

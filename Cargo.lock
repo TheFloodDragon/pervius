@@ -905,6 +905,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui-animation"
+version = "0.1.0"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "egui-hex-view"
 version = "0.1.0"
 dependencies = [
@@ -2349,6 +2356,7 @@ dependencies = [
  "chardetng",
  "dirs",
  "eframe",
+ "egui-animation",
  "egui-hex-view",
  "egui-keybind",
  "egui-notify",

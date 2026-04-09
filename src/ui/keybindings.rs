@@ -15,6 +15,7 @@ pub const EXPORT_DECOMPILED: KeyBind = KeyBind::ctrl_shift(egui::Key::E);
 pub const FIND: KeyBind = KeyBind::ctrl(egui::Key::F);
 pub const CLOSE_TAB: KeyBind = KeyBind::ctrl(egui::Key::W);
 pub const CLOSE_ALL_TABS: KeyBind = KeyBind::ctrl_alt(egui::Key::W);
+pub const CYCLE_VIEW: KeyBind = KeyBind::key(egui::Key::Tab);
 
 /// 构建应用级 KeyMap（快捷键 + 回调一并注册）
 pub fn build_keymap() -> KeyMap<Layout> {
@@ -25,5 +26,6 @@ pub fn build_keymap() -> KeyMap<Layout> {
         .bind(OPEN_JAR, |l: &mut Layout| l.open_jar_dialog())
         .bind(CLOSE_TAB, |l: &mut Layout| l.editor.close_active_tab())
         .bind(CLOSE_ALL_TABS, |l: &mut Layout| l.editor.close_all_tabs())
+        .bind(CYCLE_VIEW, |l: &mut Layout| l.editor.cycle_view())
         .bind_double_shift(|l: &mut Layout| l.search.open())
 }

@@ -126,7 +126,7 @@ impl Default for HexViewState {
 
 // -- 入口 --
 
-/// 渲染 HexGrid（列头 + ScrollArea 网格 + Inspector 面板）
+/// 渲染 HexGrid（列头 + ScrollArea 网格 + Inspector 浮层）
 pub fn show(ui: &mut egui::Ui, data: &[u8], state: &mut HexViewState, theme: &HexTheme) {
     if data.is_empty() {
         ui.centered_and_justified(|ui| {
@@ -140,17 +140,23 @@ pub fn show(ui: &mut egui::Ui, data: &[u8], state: &mut HexViewState, theme: &He
     let content_w = cols.total_w.max(ui.available_width());
     // 列头
     paint::header(ui, &cols, theme, content_w);
-    // Inspector 高度估算（用于 ScrollArea 预留空间）
+    // Inspector 上帧高度（用于 ScrollArea 内底部 padding）
     let show_inspector = state.cursor.is_some();
-    let inspector_estimate = if show_inspector { 120.0 } else { 0.0 };
-    let grid_h = (ui.available_height() - inspector_estimate).max(ROW_H * 3.0);
-    // ScrollArea + 网格
+    let insp_h_id = ui.id().with("__insp_h");
+    let insp_h: f32 = if show_inspector {
+        ui.ctx().data(|d| d.get_temp(insp_h_id)).unwrap_or(120.0)
+    } else {
+        0.0
+    };
+    // 记录 grid 区域用于 inspector 定位
+    let grid_rect = ui.available_rect_before_wrap();
+    // ScrollArea + 网格（占满全高，不为 inspector 预留空间）
     let mut hover_idx_out: Option<usize> = None;
     egui::ScrollArea::vertical()
         .id_salt("hex_scroll")
-        .max_height(grid_h)
         .show(ui, |ui| {
-            let content_h = total_rows as f32 * ROW_H + PAD_TOP * 2.0;
+            // 底部 padding 让最后几行能滚过 inspector 浮层
+            let content_h = total_rows as f32 * ROW_H + PAD_TOP * 2.0 + insp_h;
             let (response, painter) = ui.allocate_painter(
                 egui::vec2(content_w, content_h),
                 egui::Sense::click_and_drag(),
@@ -209,8 +215,16 @@ pub fn show(ui: &mut egui::Ui, data: &[u8], state: &mut HexViewState, theme: &He
                 input::context_menu(ui, data, state);
             });
         });
-    // 数据检查面板
+    // Inspector 浮层：从底部往上展开，覆盖在 ScrollArea 上方
     if show_inspector {
-        inspector::show(ui, data, state, hover_idx_out, theme);
+        let insp_rect = egui::Rect::from_min_max(
+            egui::pos2(grid_rect.left(), grid_rect.bottom() - insp_h),
+            grid_rect.right_bottom(),
+        );
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(insp_rect));
+        child.set_clip_rect(insp_rect);
+        inspector::show(&mut child, data, state, hover_idx_out, theme);
+        let actual_h = child.min_rect().height();
+        ui.ctx().data_mut(|d| d.insert_temp(insp_h_id, actual_h));
     }
 }

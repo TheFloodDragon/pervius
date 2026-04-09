@@ -6,6 +6,7 @@ use super::item::{Alignment, ItemResponse, StatusItem};
 use crate::shell::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
+use egui_animation::animate_color;
 
 /// 三视图切换 item
 pub struct ViewToggleItem {
@@ -20,6 +21,8 @@ const TOGGLE_OPTIONS: [(&str, ActiveView); 3] = [
     ("Bytecode", ActiveView::Bytecode),
     ("Hex", ActiveView::Hex),
 ];
+
+const ANIM_DURATION: f32 = 0.15;
 
 impl ViewToggleItem {
     pub fn new() -> Self {
@@ -59,7 +62,6 @@ impl StatusItem for ViewToggleItem {
         let pad = 6.0;
         let item_gap = 1.0;
         let container_pad = 2.0;
-        // 预计算每个选项的文字宽度和 item 宽度
         let item_widths: Vec<f32> = TOGGLE_OPTIONS
             .iter()
             .map(|(label, _)| {
@@ -75,19 +77,35 @@ impl StatusItem for ViewToggleItem {
         let container_w = inner_w + container_pad * 2.0;
         let bar_height = theme::STATUS_BAR_HEIGHT;
         let container_h = bar_height - 4.0;
-        // 右对齐：容器右边缘在 x 处
         let container_rect = egui::Rect::from_min_size(
             egui::pos2(x - container_w, center_y - container_h / 2.0),
             egui::vec2(container_w, container_h),
         );
         painter.rect_filled(container_rect, 3.0, theme::BG_DARKEST);
         let item_h = container_h - container_pad * 2.0;
-        let mut ix = container_rect.left() + container_pad;
+        let base_x = container_rect.left() + container_pad;
         let iy = container_rect.top() + container_pad;
+        // 高亮滑块动画（用相对偏移量，避免窗口缩放时跳变）
+        let active_idx = TOGGLE_OPTIONS
+            .iter()
+            .position(|(_, v)| *v == active)
+            .unwrap_or(0);
+        let target_offset: f32 = (0..active_idx).map(|i| item_widths[i] + item_gap).sum();
+        let target_w = item_widths[active_idx];
+        let ctx = ui.ctx();
+        let anim_offset =
+            ctx.animate_value_with_time(ui.id().with("vt_offset"), target_offset, ANIM_DURATION);
+        let anim_w = ctx.animate_value_with_time(ui.id().with("vt_width"), target_w, ANIM_DURATION);
+        let highlight_rect = egui::Rect::from_min_size(
+            egui::pos2(base_x + anim_offset, iy),
+            egui::vec2(anim_w, item_h),
+        );
+        painter.rect_filled(highlight_rect, 2.0, theme::verdigris_alpha(40));
+        // 各选项文字 + 点击区域
+        let mut ix = base_x;
         for (i, (label, view)) in TOGGLE_OPTIONS.iter().enumerate() {
             let iw = item_widths[i];
             let item_rect = egui::Rect::from_min_size(egui::pos2(ix, iy), egui::vec2(iw, item_h));
-            let is_active = active == *view;
             let response = ui.interact(
                 item_rect,
                 ui.id().with(format!("vt_{i}")),
@@ -96,15 +114,16 @@ impl StatusItem for ViewToggleItem {
             if response.clicked() {
                 self.changed = Some(*view);
             }
-            if is_active {
-                painter.rect_filled(item_rect, 2.0, theme::verdigris_alpha(40));
-            }
-            let color = if is_active {
-                theme::VERDIGRIS
-            } else if response.hovered() {
+            // 文字颜色动画
+            let color = if response.hovered() && active != *view {
                 theme::TEXT_PRIMARY
             } else {
-                theme::TEXT_MUTED
+                let target = if active == *view {
+                    theme::VERDIGRIS
+                } else {
+                    theme::TEXT_MUTED
+                };
+                animate_color(ctx, ui.id().with(format!("vt_c{i}")), target, ANIM_DURATION)
             };
             painter.text(
                 item_rect.center(),

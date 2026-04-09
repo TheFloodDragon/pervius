@@ -25,7 +25,7 @@ pub fn hex_theme() -> egui_hex_view::HexTheme {
         cursor_bg: egui_hex_view::color(34, 90, 87, 128),
         separator: egui_hex_view::color(13, 13, 13, 13),
         border: theme::BORDER,
-        inspector_bg: theme::BG_DARK,
+        inspector_bg: theme::BG_DARKEST,
         header_color: theme::TEXT_MUTED,
         header_bg: theme::BG_DARKEST,
     }
