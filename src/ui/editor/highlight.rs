@@ -57,7 +57,6 @@ impl TokenKind {
 
 /// 支持高亮的语言（限 JAR 内可能出现的类型）
 #[derive(Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum Language {
     Java,
     /// Kotlin 复用 Java grammar（关键字高度重叠，tree-sitter-kotlin 版本不兼容）
@@ -73,7 +72,6 @@ pub enum Language {
 
 impl Language {
     /// 从文件扩展名推断
-    #[allow(dead_code)]
     pub fn from_extension(ext: &str) -> Self {
         match ext.to_ascii_lowercase().as_str() {
             "java" => Self::Java,
@@ -89,7 +87,6 @@ impl Language {
     }
 
     /// 从文件名推断
-    #[allow(dead_code)]
     pub fn from_filename(name: &str) -> Self {
         if let Some(ext) = name.rsplit('.').next() {
             let lang = Self::from_extension(ext);

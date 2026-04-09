@@ -10,9 +10,11 @@ use eframe::egui;
 
 // -- 背景层级 --
 
-/// 最深背景 #0D0D0E（HeaderBar、StatusBar）
-pub const BG_DARKEST: egui::Color32 = egui::Color32::from_rgb(13, 13, 14);
-/// 主背景 #151516（面板底色）
+/// 最深背景 #111112（Island 底色）
+pub const BG_DARKEST: egui::Color32 = egui::Color32::from_rgb(17, 17, 18);
+/// 行号栏背景 #131314（介于 island 底色与面板底色之间）
+pub const BG_GUTTER: egui::Color32 = egui::Color32::from_rgb(19, 19, 20);
+/// 主背景 #151516（窗口底色、Header、StatusBar）
 pub const BG_DARK: egui::Color32 = egui::Color32::from_rgb(21, 21, 22);
 /// 中层背景 #1C1C1E（输入框、编辑区、ViewToggle 容器）
 pub const BG_MEDIUM: egui::Color32 = egui::Color32::from_rgb(28, 28, 30);
@@ -86,6 +88,17 @@ pub const FILE_PANEL_WIDTH: f32 = 260.0;
 pub const STATUS_BAR_HEIGHT: f32 = 24.0;
 /// 边框宽度
 pub const BORDER_WIDTH: f32 = 1.0;
+
+// -- Island（IDEA 风格圆角面板）--
+
+/// Island 圆角半径
+pub const ISLAND_RADIUS: u8 = 8;
+/// Island 之间的间距
+pub const ISLAND_GAP: f32 = 6.0;
+/// Island 到窗口左右边缘的水平边距
+pub const ISLAND_MARGIN_H: f32 = 6.0;
+/// Island 到窗口上下边缘的垂直边距
+pub const ISLAND_MARGIN_V: f32 = 4.0;
 
 /// 铜绿色带透明度（用于选中高亮等）
 pub fn verdigris_alpha(alpha: u8) -> egui::Color32 {

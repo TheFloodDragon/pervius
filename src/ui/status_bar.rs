@@ -19,7 +19,7 @@ impl StatusBar {
         // 背景 + 左侧文字 + 右侧文字先用 painter 画完
         {
             let painter = ui.painter();
-            painter.rect_filled(rect, 0.0, theme::BG_DARKEST);
+            painter.rect_filled(rect, 0.0, theme::BG_DARK);
             let y = rect.center().y;
             let mut x = rect.left() + 12.0;
             x = Self::text_at(painter, x, y, "Pervius v0.1.0", theme::TEXT_MUTED);
@@ -94,7 +94,7 @@ impl StatusBar {
             ),
             egui::vec2(container_w, container_h),
         );
-        painter.rect_filled(container_rect, 3.0, theme::BG_DARK);
+        painter.rect_filled(container_rect, 3.0, theme::BG_DARKEST);
         // 各项
         let mut result = active;
         let item_h = container_h - container_pad * 2.0;

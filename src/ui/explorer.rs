@@ -26,11 +26,10 @@ impl FilePanel {
         }
     }
 
-    /// 在给定 rect 内渲染
+    /// 在给定 rect 内渲染（背景由 layout island 绘制）
     pub fn render(&mut self, ui: &mut egui::Ui) {
         let rect = ui.max_rect();
         let painter = ui.painter();
-        painter.rect_filled(rect, 0.0, theme::BG_DARK);
         // 面板标题
         let title_h = 32.0;
         let title_rect =
