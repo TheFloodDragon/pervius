@@ -29,7 +29,7 @@ impl SettingsPanel {
         }
     }
 
-    pub fn icon(mut self, icon: char) -> Self {
+    pub fn icon(mut self, icon: &'static str) -> Self {
         self.window = self.window.icon(icon);
         self
     }

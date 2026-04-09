@@ -17,6 +17,25 @@ pub use widget::{
     section_header, sidebar_item, slider, toggle,
 };
 
+/// 批量渲染快捷键配置行，消除重复样板代码
+///
+/// ```ignore
+/// keybind_rows!(ui, theme, hint, keymap, defaults,
+///     "Open" => open,
+///     "Close" => close,
+/// );
+/// ```
+#[macro_export]
+macro_rules! keybind_rows {
+    ($ui:expr, $st:expr, $hint:expr, $km:expr, $defaults:expr, $( $label:expr => $field:ident ),* $(,)?) => {{
+        let mut _changed = false;
+        $(
+            _changed |= $crate::keybind_row_with($ui, $st, &$label, &mut $km.$field, $defaults.$field, &$hint);
+        )*
+        _changed
+    }};
+}
+
 /// 设置面板主题配色
 pub struct SettingsTheme {
     /// 主要文字色

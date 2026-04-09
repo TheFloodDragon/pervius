@@ -290,17 +290,19 @@ impl<Tab> DockArea<'_, Tab> {
                 tabs_ui.output_mut(|o| o.cursor_icon = CursorIcon::Grabbing);
             }
 
-            let (is_active, label, tab_style, closeable) = {
+            let (is_active, label, tab_style, closeable, modified) = {
                 let leaf = self.dock_state[path]
                     .get_leaf_mut()
                     .expect("This node must be a leaf");
                 let style = fade.unwrap_or_else(|| self.style.as_ref().unwrap());
                 let tab_style = tab_viewer.tab_style_override(&leaf.tabs[tab_index.0], &style.tab);
+                let modified = tab_viewer.is_modified(&leaf.tabs[tab_index.0]);
                 (
                     leaf.active == tab_index || is_being_dragged,
                     tab_viewer.title(&mut leaf.tabs[tab_index.0]),
                     tab_style.unwrap_or(style.tab.clone()),
                     tab_viewer.is_closeable(&leaf.tabs[tab_index.0]),
+                    modified,
                 )
             };
 
@@ -321,6 +323,7 @@ impl<Tab> DockArea<'_, Tab> {
                             is_being_dragged,
                             preferred_width,
                             show_close_button,
+                            modified,
                             fade,
                         )
                     })
@@ -364,6 +367,7 @@ impl<Tab> DockArea<'_, Tab> {
                     is_being_dragged,
                     preferred_width,
                     show_close_button,
+                    modified,
                     fade,
                 );
                 let title_id = response.id;
@@ -914,6 +918,7 @@ impl<Tab> DockArea<'_, Tab> {
         is_being_dragged: bool,
         preferred_width: Option<f32>,
         show_close_button: bool,
+        modified: bool,
         fade: Option<&Style>,
     ) -> (Response, Option<Response>) {
         let style = fade.unwrap_or_else(|| self.style.as_ref().unwrap());
@@ -1022,14 +1027,21 @@ impl<Tab> DockArea<'_, Tab> {
 
             let mut x_rect = close_button_rect;
             rect_set_size_centered(&mut x_rect, Vec2::splat(Style::TAB_CLOSE_X_SIZE));
-            ui.painter().line_segment(
-                [x_rect.left_top(), x_rect.right_bottom()],
-                Stroke::new(1.0, color),
-            );
-            ui.painter().line_segment(
-                [x_rect.right_top(), x_rect.left_bottom()],
-                Stroke::new(1.0, color),
-            );
+            if modified {
+                // 已修改：用实心圆替代 X
+                let center = x_rect.center();
+                let radius = Style::TAB_CLOSE_X_SIZE * 0.35;
+                ui.painter().circle_filled(center, radius, color);
+            } else {
+                ui.painter().line_segment(
+                    [x_rect.left_top(), x_rect.right_bottom()],
+                    Stroke::new(1.0, color),
+                );
+                ui.painter().line_segment(
+                    [x_rect.right_top(), x_rect.left_bottom()],
+                    Stroke::new(1.0, color),
+                );
+            }
 
             close_response
         });

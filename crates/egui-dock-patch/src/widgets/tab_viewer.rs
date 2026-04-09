@@ -100,6 +100,13 @@ pub trait TabViewer {
         true
     }
 
+    /// Returns `true` if the tab has been modified (unsaved changes).
+    ///
+    /// When modified, the close button renders as a filled circle instead of X.
+    fn is_modified(&self, _tab: &Self::Tab) -> bool {
+        false
+    }
+
     /// Returns `true` if the horizontal and vertical scroll bars will be shown for `tab`.
     ///
     /// By default, both scroll bars are shown.

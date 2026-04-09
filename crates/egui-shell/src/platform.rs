@@ -4,12 +4,27 @@
 
 use eframe::egui;
 
+/// 编译期嵌入的应用图标（RGBA）
+fn app_icon() -> egui::IconData {
+    let png = include_bytes!("../icon.png");
+    let img = image::load_from_memory(png)
+        .expect("failed to decode icon.png")
+        .into_rgba8();
+    let (w, h) = img.dimensions();
+    egui::IconData {
+        rgba: img.into_raw(),
+        width: w,
+        height: h,
+    }
+}
+
 /// 构建平台适配的 ViewportBuilder
 pub fn viewport(title: &str, size: [f32; 2]) -> egui::ViewportBuilder {
     let mut vp = egui::ViewportBuilder::default()
         .with_title(title)
         .with_inner_size(size)
-        .with_min_inner_size([640.0, 400.0]);
+        .with_min_inner_size([640.0, 400.0])
+        .with_icon(app_icon());
     // macOS: 保留原生交通灯，内容延伸到标题栏
     #[cfg(target_os = "macos")]
     {

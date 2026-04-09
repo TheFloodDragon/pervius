@@ -18,7 +18,7 @@ const GRAB: f32 = 5.0;
 pub struct FloatingWindow {
     id: egui::Id,
     title: String,
-    icon: Option<char>,
+    icon: Option<&'static str>,
     default_size: egui::Vec2,
     min_size: egui::Vec2,
     resizable: bool,
@@ -59,7 +59,7 @@ impl FloatingWindow {
         }
     }
 
-    pub fn icon(mut self, icon: char) -> Self {
+    pub fn icon(mut self, icon: &'static str) -> Self {
         self.icon = Some(icon);
         self
     }
