@@ -151,6 +151,11 @@ impl EditorArea {
         Some(self.focused_tab()?.active_view)
     }
 
+    /// 当前聚焦 tab 的条目路径
+    pub fn focused_entry_path(&mut self) -> Option<String> {
+        self.focused_tab()?.entry_path.clone()
+    }
+
     pub fn set_focused_view(&mut self, view: ActiveView) {
         if let Some(tab) = self.focused_tab() {
             tab.active_view = view;
