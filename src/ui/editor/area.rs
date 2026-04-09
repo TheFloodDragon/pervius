@@ -7,6 +7,7 @@ use super::style::dock;
 use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
 use super::viewer::{EditorTabViewer, TabAction};
+use crate::decompiler;
 use crate::shell::theme;
 use eframe::egui;
 use egui_dock::{DockArea, DockState, SurfaceIndex, TabPath};
@@ -153,6 +154,33 @@ impl EditorArea {
     pub fn set_focused_view(&mut self, view: ActiveView) {
         if let Some(tab) = self.focused_tab() {
             tab.active_view = view;
+        }
+    }
+
+    /// 反编译完成后，刷新所有已打开的 .class tab 的源码
+    pub fn refresh_class_tabs(&mut self, jar_hash: Option<&str>) {
+        let hash = match jar_hash {
+            Some(h) => h,
+            None => return,
+        };
+        for (_, tab) in self.dock_state.iter_all_tabs_mut() {
+            let entry = match &tab.entry_path {
+                Some(p) if p.ends_with(".class") => p.clone(),
+                _ => continue,
+            };
+            if let Some(cached) = decompiler::cached_source(hash, &entry) {
+                let lang = if cached.is_kotlin {
+                    super::highlight::Language::Kotlin
+                } else {
+                    super::highlight::Language::Java
+                };
+                tab.decompiled = cached.source;
+                tab.language = lang;
+                tab.layouter_decompiled = Box::new(super::highlight::make_layouter(lang));
+                if tab.active_view == ActiveView::Hex {
+                    tab.active_view = ActiveView::Decompiled;
+                }
+            }
         }
     }
 

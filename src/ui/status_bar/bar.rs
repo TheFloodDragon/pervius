@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+use super::decompile_progress::DecompileProgressItem;
 use super::item::{Alignment, StatusItem};
 use super::text_item::TextItem;
 use super::view_toggle::ViewToggleItem;
@@ -36,6 +37,7 @@ impl Default for StatusBar {
         s.add(TextItem::new("UTF-8  |  LF", theme::TEXT_MUTED, Alignment::Right).context_only());
         s.add(TextItem::new("CFR 0.152", theme::ACCENT_GREEN, Alignment::Right).context_only());
         s.add(ViewToggleItem::new());
+        s.add(DecompileProgressItem::new());
         s
     }
 }
@@ -73,6 +75,13 @@ impl StatusBar {
     /// 取出用户通过 ViewToggle 切换的新视图（渲染后调用）
     pub fn take_view_change(&mut self) -> Option<ActiveView> {
         self.item_mut::<ViewToggleItem>()?.take_changed()
+    }
+
+    /// 同步反编译进度，None 表示无任务
+    pub fn sync_decompile(&mut self, info: Option<(&str, u32, u32)>) {
+        if let Some(item) = self.item_mut::<DecompileProgressItem>() {
+            item.set_progress(info);
+        }
     }
 
     /// 渲染状态栏

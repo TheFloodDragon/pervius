@@ -54,23 +54,25 @@ impl EditorTab {
         }
     }
 
-    /// 创建 .class 文件 tab（暂无反编译，默认 Hex 视图）
+    /// 创建 .class 文件 tab
     pub fn new_class(
         title: impl Into<String>,
         entry_path: impl Into<String>,
         raw_bytes: Vec<u8>,
+        language: Language,
     ) -> Self {
+        let lang = language;
         Self {
             title: title.into(),
             entry_path: Some(entry_path.into()),
             decompiled: "// Decompiler not yet integrated".into(),
             bytecode: "// Bytecode view not yet available".into(),
             raw_bytes,
-            language: Language::Java,
+            language,
             active_view: ActiveView::Hex,
             is_modified: false,
             hex_state: HexViewState::default(),
-            layouter_decompiled: Box::new(highlight::make_layouter(Language::Java)),
+            layouter_decompiled: Box::new(highlight::make_layouter(lang)),
             layouter_bytecode: Box::new(highlight::make_bytecode_layouter()),
         }
     }

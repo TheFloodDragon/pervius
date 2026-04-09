@@ -3,6 +3,7 @@
 //! @author sky
 
 mod bar;
+mod decompile_progress;
 mod item;
 mod text_item;
 mod view_toggle;

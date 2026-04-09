@@ -40,7 +40,7 @@ impl TabViewer for EditorTabViewer {
         let mut job = egui::text::LayoutJob::default();
         job.append("", 4.0, egui::TextFormat::default());
         job.append(
-            codicon::SYMBOL_CLASS,
+            codicon::JAVA,
             0.0,
             egui::TextFormat {
                 font_id: egui::FontId::new(11.0, codicon::family()),
