@@ -5,6 +5,9 @@
 //! @author sky
 
 use eframe::egui;
+use rust_i18n::t;
+
+use super::codicon;
 
 // -- 背景层级 --
 
@@ -137,7 +140,9 @@ pub fn window_theme() -> egui_window::WindowTheme {
         bg_pressed: BG_LIGHT,
         separator: BORDER,
         icon_font: egui::FontFamily::Name("codicon".into()),
-        pin_icon: '\u{EBA0}',
+        pin_icon: codicon::PIN,
+        pin_tooltip: t!("window.pin").to_string(),
+        unpin_tooltip: t!("window.unpin").to_string(),
     }
 }
 
@@ -154,6 +159,6 @@ pub fn settings_theme() -> egui_window_settings::SettingsTheme {
         border: BORDER,
         accent: VERDIGRIS,
         icon_font: egui::FontFamily::Name("codicon".into()),
-        chevron_icon: '\u{EAB4}',
+        chevron_icon: codicon::CHEVRON_DOWN,
     }
 }

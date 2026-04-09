@@ -249,7 +249,7 @@ pub fn dropdown<T: PartialEq + Copy + std::fmt::Display>(
     painter.text(
         egui::pos2(arrow_x, mid_y),
         egui::Align2::RIGHT_CENTER,
-        theme.chevron_icon.to_string(),
+        theme.chevron_icon,
         egui::FontId::new(10.0, theme.icon_font.clone()),
         theme.text_muted,
     );
@@ -310,6 +310,19 @@ pub fn path_picker(
     hint: &str,
     on_browse: impl FnOnce() -> Option<String>,
 ) -> bool {
+    path_picker_with(ui, theme, label, value, hint, "Browse", on_browse)
+}
+
+/// 路径选择设置行（可自定义 Browse 按钮文字）
+pub fn path_picker_with(
+    ui: &mut egui::Ui,
+    theme: &SettingsTheme,
+    label: &str,
+    value: &mut String,
+    hint: &str,
+    browse_label: &str,
+    on_browse: impl FnOnce() -> Option<String>,
+) -> bool {
     let old = value.clone();
     let avail_w = ui.available_width();
     let total_h = 56.0;
@@ -346,7 +359,7 @@ pub fn path_picker(
     painter.text(
         btn_rect.center(),
         egui::Align2::CENTER_CENTER,
-        "Browse",
+        browse_label,
         egui::FontId::proportional(11.0),
         theme.text_secondary,
     );
@@ -403,6 +416,18 @@ pub fn keybind_row(
     bind: &mut KeyBind,
     default: KeyBind,
 ) -> bool {
+    keybind_row_with(ui, theme, label, bind, default, "Press a key...")
+}
+
+/// 快捷键配置行（可自定义录制提示文字）
+pub fn keybind_row_with(
+    ui: &mut egui::Ui,
+    theme: &SettingsTheme,
+    label: &str,
+    bind: &mut KeyBind,
+    default: KeyBind,
+    recording_hint: &str,
+) -> bool {
     let mut changed = false;
     let avail_w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(egui::vec2(avail_w, ROW_H), egui::Sense::hover());
@@ -451,7 +476,7 @@ pub fn keybind_row(
         painter.text(
             egui::pos2(rect.right() - PAD_RIGHT, mid_y),
             egui::Align2::RIGHT_CENTER,
-            "Press a key...",
+            recording_hint,
             egui::FontId::proportional(11.0),
             theme.accent,
         );

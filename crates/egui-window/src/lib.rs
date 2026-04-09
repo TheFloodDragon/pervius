@@ -36,7 +36,11 @@ pub struct WindowTheme {
     /// 图标字体族（header icon + pin icon）
     pub icon_font: egui::FontFamily,
     /// Pin 图标字符
-    pub pin_icon: char,
+    pub pin_icon: &'static str,
+    /// Pin 按钮 tooltip（已固定时）
+    pub pin_tooltip: String,
+    /// Unpin 按钮 tooltip（未固定时）
+    pub unpin_tooltip: String,
 }
 
 /// 1px 水平分隔线

@@ -11,6 +11,7 @@ use crate::ui::keybindings;
 use crate::ui::menu::item::menu_item;
 use eframe::egui;
 use egui_dock::{NodePath, TabViewer};
+use rust_i18n::t;
 
 /// Tab 右键菜单触发的动作
 pub enum TabAction {
@@ -94,19 +95,27 @@ impl TabViewer for EditorTabViewer<'_> {
     }
 
     fn context_menu(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab, _path: NodePath) {
-        if menu_item(ui, "Close", Some(&keybindings::DEFAULT_CLOSE_TAB)) {
+        if menu_item(
+            ui,
+            &t!("editor.close"),
+            Some(&keybindings::DEFAULT_CLOSE_TAB),
+        ) {
             self.action = Some(TabAction::Close(tab.entry_path.clone()));
             ui.close();
         }
-        if menu_item(ui, "Close Others", None) {
+        if menu_item(ui, &t!("editor.close_others"), None) {
             self.action = Some(TabAction::CloseOthers(tab.entry_path.clone()));
             ui.close();
         }
-        if menu_item(ui, "Close to the Right", None) {
+        if menu_item(ui, &t!("editor.close_to_right"), None) {
             self.action = Some(TabAction::CloseToRight(tab.entry_path.clone()));
             ui.close();
         }
-        if menu_item(ui, "Close All", Some(&keybindings::DEFAULT_CLOSE_ALL_TABS)) {
+        if menu_item(
+            ui,
+            &t!("editor.close_all"),
+            Some(&keybindings::DEFAULT_CLOSE_ALL_TABS),
+        ) {
             self.action = Some(TabAction::CloseAll);
             ui.close();
         }

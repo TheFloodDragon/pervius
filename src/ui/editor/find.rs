@@ -7,6 +7,7 @@ use super::view_toggle::ActiveView;
 use crate::shell::{codicon, theme};
 use crate::ui::widget::FlatButton;
 use eframe::egui;
+use rust_i18n::t;
 use std::hash::{Hash, Hasher};
 
 /// island 到编辑区边缘的间距
@@ -123,7 +124,7 @@ impl FindBar {
             // ✕ 关闭
             if ui
                 .add(icon_btn(codicon::CLOSE))
-                .on_hover_text("Close (Esc)")
+                .on_hover_text(t!("find.close"))
                 .clicked()
             {
                 self.close();
@@ -132,7 +133,7 @@ impl FindBar {
             // ↓ 下一个
             if ui
                 .add(icon_btn(codicon::CHEVRON_DOWN))
-                .on_hover_text("Next match (Enter)")
+                .on_hover_text(t!("find.next"))
                 .clicked()
             {
                 self.next_match();
@@ -141,7 +142,7 @@ impl FindBar {
             // ↑ 上一个
             if ui
                 .add(icon_btn(codicon::CHEVRON_UP))
-                .on_hover_text("Previous match (Shift+Enter)")
+                .on_hover_text(t!("find.prev"))
                 .clicked()
             {
                 self.prev_match();
@@ -152,10 +153,15 @@ impl FindBar {
             let (count_text, count_color) = if self.query.is_empty() {
                 (String::new(), theme::TEXT_MUTED)
             } else if self.matches.is_empty() {
-                ("0 results".to_string(), theme::ACCENT_RED)
+                (t!("find.no_results").to_string(), theme::ACCENT_RED)
             } else {
                 (
-                    format!("{} of {}", self.current + 1, self.matches.len()),
+                    t!(
+                        "find.result_count",
+                        current = self.current + 1,
+                        total = self.matches.len()
+                    )
+                    .to_string(),
                     theme::TEXT_MUTED,
                 )
             };
@@ -168,7 +174,7 @@ impl FindBar {
             // .* Regex
             if ui
                 .add(icon_toggle(codicon::REGEX, self.regex))
-                .on_hover_text("Use regex")
+                .on_hover_text(t!("find.use_regex"))
                 .clicked()
             {
                 self.regex = !self.regex;
@@ -178,7 +184,7 @@ impl FindBar {
             // W Whole Word
             if ui
                 .add(icon_toggle(codicon::WHOLE_WORD, self.whole_word))
-                .on_hover_text("Match whole word")
+                .on_hover_text(t!("find.match_word"))
                 .clicked()
             {
                 self.whole_word = !self.whole_word;
@@ -188,7 +194,7 @@ impl FindBar {
             // Cc Case Sensitive
             if ui
                 .add(icon_toggle(codicon::CASE_SENSITIVE, self.case_sensitive))
-                .on_hover_text("Match case")
+                .on_hover_text(t!("find.match_case"))
                 .clicked()
             {
                 self.case_sensitive = !self.case_sensitive;
@@ -207,7 +213,7 @@ impl FindBar {
                 let resp = ui.add(
                     egui::TextEdit::singleline(&mut self.query)
                         .id(ui.id().with("find_input"))
-                        .hint_text("Find...")
+                        .hint_text(t!("find.hint"))
                         .frame(egui::Frame::NONE)
                         .text_color(theme::TEXT_PRIMARY)
                         .font(egui::FontId::proportional(13.0))

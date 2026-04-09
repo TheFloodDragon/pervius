@@ -7,6 +7,7 @@ pub mod tree;
 use crate::shell::{codicon, theme};
 use crate::ui::widget::FlatButton;
 use eframe::egui;
+use rust_i18n::t;
 use std::collections::HashSet;
 use std::sync::{mpsc, Arc};
 use tree::TreeNode;
@@ -73,7 +74,7 @@ impl FilePanel {
         painter.text(
             egui::pos2(title_rect.left() + 12.0, title_rect.center().y),
             egui::Align2::LEFT_CENTER,
-            "EXPLORER",
+            &t!("explorer.title"),
             egui::FontId::proportional(11.0),
             theme::TEXT_SECONDARY,
         );
@@ -278,7 +279,7 @@ impl FilePanel {
                     .inactive_color(theme::TEXT_SECONDARY)
                     .min_size(btn_size),
             )
-            .on_hover_text("Collapse One Level")
+            .on_hover_text(t!("explorer.collapse"))
             .clicked()
         {
             tree::collapse_one_level(&mut self.roots);
@@ -295,7 +296,7 @@ impl FilePanel {
                     .inactive_color(theme::TEXT_SECONDARY)
                     .min_size(btn_size),
             )
-            .on_hover_text("Expand One Level")
+            .on_hover_text(t!("explorer.expand"))
             .clicked()
         {
             tree::expand_one_level(&mut self.roots);

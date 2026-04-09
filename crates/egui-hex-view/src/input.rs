@@ -3,7 +3,7 @@
 //! @author sky
 
 use crate::layout::Cols;
-use crate::{HexViewState, Region, BYTES_PER_ROW, HEX_CHARS, PAD_TOP, ROW_H};
+use crate::{HexTheme, HexViewState, Region, BYTES_PER_ROW, HEX_CHARS, PAD_TOP, ROW_H};
 use eframe::egui;
 
 // -- Hit test --
@@ -107,11 +107,15 @@ fn selection_range(state: &HexViewState) -> (usize, usize) {
     }
 }
 
-pub(crate) fn context_menu(ui: &mut egui::Ui, data: &[u8], state: &mut HexViewState) {
+pub(crate) fn context_menu(
+    ui: &mut egui::Ui,
+    data: &[u8],
+    state: &mut HexViewState,
+    theme: &HexTheme,
+) {
     let has_data = state.selection.is_some() || state.cursor.is_some();
-    // Copy as Hex
     if ui
-        .add_enabled(has_data, egui::Button::new("Copy as Hex"))
+        .add_enabled(has_data, egui::Button::new(&theme.labels.copy_hex))
         .clicked()
     {
         let (start, end) = selection_range(state);
@@ -125,9 +129,8 @@ pub(crate) fn context_menu(ui: &mut egui::Ui, data: &[u8], state: &mut HexViewSt
         }
         ui.close();
     }
-    // Copy as ASCII
     if ui
-        .add_enabled(has_data, egui::Button::new("Copy as ASCII"))
+        .add_enabled(has_data, egui::Button::new(&theme.labels.copy_ascii))
         .clicked()
     {
         let (start, end) = selection_range(state);
@@ -147,9 +150,11 @@ pub(crate) fn context_menu(ui: &mut egui::Ui, data: &[u8], state: &mut HexViewSt
         ui.close();
     }
     ui.separator();
-    // Copy Offset
     if ui
-        .add_enabled(state.cursor.is_some(), egui::Button::new("Copy Offset"))
+        .add_enabled(
+            state.cursor.is_some(),
+            egui::Button::new(&theme.labels.copy_offset),
+        )
         .clicked()
     {
         if let Some(c) = state.cursor {
@@ -158,8 +163,7 @@ pub(crate) fn context_menu(ui: &mut egui::Ui, data: &[u8], state: &mut HexViewSt
         ui.close();
     }
     ui.separator();
-    // Select All
-    if ui.button("Select All").clicked() {
+    if ui.button(&theme.labels.select_all).clicked() {
         state.cursor = Some(0);
         state.selection = Some((0, data.len()));
         ui.close();

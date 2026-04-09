@@ -48,18 +48,18 @@ pub(crate) fn show(
             ui.style_mut().spacing.item_spacing = egui::vec2(0.0, 2.0);
             // 标题行
             let source = if state.selection.is_some() {
-                "Selection"
+                &theme.labels.selection
             } else if state.cursor.is_some() {
-                "Cursor"
+                &theme.labels.cursor
             } else {
-                "Hover"
+                &theme.labels.hover
             };
             ui.horizontal(|ui| {
                 ui.label(mono(&format!("{source}  0x{start_idx:08X}"), theme.accent));
                 if end_idx - start_idx > 1 {
                     ui.add_space(16.0);
                     ui.label(mono(
-                        &format!("{} bytes", end_idx - start_idx),
+                        &format!("{} {}", end_idx - start_idx, theme.labels.bytes),
                         theme.text_secondary,
                     ));
                 }

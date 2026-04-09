@@ -6,22 +6,27 @@ use super::item::{menu_item, menu_item_raw, menu_submenu};
 use crate::ui::layout::Layout;
 use eframe::egui;
 use egui_window_settings::SettingsFile;
+use rust_i18n::t;
 use std::path::PathBuf;
 
 pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
-    if menu_item(ui, "Open JAR...", Some(&layout.settings.keymap.open_jar)) {
+    if menu_item(
+        ui,
+        &t!("menu.open_jar"),
+        Some(&layout.settings.keymap.open_jar),
+    ) {
         layout.open_jar_dialog();
     }
     // Open Recent submenu
     let recent = layout.settings.recent.clone();
     let mut open_path: Option<PathBuf> = None;
     let mut clear = false;
-    menu_submenu(ui, "Open Recent", |ui| {
+    menu_submenu(ui, &t!("menu.open_recent"), |ui| {
         if recent.is_empty() {
             ui.add_enabled(
                 false,
                 egui::Label::new(
-                    egui::RichText::new("No Recent Files")
+                    egui::RichText::new(t!("menu.no_recent"))
                         .size(12.0)
                         .color(egui::Color32::from_rgb(100, 100, 100)),
                 ),
@@ -37,7 +42,7 @@ pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
                 }
             }
             ui.separator();
-            if menu_item_raw(ui, "Clear Recent Files", "") {
+            if menu_item_raw(ui, &t!("menu.clear_recent"), "") {
                 clear = true;
             }
         }
@@ -52,22 +57,22 @@ pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
     ui.separator();
     if menu_item(
         ui,
-        "Export Decompiled...",
+        &t!("menu.export_decompiled"),
         Some(&layout.settings.keymap.export_decompiled),
     ) {}
-    if menu_item(ui, "Re-decompile", None) {
+    if menu_item(ui, &t!("menu.re_decompile"), None) {
         layout.re_decompile();
     }
     ui.separator();
     if menu_item(
         ui,
-        "Settings...",
+        &t!("menu.settings"),
         Some(&layout.settings.keymap.open_settings),
     ) {
         layout.open_settings();
     }
     ui.separator();
-    if menu_item_raw(ui, "Exit", "Alt+F4") {
+    if menu_item_raw(ui, &t!("menu.exit"), "Alt+F4") {
         ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
     }
 }

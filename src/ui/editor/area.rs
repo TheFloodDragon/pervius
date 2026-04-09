@@ -8,10 +8,11 @@ use super::style::dock;
 use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
 use super::viewer::{EditorTabViewer, TabAction};
-use crate::decompiler;
+use crate::java::decompiler;
 use crate::shell::theme;
 use eframe::egui;
 use egui_dock::{DockArea, DockState, SurfaceIndex, TabPath};
+use rust_i18n::t;
 
 /// 编辑器区域状态
 pub struct EditorArea {
@@ -66,10 +67,14 @@ impl EditorArea {
         let rect = ui.max_rect();
         let painter = ui.painter();
         let center = rect.center();
+        let hint_open = t!("editor.open_file");
+        let hint_find = t!("editor.find_in_files");
+        let hint_shift = t!("editor.double_shift").to_string();
+        let hint_project = t!("editor.project_view");
         let hints: &[(&str, String)] = &[
-            ("Open File", keybindings::DEFAULT_OPEN_JAR.label()),
-            ("Find in Files", "Double Shift".into()),
-            ("Project View", keybindings::DEFAULT_TOGGLE_EXPLORER.label()),
+            (&hint_open, keybindings::DEFAULT_OPEN_JAR.label()),
+            (&hint_find, hint_shift),
+            (&hint_project, keybindings::DEFAULT_TOGGLE_EXPLORER.label()),
         ];
         let font_action = egui::FontId::proportional(13.0);
         let font_keybind = egui::FontId::proportional(11.0);
@@ -109,7 +114,7 @@ impl EditorArea {
         painter.text(
             egui::pos2(center.x, drop_y),
             egui::Align2::CENTER_CENTER,
-            "Drop files here to open them",
+            &t!("editor.drop_hint"),
             font_hint,
             theme::TEXT_MUTED,
         );

@@ -31,7 +31,7 @@ impl FloatingWindow {
             ui.add_space(10.0);
             if let Some(icon) = self.icon {
                 ui.label(
-                    egui::RichText::new(icon.to_string())
+                    egui::RichText::new(icon)
                         .font(egui::FontId::new(14.0, theme.icon_font.clone()))
                         .color(theme.accent),
                 );
@@ -75,7 +75,7 @@ impl FloatingWindow {
                 wv.active.weak_bg_fill = theme.bg_pressed;
                 ui.add(
                     egui::Button::new(
-                        egui::RichText::new(theme.pin_icon.to_string())
+                        egui::RichText::new(theme.pin_icon)
                             .font(egui::FontId::new(14.0, theme.icon_font.clone()))
                             .color(color),
                     )
@@ -85,7 +85,11 @@ impl FloatingWindow {
             })
             .inner;
         if resp
-            .on_hover_text(if is_pinned { "Unpin" } else { "Pin" })
+            .on_hover_text(if is_pinned {
+                &theme.unpin_tooltip
+            } else {
+                &theme.pin_tooltip
+            })
             .clicked()
         {
             self.pinned = !self.pinned;

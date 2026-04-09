@@ -2,8 +2,9 @@
 //!
 //! @author sky
 
-mod decompiler;
-mod jar;
+rust_i18n::i18n!("locales", fallback = "en");
+
+mod java;
 mod settings;
 mod shell;
 mod ui;
@@ -15,6 +16,9 @@ fn main() -> eframe::Result {
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Debug)
         .init();
+    // 从持久化配置中读取语言并设置 locale
+    let saved_settings = settings::Settings::load_for_locale();
+    rust_i18n::set_locale(saved_settings.language.code());
     let options = shell::ShellOptions {
         title: "Pervius".to_owned(),
         size: [1280.0, 800.0],

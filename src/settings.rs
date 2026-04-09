@@ -7,6 +7,7 @@
 
 use egui_keybind::KeyBind;
 use egui_window_settings::SettingsFile;
+use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -14,10 +15,46 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// 最近打开列表上限
 const MAX_RECENT: usize = 10;
 
+/// 界面语言
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Language {
+    #[serde(rename = "en")]
+    En,
+    #[serde(rename = "zh")]
+    Zh,
+}
+
+impl Default for Language {
+    fn default() -> Self {
+        Self::En
+    }
+}
+
+impl Language {
+    pub const ALL: &[Self] = &[Self::En, Self::Zh];
+
+    /// 返回 rust-i18n 使用的 locale code
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::En => "en",
+            Self::Zh => "zh",
+        }
+    }
+
+    /// 返回语言显示名称
+    pub fn label(self) -> String {
+        match self {
+            Self::En => t!("lang.en").to_string(),
+            Self::Zh => t!("lang.zh").to_string(),
+        }
+    }
+}
+
 /// 顶层配置
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    pub language: Language,
     pub java: JavaSettings,
     pub keymap: KeymapSettings,
     pub recent: Vec<RecentEntry>,
@@ -26,6 +63,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            language: Language::default(),
             java: JavaSettings::default(),
             keymap: KeymapSettings::default(),
             recent: Vec::new(),
@@ -99,6 +137,11 @@ impl Default for KeymapSettings {
 }
 
 impl Settings {
+    /// 仅读取语言配置（用于启动时在 UI 初始化前设置 locale）
+    pub fn load_for_locale() -> Self {
+        Self::load()
+    }
+
     /// 解析生效的 java 路径，空字符串时回退到 JAVA_HOME 环境变量
     pub fn java_executable(&self) -> Option<PathBuf> {
         let home = if self.java.java_home.is_empty() {

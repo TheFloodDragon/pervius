@@ -6,6 +6,7 @@ use super::highlight::{self, Language};
 use super::view_toggle::ActiveView;
 use eframe::egui;
 use egui_hex_view::HexViewState;
+use rust_i18n::t;
 use std::sync::Arc;
 
 /// 编辑器 Tab 数据
@@ -69,11 +70,15 @@ impl EditorTab {
     ) -> Self {
         let lang = language;
         let class_info = parse_class_version(&raw_bytes);
+        let bytecode = match crate::java::bytecode::disassemble(&raw_bytes) {
+            Ok(text) => text,
+            Err(e) => t!("editor.disassemble_error", error = e).to_string(),
+        };
         Self {
             title: title.into(),
             entry_path: Some(entry_path.into()),
-            decompiled: "// Decompiler not yet integrated".into(),
-            bytecode: "// Bytecode view not yet available".into(),
+            decompiled: t!("editor.decompiler_placeholder").to_string(),
+            bytecode,
             raw_bytes,
             language,
             active_view: ActiveView::Hex,

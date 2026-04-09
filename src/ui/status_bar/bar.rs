@@ -7,10 +7,11 @@ use super::decompile_progress::DecompileProgressItem;
 use super::item::{Alignment, StatusItem};
 use super::text_item::TextItem;
 use super::view_toggle::ViewToggleItem;
-use crate::decompiler;
+use crate::java::decompiler;
 use crate::shell::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
+use rust_i18n::t;
 
 /// 状态栏服务
 ///
@@ -24,7 +25,7 @@ impl Default for StatusBar {
     fn default() -> Self {
         let mut s = Self { items: Vec::new() };
         s.add(TextItem::new(
-            "Pervius v0.1.0",
+            t!("status.version"),
             theme::TEXT_MUTED,
             Alignment::Left,
         ));

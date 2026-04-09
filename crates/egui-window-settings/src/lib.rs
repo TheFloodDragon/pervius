@@ -13,8 +13,8 @@ use eframe::egui;
 pub use panel::SettingsPanel;
 pub use persist::SettingsFile;
 pub use widget::{
-    dropdown, is_recording_keybind, keybind_row, path_picker, section_header, sidebar_item, slider,
-    toggle,
+    dropdown, is_recording_keybind, keybind_row, keybind_row_with, path_picker, path_picker_with,
+    section_header, sidebar_item, slider, toggle,
 };
 
 /// 设置面板主题配色
@@ -40,5 +40,5 @@ pub struct SettingsTheme {
     /// 图标字体族
     pub icon_font: egui::FontFamily,
     /// 下拉箭头字符
-    pub chevron_icon: char,
+    pub chevron_icon: &'static str,
 }

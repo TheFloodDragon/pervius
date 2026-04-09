@@ -4,6 +4,8 @@
 //!
 //! @author sky
 
+use rust_i18n::t;
+
 /// 搜索分类（字节码语义维度）
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SearchCategory {
@@ -25,14 +27,14 @@ impl SearchCategory {
         Self::Instructions,
     ];
 
-    pub const fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Self::Strings => "Strings",
-            Self::Values => "Values",
-            Self::ClassReferences => "Class references",
-            Self::MemberReferences => "Member references",
-            Self::MemberDeclarations => "Member declarations",
-            Self::Instructions => "Instructions",
+            Self::Strings => t!("search.strings").to_string(),
+            Self::Values => t!("search.values").to_string(),
+            Self::ClassReferences => t!("search.class_refs").to_string(),
+            Self::MemberReferences => t!("search.member_refs").to_string(),
+            Self::MemberDeclarations => t!("search.member_decls").to_string(),
+            Self::Instructions => t!("search.instructions").to_string(),
         }
     }
 }

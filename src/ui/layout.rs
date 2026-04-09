@@ -9,10 +9,10 @@ use super::editor::EditorArea;
 use super::explorer::tree;
 use super::explorer::FilePanel;
 use super::search::SearchDialog;
-use super::settings::SettingsDialog;
+use super::settings_dialog::SettingsDialog;
 use super::status_bar::StatusBar;
-use crate::decompiler::DecompileTask;
-use crate::jar::JarArchive;
+use crate::java::decompiler::DecompileTask;
+use crate::java::jar::JarArchive;
 use crate::settings::Settings;
 use crate::shell::theme;
 use eframe::egui;
@@ -105,6 +105,10 @@ impl Layout {
         if let Some(new_settings) = self.settings_dialog.render(ui.ctx()) {
             // keybind 配置变更时重建 KeyMap
             self.keys = super::keybindings::build_keymap(&new_settings.keymap);
+            // 语言变更时更新 locale
+            if new_settings.language != self.settings.language {
+                rust_i18n::set_locale(new_settings.language.code());
+            }
             self.settings = new_settings;
             if let Err(e) = self.settings.save() {
                 log::warn!("配置保存失败: {e}");

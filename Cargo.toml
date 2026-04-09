@@ -34,6 +34,8 @@ tree-sitter-sequel = "0.3"
 tree-sitter-kotlin-sg = "0.4.0"
 sha2 = "0.10"
 dirs = "6"
+ristretto_classfile = "0.30"
+rust-i18n = "3"
 
 [patch.crates-io]
 egui_dock = { path = "crates/egui-dock-patch" }

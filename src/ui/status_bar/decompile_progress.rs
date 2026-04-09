@@ -5,6 +5,7 @@
 use super::item::{Alignment, ItemResponse, StatusItem};
 use crate::shell::theme;
 use eframe::egui;
+use rust_i18n::t;
 
 /// 反编译进度 item（左侧显示，反编译期间可见）
 pub struct DecompileProgressItem {
@@ -25,9 +26,15 @@ impl DecompileProgressItem {
         match info {
             Some((name, current, total)) => {
                 if current == 0 {
-                    self.text = format!("Decompiling {name} (initializing...)");
+                    self.text = t!("status.decompiling_init", name = name).to_string();
                 } else {
-                    self.text = format!("Decompiling {name} ({current}/{total})");
+                    self.text = t!(
+                        "status.decompiling_progress",
+                        name = name,
+                        current = current,
+                        total = total
+                    )
+                    .to_string();
                 }
                 self.visible = true;
             }

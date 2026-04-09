@@ -90,6 +90,38 @@ pub struct HexTheme {
     pub header_color: egui::Color32,
     /// 列头背景色
     pub header_bg: egui::Color32,
+    /// UI 文字标签
+    pub labels: HexLabels,
+}
+
+/// Hex 视图中的可翻译文字标签
+#[derive(Clone)]
+pub struct HexLabels {
+    pub empty: String,
+    pub copy_hex: String,
+    pub copy_ascii: String,
+    pub copy_offset: String,
+    pub select_all: String,
+    pub selection: String,
+    pub cursor: String,
+    pub hover: String,
+    pub bytes: String,
+}
+
+impl Default for HexLabels {
+    fn default() -> Self {
+        Self {
+            empty: "(empty)".into(),
+            copy_hex: "Copy as Hex".into(),
+            copy_ascii: "Copy as ASCII".into(),
+            copy_offset: "Copy Offset".into(),
+            select_all: "Select All".into(),
+            selection: "Selection".into(),
+            cursor: "Cursor".into(),
+            hover: "Hover".into(),
+            bytes: "bytes".into(),
+        }
+    }
 }
 
 // -- 交互状态 --
@@ -130,7 +162,7 @@ impl Default for HexViewState {
 pub fn show(ui: &mut egui::Ui, data: &[u8], state: &mut HexViewState, theme: &HexTheme) {
     if data.is_empty() {
         ui.centered_and_justified(|ui| {
-            ui.label(egui::RichText::new("(empty)").color(theme.text_muted));
+            ui.label(egui::RichText::new(&theme.labels.empty).color(theme.text_muted));
         });
         return;
     }
@@ -212,7 +244,7 @@ pub fn show(ui: &mut egui::Ui, data: &[u8], state: &mut HexViewState, theme: &He
             }
             // 右键菜单
             response.context_menu(|ui| {
-                input::context_menu(ui, data, state);
+                input::context_menu(ui, data, state, theme);
             });
         });
     // Inspector 浮层：从底部往上展开，覆盖在 ScrollArea 上方

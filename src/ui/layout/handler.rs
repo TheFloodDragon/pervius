@@ -3,8 +3,8 @@
 //! @author sky
 
 use super::Layout;
-use crate::decompiler;
-use crate::jar::{JarArchive, LoadProgress};
+use crate::java::decompiler;
+use crate::java::jar::{JarArchive, LoadProgress};
 use crate::shell::theme;
 use crate::ui::editor::highlight::Language;
 use crate::ui::editor::view_toggle::ActiveView;
@@ -12,6 +12,7 @@ use crate::ui::editor::{EditorArea, EditorTab};
 use crate::ui::explorer::tree;
 use eframe::egui;
 use egui_window_settings::SettingsFile;
+use rust_i18n::t;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::{mpsc, Arc};
@@ -142,12 +143,12 @@ impl Layout {
                 let hash = self.jar.as_ref().map(|j| j.hash.as_str());
                 self.editor.refresh_class_tabs(hash);
                 self.toasts
-                    .info(format!("Decompilation complete: {}", task.jar_name));
+                    .info(t!("layout.decompile_complete", name = task.jar_name));
                 self.decompiling = None;
             }
             Ok(Err(e)) => {
                 log::error!("Decompilation failed: {e}");
-                self.toasts.error(format!("Decompilation failed: {e}"));
+                self.toasts.error(t!("layout.decompile_failed", error = e));
                 self.decompiling = None;
             }
             Err(mpsc::TryRecvError::Empty) => {}
@@ -174,7 +175,7 @@ impl Layout {
             None => return,
         };
         if self.decompiling.is_some() {
-            self.toasts.warning("Decompilation already in progress");
+            self.toasts.warning(t!("layout.decompile_in_progress"));
             return;
         }
         decompiler::clear_cache(&jar.hash);
@@ -189,7 +190,8 @@ impl Layout {
                 self.decompiling = Some(task);
             }
             Err(e) => {
-                self.toasts.warning(format!("Decompiler unavailable: {e}"));
+                self.toasts
+                    .warning(t!("layout.decompiler_unavailable", error = e));
             }
         }
     }
@@ -207,7 +209,8 @@ impl Layout {
             }
             Err(e) => {
                 log::warn!("Cannot start decompiler: {e}");
-                self.toasts.warning(format!("Decompiler unavailable: {e}"));
+                self.toasts
+                    .warning(t!("layout.decompiler_unavailable", error = e));
             }
         }
     }
@@ -240,9 +243,11 @@ impl Layout {
 
     /// 打开文件对话框选择 JAR
     pub fn open_jar_dialog(&mut self) {
+        let jar_label = t!("layout.java_archive");
+        let class_label = t!("layout.class_file");
         let file = rfd::FileDialog::new()
-            .add_filter("Java Archive", &["jar", "zip", "war", "ear"])
-            .add_filter("Class File", &["class"])
+            .add_filter(&*jar_label, &["jar", "zip", "war", "ear"])
+            .add_filter(&*class_label, &["class"])
             .pick_file();
         if let Some(path) = file {
             self.open_jar(&path);
@@ -418,7 +423,7 @@ pub(super) fn paint_loading(ui: &egui::Ui, rect: egui::Rect, loading: &LoadingSt
     painter.text(
         egui::pos2(cx, cy - 20.0),
         egui::Align2::CENTER_CENTER,
-        format!("Opening {}...", loading.name),
+        t!("layout.opening", name = loading.name),
         egui::FontId::proportional(13.0),
         theme::TEXT_SECONDARY,
     );

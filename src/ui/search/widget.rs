@@ -5,6 +5,7 @@
 use super::result::{SearchMatch, SearchResultGroup, SourcePreview};
 use crate::shell::{codicon, theme};
 use eframe::egui;
+use rust_i18n::t;
 
 /// 结果行高
 pub const ROW_HEIGHT: f32 = 24.0;
@@ -93,7 +94,11 @@ pub fn render_group_header(ui: &mut egui::Ui, group: &SearchResultGroup) -> bool
         egui::FontId::proportional(12.0),
         theme::TEXT_PRIMARY,
     );
-    let info = format!("{}  ({} matches)", group.package, group.matches.len());
+    let info = format!(
+        "{}  ({})",
+        group.package,
+        t!("search.matches", count = group.matches.len())
+    );
     painter.text(
         egui::pos2(rect.right() - 8.0, mid_y),
         egui::Align2::RIGHT_CENTER,

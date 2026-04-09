@@ -13,6 +13,7 @@ use crate::ui::editor::highlight;
 use crate::ui::widget::FlatButton;
 use eframe::egui;
 use egui_window::FloatingWindow;
+use rust_i18n::t;
 
 /// 预览面板行高
 const PREVIEW_LINE_HEIGHT: f32 = 18.0;
@@ -49,8 +50,8 @@ pub struct SearchDialog {
 impl SearchDialog {
     pub fn new() -> Self {
         Self {
-            window: FloatingWindow::new("search_window", "Search")
-                .icon('\u{EA6D}')
+            window: FloatingWindow::new("search_window", t!("search.title").to_string())
+                .icon(codicon::SEARCH)
                 .default_size([700.0, 520.0])
                 .min_size([400.0, 300.0]),
             query: String::new(),
@@ -98,8 +99,10 @@ impl SearchDialog {
                         .inactive_color(theme::TEXT_MUTED)
                         .min_size(egui::vec2(0.0, 22.0))
                 };
+                let label_bytecode = t!("search.bytecode");
+                let label_decompiled = t!("search.decompiled");
                 if ui
-                    .add(flat("Bytecode", mode == SearchMode::Bytecode))
+                    .add(flat(&label_bytecode, mode == SearchMode::Bytecode))
                     .clicked()
                 {
                     mode = SearchMode::Bytecode;
@@ -107,7 +110,7 @@ impl SearchDialog {
                 }
                 ui.add_space(2.0);
                 if ui
-                    .add(flat("Decompiled", mode == SearchMode::Decompiled))
+                    .add(flat(&label_decompiled, mode == SearchMode::Decompiled))
                     .clicked()
                 {
                     mode = SearchMode::Decompiled;
@@ -148,7 +151,7 @@ impl SearchDialog {
             let resp = ui.add_sized(
                 egui::vec2(input_width, 24.0),
                 egui::TextEdit::singleline(&mut self.query)
-                    .hint_text("Search...")
+                    .hint_text(t!("search.hint"))
                     .frame(egui::Frame::NONE)
                     .text_color(theme::TEXT_PRIMARY)
                     .font(egui::FontId::proportional(13.0)),
@@ -167,7 +170,7 @@ impl SearchDialog {
                         .inactive_color(theme::TEXT_MUTED)
                         .min_size(egui::vec2(28.0, 24.0)),
                 )
-                .on_hover_text("Match case")
+                .on_hover_text(t!("search.match_case"))
                 .clicked()
             {
                 self.case_sensitive = !self.case_sensitive;
@@ -182,7 +185,7 @@ impl SearchDialog {
                         .inactive_color(theme::TEXT_MUTED)
                         .min_size(egui::vec2(28.0, 24.0)),
                 )
-                .on_hover_text("Use regex")
+                .on_hover_text(t!("search.use_regex"))
                 .clicked()
             {
                 self.use_regex = !self.use_regex;
@@ -197,9 +200,10 @@ impl SearchDialog {
         ui.horizontal(|ui| {
             ui.add_space(6.0);
             for &cat in SearchCategory::ALL {
+                let label = cat.label();
                 if ui
                     .add(
-                        FlatButton::new(cat.label())
+                        FlatButton::new(&label)
                             .font_size(11.0)
                             .active(self.category == cat)
                             .min_size(egui::vec2(0.0, 22.0)),
@@ -222,7 +226,7 @@ impl SearchDialog {
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
                 ui.label(
-                    egui::RichText::new("No results")
+                    egui::RichText::new(t!("search.no_results"))
                         .size(12.0)
                         .color(theme::TEXT_MUTED),
                 );
@@ -283,7 +287,7 @@ impl SearchDialog {
             None => {
                 ui.centered_and_justified(|ui| {
                     ui.label(
-                        egui::RichText::new("Select a result to preview")
+                        egui::RichText::new(t!("search.select_preview"))
                             .size(12.0)
                             .color(theme::TEXT_MUTED),
                     );

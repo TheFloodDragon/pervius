@@ -7,6 +7,7 @@ use crate::shell::{codicon, theme};
 use crate::ui::menu::item::menu_item_raw;
 use eframe::egui;
 use egui_animation::Anim;
+use rust_i18n::t;
 use std::collections::HashSet;
 
 /// 递归渲染树节点，返回被点击的文件条目路径
@@ -135,7 +136,7 @@ fn render_row(
     if !node.is_folder {
         response.context_menu(|ui| {
             ui.style_mut().visuals.widgets.hovered.bg_fill = theme::BG_HOVER;
-            if menu_item_raw(ui, "Reveal in Explorer", "") {
+            if menu_item_raw(ui, &t!("explorer.reveal"), "") {
                 *reveal = Some(node.path.clone());
                 ui.close();
             }

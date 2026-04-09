@@ -7,6 +7,7 @@ use crate::shell::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
 use egui_animation::Anim;
+use rust_i18n::t;
 
 /// 三视图切换 item
 pub struct ViewToggleItem {
@@ -16,11 +17,19 @@ pub struct ViewToggleItem {
     changed: Option<ActiveView>,
 }
 
-const TOGGLE_OPTIONS: [(&str, ActiveView); 3] = [
-    ("Decompiled", ActiveView::Decompiled),
-    ("Bytecode", ActiveView::Bytecode),
-    ("Hex", ActiveView::Hex),
+const VIEWS: [ActiveView; 3] = [
+    ActiveView::Decompiled,
+    ActiveView::Bytecode,
+    ActiveView::Hex,
 ];
+
+fn view_label(v: ActiveView) -> String {
+    match v {
+        ActiveView::Decompiled => t!("status.decompiled").to_string(),
+        ActiveView::Bytecode => t!("status.bytecode").to_string(),
+        ActiveView::Hex => t!("status.hex").to_string(),
+    }
+}
 
 const ANIM_DURATION: f32 = 0.15;
 
@@ -62,18 +71,18 @@ impl StatusItem for ViewToggleItem {
         let pad = 6.0;
         let item_gap = 1.0;
         let container_pad = 2.0;
-        let item_widths: Vec<f32> = TOGGLE_OPTIONS
+        let labels: Vec<String> = VIEWS.iter().map(|v| view_label(*v)).collect();
+        let item_widths: Vec<f32> = labels
             .iter()
-            .map(|(label, _)| {
+            .map(|label| {
                 painter
-                    .layout_no_wrap(label.to_string(), font.clone(), theme::TEXT_PRIMARY)
+                    .layout_no_wrap(label.clone(), font.clone(), theme::TEXT_PRIMARY)
                     .size()
                     .x
                     + pad * 2.0
             })
             .collect();
-        let inner_w: f32 =
-            item_widths.iter().sum::<f32>() + item_gap * (TOGGLE_OPTIONS.len() as f32 - 1.0);
+        let inner_w: f32 = item_widths.iter().sum::<f32>() + item_gap * (VIEWS.len() as f32 - 1.0);
         let container_w = inner_w + container_pad * 2.0;
         let bar_height = theme::STATUS_BAR_HEIGHT;
         let container_h = bar_height - 4.0;
@@ -86,10 +95,7 @@ impl StatusItem for ViewToggleItem {
         let base_x = container_rect.left() + container_pad;
         let iy = container_rect.top() + container_pad;
         // 高亮滑块动画（用相对偏移量，避免窗口缩放时跳变）
-        let active_idx = TOGGLE_OPTIONS
-            .iter()
-            .position(|(_, v)| *v == active)
-            .unwrap_or(0);
+        let active_idx = VIEWS.iter().position(|v| *v == active).unwrap_or(0);
         let target_offset: f32 = (0..active_idx).map(|i| item_widths[i] + item_gap).sum();
         let target_w = item_widths[active_idx];
         let anim = Anim::new(ui, ANIM_DURATION);
@@ -102,7 +108,7 @@ impl StatusItem for ViewToggleItem {
         painter.rect_filled(highlight_rect, 2.0, theme::verdigris_alpha(40));
         // 各选项文字 + 点击区域
         let mut ix = base_x;
-        for (i, (label, view)) in TOGGLE_OPTIONS.iter().enumerate() {
+        for (i, view) in VIEWS.iter().enumerate() {
             let iw = item_widths[i];
             let item_rect = egui::Rect::from_min_size(egui::pos2(ix, iy), egui::vec2(iw, item_h));
             let response = ui.interact(
@@ -127,7 +133,7 @@ impl StatusItem for ViewToggleItem {
             painter.text(
                 item_rect.center(),
                 egui::Align2::CENTER_CENTER,
-                *label,
+                &labels[i],
                 font.clone(),
                 color,
             );

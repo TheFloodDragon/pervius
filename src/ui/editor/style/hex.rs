@@ -3,6 +3,7 @@
 //! @author sky
 
 use crate::shell::theme;
+use rust_i18n::t;
 
 /// classview 主题色映射到 HexTheme
 pub fn hex_theme() -> egui_hex_view::HexTheme {
@@ -28,5 +29,16 @@ pub fn hex_theme() -> egui_hex_view::HexTheme {
         inspector_bg: theme::BG_DARKEST,
         header_color: theme::TEXT_MUTED,
         header_bg: theme::BG_DARKEST,
+        labels: egui_hex_view::HexLabels {
+            empty: t!("hex.empty").to_string(),
+            copy_hex: t!("hex.copy_hex").to_string(),
+            copy_ascii: t!("hex.copy_ascii").to_string(),
+            copy_offset: t!("hex.copy_offset").to_string(),
+            select_all: t!("hex.select_all").to_string(),
+            selection: t!("hex.selection").to_string(),
+            cursor: t!("hex.cursor").to_string(),
+            hover: t!("hex.hover").to_string(),
+            bytes: t!("hex.bytes").to_string(),
+        },
     }
 }
