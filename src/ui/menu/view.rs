@@ -3,22 +3,16 @@
 //! @author sky
 
 use super::item::menu_item;
-use super::MenuAction;
 use crate::ui::keybindings;
+use crate::ui::layout::Layout;
 use eframe::egui;
 
-pub fn render(ui: &mut egui::Ui, cb: &mut dyn FnMut(MenuAction)) {
-    if menu_item(ui, "Decompiled", None) {
-        cb(MenuAction::ViewDecompiled);
-    }
-    if menu_item(ui, "Bytecode", None) {
-        cb(MenuAction::ViewBytecode);
-    }
-    if menu_item(ui, "Hex", None) {
-        cb(MenuAction::ViewHex);
-    }
+pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
+    if menu_item(ui, "Decompiled", None) {}
+    if menu_item(ui, "Bytecode", None) {}
+    if menu_item(ui, "Hex", None) {}
     ui.separator();
     if menu_item(ui, "Toggle Explorer", Some(&keybindings::TOGGLE_EXPLORER)) {
-        cb(MenuAction::ToggleExplorer);
+        layout.explorer_visible = !layout.explorer_visible;
     }
 }

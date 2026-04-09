@@ -3,11 +3,9 @@
 //! @author sky
 
 use super::item::menu_item;
-use super::MenuAction;
+use crate::ui::layout::Layout;
 use eframe::egui;
 
-pub fn render(ui: &mut egui::Ui, cb: &mut dyn FnMut(MenuAction)) {
-    if menu_item(ui, "About Pervius", None) {
-        cb(MenuAction::About);
-    }
+pub fn render(ui: &mut egui::Ui, _layout: &mut Layout) {
+    if menu_item(ui, "About Pervius", None) {}
 }
