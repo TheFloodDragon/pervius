@@ -2,9 +2,10 @@
 //!
 //! @author sky
 
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// JAR 加载进度（跨线程共享）
@@ -26,6 +27,10 @@ impl LoadProgress {
 pub struct JarArchive {
     /// 归档文件名
     pub name: String,
+    /// 原始文件路径
+    pub path: PathBuf,
+    /// 文件内容 SHA-256（hex，前 16 字符用于缓存目录）
+    pub hash: String,
     /// 条目路径 → 原始字节
     entries: HashMap<String, Vec<u8>>,
 }
@@ -40,6 +45,7 @@ impl JarArchive {
     /// 带进度回报的打开方法（供后台线程调用）
     pub fn open_with_progress(path: &Path, progress: &LoadProgress) -> Result<Self, String> {
         let data = std::fs::read(path).map_err(|e| e.to_string())?;
+        let hash = format!("{:x}", Sha256::digest(&data));
         let cursor = std::io::Cursor::new(data);
         let mut zip = zip::ZipArchive::new(cursor).map_err(|e| e.to_string())?;
         let total = zip.len();
@@ -59,7 +65,12 @@ impl JarArchive {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        Ok(Self { name, entries })
+        Ok(Self {
+            name,
+            path: path.to_path_buf(),
+            hash,
+            entries,
+        })
     }
 
     /// 获取条目内容
@@ -72,5 +83,13 @@ impl JarArchive {
         let mut paths: Vec<&str> = self.entries.keys().map(|s| s.as_str()).collect();
         paths.sort_unstable();
         paths
+    }
+
+    /// .class 文件条目数量
+    pub fn class_count(&self) -> u32 {
+        self.entries
+            .keys()
+            .filter(|k| k.ends_with(".class"))
+            .count() as u32
     }
 }

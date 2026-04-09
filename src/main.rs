@@ -2,7 +2,9 @@
 //!
 //! @author sky
 
+mod decompiler;
 mod jar;
+mod settings;
 mod shell;
 mod ui;
 
@@ -10,7 +12,9 @@ use eframe::egui;
 use ui::layout::Layout;
 
 fn main() -> eframe::Result {
-    env_logger::init();
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Debug)
+        .init();
     let options = shell::ShellOptions {
         title: "Pervius".to_owned(),
         size: [1280.0, 800.0],
@@ -41,16 +45,6 @@ impl shell::AppContent for PervApp {
         self.layout.render(ui);
     }
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
-        let ctx = ui.ctx().clone();
-        ui::menu::menu_bar(ui, &mut |action| {
-            use ui::menu::MenuAction;
-            match action {
-                MenuAction::Exit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
-                MenuAction::ToggleExplorer => {
-                    self.layout.explorer_visible = !self.layout.explorer_visible
-                }
-                _ => {}
-            }
-        });
+        ui::menu::menu_bar(ui, &mut self.layout);
     }
 }
