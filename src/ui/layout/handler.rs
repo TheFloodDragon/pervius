@@ -3,6 +3,7 @@
 //! @author sky
 
 use super::Layout;
+use crate::java::class_structure::SavedMember;
 use crate::java::decompiler;
 use crate::java::jar::{JarArchive, LoadProgress};
 use crate::shell::theme;
@@ -11,7 +12,7 @@ use crate::ui::editor::view_toggle::ActiveView;
 use crate::ui::editor::{EditorArea, EditorTab};
 use crate::ui::explorer::tree;
 use eframe::egui;
-use egui_window_settings::SettingsFile;
+use egui_shell::components::SettingsFile;
 use rust_i18n::t;
 use std::collections::HashSet;
 use std::path::Path;
@@ -249,6 +250,17 @@ impl Layout {
             Some(p) => p,
             None => return,
         };
+        // 纯文本文件：直接将编辑后的文本写回 JAR
+        if tab.is_text {
+            let new_bytes = tab.decompiled.as_bytes().to_vec();
+            tab.raw_bytes = new_bytes.clone();
+            tab.is_modified = false;
+            if let Some(jar) = &mut self.jar {
+                jar.put(&entry_path, new_bytes);
+            }
+            log::info!("Saved text: {entry_path}");
+            return;
+        }
         let cs = match &tab.class_structure {
             Some(cs) => cs,
             None => return,
@@ -261,9 +273,35 @@ impl Layout {
             Ok(new_bytes) => {
                 tab.raw_bytes = new_bytes.clone();
                 tab.is_modified = false;
-                if let Ok(new_cs) = crate::java::bytecode::disassemble(&new_bytes) {
-                    tab.class_structure = Some(new_cs);
+                // 就地翻转 modified → saved，不重建 class structure
+                let mut saved_set: HashSet<SavedMember> = HashSet::new();
+                if let Some(cs) = &mut tab.class_structure {
+                    if cs.info.modified || cs.info.saved {
+                        cs.info.saved = true;
+                        saved_set.insert(SavedMember::ClassInfo);
+                    }
+                    cs.info.modified = false;
+                    for f in &mut cs.fields {
+                        if f.modified || f.saved {
+                            f.saved = true;
+                            saved_set
+                                .insert(SavedMember::Field(f.name.clone(), f.descriptor.clone()));
+                        }
+                        f.modified = false;
+                    }
+                    for m in &mut cs.methods {
+                        if m.modified || m.saved {
+                            m.saved = true;
+                            saved_set
+                                .insert(SavedMember::Method(m.name.clone(), m.descriptor.clone()));
+                        }
+                        m.modified = false;
+                    }
                 }
+                // 持久化 saved 成员（跨 tab 关闭/重开保留）
+                self.editor
+                    .saved_members
+                    .insert(entry_path.clone(), saved_set);
                 if let Some(jar) = &mut self.jar {
                     jar.put(&entry_path, new_bytes);
                 }
@@ -420,6 +458,51 @@ impl Layout {
             .pick_file();
         if let Some(path) = file {
             self.open_jar(&path);
+        }
+    }
+
+    /// 导出反编译源码到用户选择的目录
+    ///
+    /// 将 Vineflower 缓存目录中的 `.java` / `.kt` 文件复制到目标目录，
+    /// 保持原始包结构。
+    pub fn export_decompiled(&mut self) {
+        let jar = match &self.jar {
+            Some(j) => j,
+            None => {
+                self.toasts.warning(t!("layout.export_no_jar"));
+                return;
+            }
+        };
+        if self.decompiling.is_some() {
+            self.toasts.warning(t!("layout.decompile_in_progress"));
+            return;
+        }
+        if !decompiler::is_cached(&jar.hash) {
+            self.toasts.warning(t!("layout.export_not_decompiled"));
+            return;
+        }
+        let cache = match decompiler::cache_dir(&jar.hash) {
+            Ok(d) if d.exists() => d,
+            _ => {
+                self.toasts.warning(t!("layout.export_not_decompiled"));
+                return;
+            }
+        };
+        let dest = match rfd::FileDialog::new().pick_folder() {
+            Some(d) => d,
+            None => return,
+        };
+        match copy_sources(&cache, &dest) {
+            Ok(count) => {
+                let display = dest.to_string_lossy();
+                self.toasts
+                    .info(t!("layout.export_complete", path = display, count = count));
+                log::info!("Exported {count} files to {display}");
+            }
+            Err(e) => {
+                self.toasts.error(t!("layout.export_failed", error = e));
+                log::error!("Export failed: {e}");
+            }
         }
     }
 
@@ -615,4 +698,43 @@ pub(super) fn paint_loading(ui: &egui::Ui, rect: egui::Rect, loading: &LoadingSt
             theme::TEXT_MUTED,
         );
     }
+}
+
+/// 递归复制 `.java` / `.kt` 源码文件到目标目录，保持目录结构
+///
+/// 跳过 `.complete` 等非源码文件，返回复制的文件数。
+fn copy_sources(src: &Path, dest: &Path) -> Result<usize, String> {
+    let mut count = 0;
+    copy_sources_recursive(src, src, dest, &mut count)?;
+    Ok(count)
+}
+
+/// 递归遍历源目录，复制匹配的源码文件
+fn copy_sources_recursive(
+    root: &Path,
+    dir: &Path,
+    dest: &Path,
+    count: &mut usize,
+) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("{e}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("{e}"))?;
+        let path = entry.path();
+        if path.is_dir() {
+            copy_sources_recursive(root, &path, dest, count)?;
+        } else {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if ext != "java" && ext != "kt" {
+                continue;
+            }
+            let rel = path.strip_prefix(root).map_err(|e| format!("{e}"))?;
+            let target = dest.join(rel);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| format!("{e}"))?;
+            }
+            std::fs::copy(&path, &target).map_err(|e| format!("{e}"))?;
+            *count += 1;
+        }
+    }
+    Ok(())
 }

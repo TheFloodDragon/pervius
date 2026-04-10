@@ -14,3 +14,4 @@ mod viewer;
 
 pub use area::EditorArea;
 pub use tab::EditorTab;
+pub use viewer::TabAction;

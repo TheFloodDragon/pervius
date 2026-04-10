@@ -121,65 +121,17 @@ pub fn compute_bytecode_spans(source: &str) -> Vec<Span> {
 }
 
 /// 计算每行在源码中的字节偏移 + 最大行长（字节数）
-pub fn compute_line_starts(source: &str) -> (Vec<usize>, usize) {
+pub fn compute_line_starts(source: &str) -> Vec<usize> {
     let mut starts = Vec::new();
-    let mut max_len = 0usize;
     let mut offset = 0usize;
     for line in source.split('\n') {
         starts.push(offset);
-        max_len = max_len.max(line.len());
         offset += line.len() + 1;
     }
     if starts.is_empty() {
         starts.push(0);
     }
-    (starts, max_len)
-}
-
-/// 从预计算数据中获取第 i 行的文本切片
-pub fn get_line<'a>(source: &'a str, line_starts: &[usize], i: usize) -> &'a str {
-    let start = line_starts[i];
-    let end = if i + 1 < line_starts.len() {
-        // 跳过 \n
-        (line_starts[i + 1] - 1).min(source.len())
-    } else {
-        source.len()
-    };
-    &source[start..end]
-}
-
-/// 为单行构建带语法高亮的 LayoutJob
-///
-/// `all_spans` 是全文 span（已排序），自动裁剪到行范围并转换为行内偏移。
-pub fn build_single_line_job(
-    line_text: &str,
-    all_spans: &[Span],
-    line_byte_start: usize,
-) -> LayoutJob {
-    let line_byte_end = line_byte_start + line_text.len();
-    // 二分查找第一个可能重叠的 span
-    let first = all_spans.partition_point(|&(_, e, _)| e <= line_byte_start);
-    let mut job = LayoutJob::default();
-    let mut pos = 0usize;
-    for &(s, e, kind) in &all_spans[first..] {
-        if s >= line_byte_end {
-            break;
-        }
-        let cs = s.max(line_byte_start) - line_byte_start;
-        let ce = e.min(line_byte_end) - line_byte_start;
-        if cs > pos {
-            append_section(&mut job, &line_text[pos..cs], TokenKind::Plain);
-        }
-        let actual_start = cs.max(pos);
-        if ce > actual_start {
-            append_section(&mut job, &line_text[actual_start..ce], kind);
-            pos = ce;
-        }
-    }
-    if pos < line_text.len() {
-        append_section(&mut job, &line_text[pos..], TokenKind::Plain);
-    }
-    job
+    starts
 }
 
 /// 一个 span = (byte_start, byte_end, kind)
@@ -195,6 +147,10 @@ fn collect_spans(source: &str, lang: Language) -> Vec<Span> {
 }
 
 fn collect_treesitter_spans(source: &str, lang: Language) -> Vec<Span> {
+    collect_treesitter_spans_checked(source, lang).0
+}
+
+fn collect_treesitter_spans_checked(source: &str, lang: Language) -> (Vec<Span>, bool) {
     let mut parser = tree_sitter::Parser::new();
     let ts_lang: tree_sitter::Language = match lang {
         Language::Java => tree_sitter_java::LANGUAGE.into(),
@@ -204,15 +160,18 @@ fn collect_treesitter_spans(source: &str, lang: Language) -> Vec<Span> {
         Language::Json => tree_sitter_json::LANGUAGE.into(),
         Language::Html => tree_sitter_html::LANGUAGE.into(),
         Language::Sql => tree_sitter_sequel::LANGUAGE.into(),
-        Language::Properties | Language::Plain => return vec![(0, source.len(), TokenKind::Plain)],
+        Language::Properties | Language::Plain => {
+            return (vec![(0, source.len(), TokenKind::Plain)], false);
+        }
     };
     if parser.set_language(&ts_lang).is_err() {
-        return vec![(0, source.len(), TokenKind::Plain)];
+        return (vec![(0, source.len(), TokenKind::Plain)], true);
     }
     let tree = match parser.parse(source, None) {
         Some(t) => t,
-        None => return vec![(0, source.len(), TokenKind::Plain)],
+        None => return (vec![(0, source.len(), TokenKind::Plain)], true),
     };
+    let has_errors = tree.root_node().has_error();
     let color_fn: ColorFn = match lang {
         Language::Java => java::classify,
         Language::Kotlin => kotlin::classify,
@@ -221,7 +180,9 @@ fn collect_treesitter_spans(source: &str, lang: Language) -> Vec<Span> {
         Language::Json => json::classify,
         Language::Html => html::classify,
         Language::Sql => sql::classify,
-        Language::Properties | Language::Plain => return vec![(0, source.len(), TokenKind::Plain)],
+        Language::Properties | Language::Plain => {
+            return (vec![(0, source.len(), TokenKind::Plain)], false);
+        }
     };
     let mut spans = Vec::new();
     collect_node_spans(
@@ -231,7 +192,7 @@ fn collect_treesitter_spans(source: &str, lang: Language) -> Vec<Span> {
         source.as_bytes(),
     );
     spans.sort_by_key(|&(start, _, _)| start);
-    spans
+    (spans, has_errors)
 }
 
 /// 各语言着色函数签名：返回 Some 表示命中，None 表示继续深入子节点
@@ -282,11 +243,29 @@ fn advance_cursor(cursor: &mut tree_sitter::TreeCursor) -> bool {
     }
 }
 
+/// 将字节偏移对齐到最近的 char boundary（向前对齐），超出范围则截断到 source.len()
+fn snap_char(source: &str, pos: usize) -> usize {
+    let p = pos.min(source.len());
+    if source.is_char_boundary(p) {
+        return p;
+    }
+    // 向前找到最近的 char boundary
+    let mut i = p;
+    while i > 0 && !source.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
 /// 从排序好的 span 列表构建 LayoutJob，自动填充 gap
+///
+/// span 偏移可能来自旧版本文本（编辑延迟刷新），会自动对齐到 char boundary。
 pub fn build_layout_job(source: &str, spans: &[Span]) -> LayoutJob {
     let mut job = LayoutJob::default();
     let mut pos = 0usize;
     for &(start, end, kind) in spans {
+        let start = snap_char(source, start);
+        let end = snap_char(source, end);
         // gap 填充（未着色区域用 Plain）
         if start > pos {
             append_section(&mut job, &source[pos..start], TokenKind::Plain);
@@ -321,12 +300,12 @@ pub fn build_layout_job_with_matches(
     breaks.insert(0);
     breaks.insert(source.len());
     for &(s, e, _) in spans {
-        breaks.insert(s.min(source.len()));
-        breaks.insert(e.min(source.len()));
+        breaks.insert(snap_char(source, s));
+        breaks.insert(snap_char(source, e));
     }
     for &(s, e) in match_ranges {
-        breaks.insert(s.min(source.len()));
-        breaks.insert(e.min(source.len()));
+        breaks.insert(snap_char(source, s));
+        breaks.insert(snap_char(source, e));
     }
     let breaks: Vec<usize> = breaks.into_iter().collect();
     let mut job = LayoutJob::default();

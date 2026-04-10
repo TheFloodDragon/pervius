@@ -5,7 +5,7 @@
 use super::item::{menu_item, menu_item_raw, menu_submenu};
 use crate::ui::layout::Layout;
 use eframe::egui;
-use egui_window_settings::SettingsFile;
+use egui_shell::components::SettingsFile;
 use rust_i18n::t;
 use std::path::PathBuf;
 
@@ -59,7 +59,9 @@ pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
         ui,
         &t!("menu.export_decompiled"),
         Some(&layout.settings.keymap.export_decompiled),
-    ) {}
+    ) {
+        layout.export_decompiled();
+    }
     if menu_item(ui, &t!("menu.re_decompile"), None) {
         layout.re_decompile();
     }

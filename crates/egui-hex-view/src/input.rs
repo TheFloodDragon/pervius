@@ -5,9 +5,6 @@
 use crate::layout::Cols;
 use crate::{HexTheme, HexViewState, Region, BYTES_PER_ROW, HEX_CHARS, PAD_TOP, ROW_H};
 use eframe::egui;
-
-// -- Hit test --
-
 /// 鼠标位置 → 字节索引 + 区域
 pub(crate) fn hit_test(
     pos: egui::Pos2,
@@ -47,9 +44,6 @@ pub(crate) fn hit_test(
     }
     None
 }
-
-// -- 鼠标输入 --
-
 pub(crate) fn handle_mouse(
     response: &egui::Response,
     cols: &Cols,
@@ -93,9 +87,6 @@ pub(crate) fn handle_mouse(
         state.drag_anchor = None;
     }
 }
-
-// -- 右键菜单 --
-
 /// 选区范围 [start, end)，无选区时返回 (0, 0)
 fn selection_range(state: &HexViewState) -> (usize, usize) {
     if let Some((s, e)) = state.selection {

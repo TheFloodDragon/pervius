@@ -4,15 +4,21 @@
 
 use super::Layout;
 use crate::shell::theme;
+use crate::ui::editor::TabAction;
 use eframe::egui;
 use rust_i18n::t;
 use std::path::PathBuf;
 
 /// 需要用户确认的破坏性动作
 pub enum ConfirmAction {
+    /// 关闭整个应用窗口
     Close,
+    /// 打开文件选择器加载新 JAR
     OpenDialog,
+    /// 打开指定 JAR 文件
     Open(PathBuf),
+    /// 关闭 tab（单个/批量）
+    TabClose(TabAction),
 }
 
 impl Layout {
@@ -55,22 +61,30 @@ impl Layout {
 
     /// 执行已确认的动作
     fn execute_confirmed(&mut self, action: ConfirmAction, ctx: &egui::Context) {
-        // 清除所有未保存标记，避免 has_unsaved_changes() 再次拦截
-        for (_, tab) in self.editor.dock_state.iter_all_tabs_mut() {
-            tab.is_modified = false;
-        }
-        if let Some(jar) = &mut self.jar {
-            jar.clear_modified();
-        }
         match action {
-            ConfirmAction::Close => {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            ConfirmAction::Close | ConfirmAction::OpenDialog | ConfirmAction::Open(_) => {
+                // 全局动作：清除所有未保存标记，避免 has_unsaved_changes() 再次拦截
+                for (_, tab) in self.editor.dock_state.iter_all_tabs_mut() {
+                    tab.is_modified = false;
+                }
+                if let Some(jar) = &mut self.jar {
+                    jar.clear_modified();
+                }
+                match action {
+                    ConfirmAction::Close => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    ConfirmAction::OpenDialog => {
+                        self.open_jar_dialog();
+                    }
+                    ConfirmAction::Open(path) => {
+                        self.open_jar(&path);
+                    }
+                    _ => unreachable!(),
+                }
             }
-            ConfirmAction::OpenDialog => {
-                self.open_jar_dialog();
-            }
-            ConfirmAction::Open(path) => {
-                self.open_jar(&path);
+            ConfirmAction::TabClose(tab_action) => {
+                self.editor.force_tab_action(tab_action);
             }
         }
     }
@@ -84,7 +98,7 @@ impl Layout {
             self.pending_confirm = None;
             return;
         }
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         // 半透明遮罩
         let backdrop_layer =
             egui::LayerId::new(egui::Order::Foreground, egui::Id::new("confirm_backdrop"));
@@ -100,7 +114,7 @@ impl Layout {
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 egui::Frame::NONE
-                    .fill(theme::BG_HOVER)
+                    .fill(theme::BG_LIGHT)
                     .stroke(egui::Stroke::new(1.0, theme::BORDER_LIGHT))
                     .corner_radius(8.0)
                     .shadow(egui::Shadow {

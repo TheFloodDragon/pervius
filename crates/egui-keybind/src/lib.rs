@@ -242,8 +242,6 @@ impl<T> Default for KeyMap<T> {
     }
 }
 
-// -- 平台相关的修饰键名称 --
-
 #[cfg(target_os = "macos")]
 const MOD_CTRL: &str = "⌘";
 #[cfg(not(target_os = "macos"))]
@@ -373,8 +371,6 @@ const ALL_KEYS: &[Key] = &[
     Key::F19,
     Key::F20,
 ];
-
-// -- serde 支持：序列化为 "Ctrl+O" 格式字符串 --
 
 #[cfg(feature = "serde")]
 impl serde::Serialize for KeyBind {

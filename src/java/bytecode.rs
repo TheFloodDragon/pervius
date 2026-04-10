@@ -9,7 +9,7 @@ use super::class_structure::{
     AnnotationPair, ClassInfo, ClassStructure, EditableAnnotation, FieldInfo, MethodInfo,
 };
 use ristretto_classfile::attributes::{Annotation, AnnotationElement, Attribute, Instruction};
-use ristretto_classfile::{ClassFile, Constant, ConstantPool};
+use ristretto_classfile::{ClassFile, ConstantPool};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write;
 use std::io::Cursor;
@@ -27,8 +27,6 @@ pub fn disassemble(bytes: &[u8]) -> Result<ClassStructure, String> {
         methods,
     })
 }
-
-// ── class info ──
 
 fn extract_class_info(cf: &ClassFile, cp: &ConstantPool, bytes: &[u8]) -> ClassInfo {
     let version = parse_class_version(bytes).unwrap_or_default();
@@ -101,10 +99,10 @@ fn extract_class_info(cf: &ClassFile, cp: &ConstantPool, bytes: &[u8]) -> ClassI
         source_file,
         annotations,
         is_deprecated,
+        modified: false,
+        saved: false,
     }
 }
-
-// ── field ──
 
 fn extract_field(field: &ristretto_classfile::Field, cp: &ConstantPool) -> FieldInfo {
     let access = field.access_flags.as_code().to_string();
@@ -165,10 +163,10 @@ fn extract_field(field: &ristretto_classfile::Field, cp: &ConstantPool) -> Field
         annotations,
         is_deprecated,
         is_synthetic,
+        modified: false,
+        saved: false,
     }
 }
-
-// ── method ──
 
 fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> MethodInfo {
     let access = method.access_flags.as_code().to_string();
@@ -431,10 +429,10 @@ fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> Me
         is_synthetic,
         bytecode,
         has_code,
+        modified: false,
+        saved: false,
     }
 }
-
-// ── instruction formatting (Recaf style) ──
 
 /// 收集指令中的分支目标索引（绝对指令索引）
 fn collect_branch_targets(insn: &Instruction, insn_index: usize, targets: &mut BTreeSet<usize>) {
@@ -497,20 +495,6 @@ fn build_byte_to_insn_map(code: &[Instruction]) -> BTreeMap<usize, usize> {
     }
     // 尾部哨兵：指向指令列表末尾（用于 start_pc + length 的结束位置）
     map.insert(cursor.position() as usize, code.len());
-    map
-}
-
-/// 从指令列表构建 instruction_index → byte_offset 映射
-pub fn build_insn_to_byte_map(code: &[Instruction]) -> BTreeMap<usize, usize> {
-    let mut map = BTreeMap::new();
-    let mut cursor = Cursor::new(Vec::new());
-    for (insn_idx, insn) in code.iter().enumerate() {
-        let pos = cursor.position() as usize;
-        map.insert(insn_idx, pos);
-        let _ = insn.to_bytes(&mut cursor);
-    }
-    // 尾部哨兵
-    map.insert(code.len(), cursor.position() as usize);
     map
 }
 
@@ -606,8 +590,6 @@ fn format_instruction(
         _ => uppercase_opcode(&insn.to_string()),
     }
 }
-
-// ── annotation → EditableAnnotation ──
 
 fn to_editable_annotation(ann: &Annotation, cp: &ConstantPool) -> EditableAnnotation {
     let type_desc = cp
@@ -744,8 +726,6 @@ fn format_editable_annotation(ann: &EditableAnnotation) -> String {
     }
 }
 
-// ── CP 辅助 ──
-
 /// 去除 CP 格式化文本的类型前缀，返回纯引用名称
 fn strip_cp_prefix(formatted: &str) -> String {
     let prefixes = [
@@ -814,58 +794,6 @@ fn parse_class_version(bytes: &[u8]) -> Option<String> {
     };
     Some(format!("Java {java_ver} (class {major}.{minor})"))
 }
-
-/// 从 .class 字节构建反向 CP 查找表（stripped text → CP index）
-///
-/// 只收录可被指令直接引用的 CP 条目类型（Class, FieldRef, MethodRef 等），
-/// 排除 Utf8 / NameAndType 等叶子条目，避免文本重复导致错误匹配。
-pub fn build_cp_lookup(bytes: &[u8]) -> Result<Vec<(u16, String)>, String> {
-    let cf = ClassFile::from_bytes(bytes).map_err(|e| format!("parse error: {e}"))?;
-    Ok(build_cp_lookup_from_pool(&cf.constant_pool))
-}
-
-/// 从已有 ConstantPool 构建反向 CP 查找表
-pub fn build_cp_lookup_from_pool(cp: &ConstantPool) -> Vec<(u16, String)> {
-    let mut table = Vec::new();
-    for idx in 1..=cp.len() {
-        let idx = idx as u16;
-        let is_operand_type = matches!(
-            cp.try_get(idx),
-            Ok(Constant::Integer(_)
-                | Constant::Float(_)
-                | Constant::Long(_)
-                | Constant::Double(_)
-                | Constant::Class(_)
-                | Constant::String(_)
-                | Constant::FieldRef { .. }
-                | Constant::MethodRef { .. }
-                | Constant::InterfaceMethodRef { .. }
-                | Constant::MethodHandle { .. }
-                | Constant::MethodType(_)
-                | Constant::Dynamic { .. }
-                | Constant::InvokeDynamic { .. })
-        );
-        if !is_operand_type {
-            continue;
-        }
-        if let Ok(formatted) = cp.try_get_formatted_string(idx) {
-            table.push((idx, strip_cp_prefix(&formatted)));
-        }
-    }
-    table
-}
-
-/// 在查找表中搜索匹配的 CP 索引
-pub fn resolve_from_lookup(table: &[(u16, String)], text: &str) -> Result<u16, String> {
-    for (idx, stripped) in table {
-        if stripped == text {
-            return Ok(*idx);
-        }
-    }
-    Err(format!("CP entry not found: {text}"))
-}
-
-// ── Recaf 风格格式化辅助 ──
 
 /// 将索引转为字母标签（0→A, 1→B, ..., 25→Z, 26→AA, 27→AB, ...）
 fn index_to_alpha_label(idx: usize) -> String {

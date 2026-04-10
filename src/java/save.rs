@@ -82,8 +82,6 @@ pub fn apply_structure(
     Ok(buf)
 }
 
-// ── class info ──
-
 fn apply_class_info(cf: &mut ClassFile, cs: &ClassStructure) {
     cf.access_flags = parse_class_flags(&cs.info.access);
     let cp = &mut cf.constant_pool;
@@ -112,8 +110,6 @@ fn apply_class_info(cf: &mut ClassFile, cs: &ClassStructure) {
     apply_annotations(&mut cf.attributes, cp, &cs.info.annotations);
 }
 
-// ── fields ──
-
 fn apply_fields(cf: &mut ClassFile, cs: &ClassStructure) {
     for (field, fi) in cf.fields.iter_mut().zip(cs.fields.iter()) {
         field.access_flags = parse_field_flags(&fi.access);
@@ -123,8 +119,6 @@ fn apply_fields(cf: &mut ClassFile, cs: &ClassStructure) {
         apply_annotations(&mut field.attributes, cp, &fi.annotations);
     }
 }
-
-// ── methods ──
 
 /// 应用方法 metadata 修改，收集字节码编辑列表
 ///
@@ -160,14 +154,9 @@ fn apply_methods(
     edits
 }
 
-// ── CP entry auto-creation ──
-
 // 已删除：create_cp_entry、INTERFACE_METHOD_PREFIX hack、resolve_from_lookup 调用、
-// assembler::assemble_instructions 调用、LVT/LVTT byte offset 转换、
-// recompute_max_stack_locals 函数。
+// LVT/LVTT byte offset 转换、recompute_max_stack_locals、assembler 模块。
 // 这些逻辑全部由 classforge (ASM COMPUTE_FRAMES) 接管。
-
-// ── annotations ──
 
 fn apply_annotations(
     attrs: &mut Vec<Attribute>,
@@ -264,8 +253,6 @@ fn build_annotation_value(cp: &mut ConstantPool, value: &str, tag: u8) -> Annota
     }
 }
 
-// ── constant pool helpers ──
-
 /// 查找已有的 UTF8 条目或新增
 fn find_or_add_utf8(cp: &mut ConstantPool, text: &str) -> u16 {
     for idx in 1..=cp.len() {
@@ -292,8 +279,6 @@ fn find_or_add_class(cp: &mut ConstantPool, name_index: u16) -> u16 {
     }
     cp.add(Constant::Class(name_index)).unwrap_or(0)
 }
-
-// ── access flags parsing ──
 
 fn parse_class_flags(s: &str) -> ClassAccessFlags {
     let mut flags = ClassAccessFlags::empty();

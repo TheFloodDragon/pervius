@@ -1,7 +1,8 @@
-//! 文件树渲染（虚拟滚动）
+//! 文件树渲染（虚拟滚动 + 展开动画）
 //!
 //! 使用 ScrollArea::show_rows() 实现行级虚拟化，
 //! 只渲染视口内可见的行，全展开 5000+ 节点也不掉帧。
+//! 展开/折叠带行数渐变 + 箭头旋转动画。
 //!
 //! @author sky
 
@@ -17,8 +18,33 @@ use std::ops::Range;
 /// 行高
 const ROW_H: f32 = 22.0;
 
-/// 递归计数可见（展开）节点总数
-fn count_rows(nodes: &[TreeNode], visible: &HashSet<String>) -> usize {
+/// 展开/折叠动画时长（秒）
+const EXPAND_DURATION: f32 = 0.12;
+
+/// 根据 openness 计算有效行数
+fn effective_count(full: usize, openness: f32) -> usize {
+    if openness >= 1.0 {
+        full
+    } else {
+        ((full as f32) * openness).ceil() as usize
+    }
+}
+
+/// 获取节点的展开动画进度（0.0 折叠 → 1.0 展开）
+///
+/// 过滤模式下所有可见节点强制展开（target=true），
+/// 退出过滤时自动动画回到 `node.expanded` 状态。
+fn node_openness(ctx: &egui::Context, node: &TreeNode, filtering: bool) -> f32 {
+    let target = filtering || node.expanded;
+    ctx.animate_bool_with_time(
+        egui::Id::new("tree_expand").with(&node.path),
+        target,
+        EXPAND_DURATION,
+    )
+}
+
+/// 递归计数可见节点总数（展开动画插值）
+fn count_rows(ctx: &egui::Context, nodes: &[TreeNode], visible: &HashSet<String>) -> usize {
     let filtering = !visible.is_empty();
     let mut count = 0;
     for node in nodes {
@@ -26,8 +52,12 @@ fn count_rows(nodes: &[TreeNode], visible: &HashSet<String>) -> usize {
             continue;
         }
         count += 1;
-        if node.has_children() && (filtering || node.expanded) {
-            count += count_rows(&node.children, visible);
+        if node.has_children() {
+            let openness = node_openness(ctx, node, filtering);
+            if openness > 0.0 {
+                let full = count_rows(ctx, &node.children, visible);
+                count += effective_count(full, openness);
+            }
         }
     }
     count
@@ -47,7 +77,20 @@ pub fn render_tree(
 ) -> Option<String> {
     ui.spacing_mut().item_spacing.y = 2.0;
     let row_h = ROW_H + 2.0;
-    let total = count_rows(nodes, visible);
+    let ctx = ui.ctx().clone();
+    // 每帧只计算一次行数，避免多 pass 之间 total 不一致导致 show_rows 范围漂移
+    let total = {
+        let frame = ctx.cumulative_frame_nr();
+        let cache_id = egui::Id::new("tree_row_count");
+        match ctx.data(|d| d.get_temp::<(u64, usize)>(cache_id)) {
+            Some((f, t)) if f == frame => t,
+            _ => {
+                let t = count_rows(&ctx, nodes, visible);
+                ctx.data_mut(|d| d.insert_temp(cache_id, (frame, t)));
+                t
+            }
+        }
+    };
     let mut clicked = None;
     egui::ScrollArea::vertical()
         .id_salt("file_tree")
@@ -55,8 +98,9 @@ pub fn render_tree(
         .min_scrolled_height(ui.available_height())
         .show_rows(ui, row_h, total, |ui, range| {
             let mut counter = 0usize;
-            clicked = render_range(
+            let (click, _) = render_range(
                 ui,
+                &ctx,
                 nodes,
                 0,
                 &mut counter,
@@ -68,14 +112,20 @@ pub fn render_tree(
                 tab_modified,
                 jar_modified,
                 decompiled_classes,
+                usize::MAX,
             );
+            clicked = click;
         });
     clicked
 }
 
 /// 递归遍历树，只渲染 counter 落在 range 内的节点
+///
+/// `max_rows` 限制本次调用最多消耗的行数（用于展开动画的渐进显示），
+/// 返回 (点击路径, 实际消耗行数)。
 fn render_range(
     ui: &mut egui::Ui,
+    ctx: &egui::Context,
     nodes: &mut [TreeNode],
     depth: u8,
     counter: &mut usize,
@@ -87,18 +137,24 @@ fn render_range(
     tab_modified: &HashSet<String>,
     jar_modified: &HashSet<String>,
     decompiled_classes: Option<&HashSet<String>>,
-) -> Option<String> {
+    max_rows: usize,
+) -> (Option<String>, usize) {
     let filtering = !visible.is_empty();
     let mut clicked = None;
+    let mut consumed = 0;
     for node in nodes.iter_mut() {
+        if consumed >= max_rows {
+            break;
+        }
         if filtering && !visible.contains(&node.path) {
             continue;
         }
         let idx = *counter;
         *counter += 1;
+        consumed += 1;
         // 已超过可见范围，后续节点全部跳过
         if idx >= range.end {
-            return clicked;
+            return (clicked, consumed);
         }
         // 在可见范围内才渲染
         if idx >= range.start {
@@ -110,6 +166,11 @@ fn render_range(
             } else {
                 None
             };
+            let openness = if node.is_folder || node.has_children() {
+                node_openness(ctx, node, filtering)
+            } else {
+                0.0
+            };
             let (single, double) = render_row(
                 ui,
                 node,
@@ -119,6 +180,7 @@ fn render_range(
                 decompiled_classes,
                 reveal,
                 scroll,
+                openness,
             );
             if node.is_folder {
                 if single {
@@ -137,28 +199,39 @@ fn render_range(
                 }
             }
         }
-        // 子节点递归（无论当前节点是否在可见范围，都需要正确计数）
-        let show_children = node.has_children() && (filtering || node.expanded);
-        if show_children {
-            if let Some(path) = render_range(
-                ui,
-                &mut node.children,
-                depth + 1,
-                counter,
-                range,
-                selected,
-                visible,
-                reveal,
-                scroll,
-                tab_modified,
-                jar_modified,
-                decompiled_classes,
-            ) {
-                clicked = Some(path);
+        // 子节点递归
+        if node.has_children() {
+            let openness = node_openness(ctx, node, filtering);
+            if openness > 0.0 {
+                let full = count_rows(ctx, &node.children, visible);
+                let effective = effective_count(full, openness);
+                let budget = (max_rows - consumed).min(effective);
+                let (path, child_consumed) = render_range(
+                    ui,
+                    ctx,
+                    &mut node.children,
+                    depth + 1,
+                    counter,
+                    range,
+                    selected,
+                    visible,
+                    reveal,
+                    scroll,
+                    tab_modified,
+                    jar_modified,
+                    decompiled_classes,
+                    budget,
+                );
+                // 快进未访问的行以保持 counter 与 count_rows 一致
+                *counter += budget - child_consumed;
+                consumed += budget;
+                if path.is_some() {
+                    clicked = path;
+                }
             }
         }
     }
-    clicked
+    (clicked, consumed)
 }
 
 /// 判断节点是否已反编译
@@ -196,21 +269,28 @@ fn render_row(
     decompiled_classes: Option<&HashSet<String>>,
     reveal: &mut Option<String>,
     scroll: bool,
+    openness: f32,
 ) -> (bool, bool) {
     let indent_px = 8.0 + depth as f32 * 16.0;
     let avail_w = ui.available_width();
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(avail_w, ROW_H), egui::Sense::click());
+    // 使用节点路径作为稳定 ID，避免虚拟滚动多 pass 时自动 ID 漂移
+    let (_, rect) = ui.allocate_space(egui::vec2(avail_w, ROW_H));
+    let response = ui.interact(
+        rect,
+        egui::Id::new("tree_row").with(&node.path),
+        egui::Sense::click(),
+    );
     let painter = ui.painter().with_clip_rect(rect);
     // 选中 / hover 背景动画
-    let anim = Anim::new(ui, 0.1).with(&node.path);
-    let target_bg = if selected {
-        theme::verdigris_alpha(38)
-    } else if response.hovered() {
-        theme::BG_HOVER
-    } else {
-        egui::Color32::TRANSPARENT
-    };
-    let bg = anim.color("bg", target_bg);
+    let anim = Anim::new(ui, 0.2).with(&node.path);
+    let will_select = !node.is_folder && !node.label.starts_with('$') && response.clicked();
+    let bg = anim.select_bg(
+        selected,
+        response.hovered(),
+        will_select,
+        theme::verdigris_alpha(38),
+        theme::BG_HOVER,
+    );
     if bg.a() > 0 {
         painter.rect_filled(rect, 4.0, bg);
     }
@@ -219,20 +299,19 @@ fn render_row(
     }
     let y = rect.center().y;
     let mut x = rect.left() + indent_px;
-    // 折叠箭头
+    // 折叠箭头（旋转三角形，跟随 openness 平滑旋转）
     if node.is_folder || node.has_children() {
-        let arrow = if node.expanded {
-            codicon::CHEVRON_DOWN
-        } else {
-            codicon::CHEVRON_RIGHT
-        };
-        painter.text(
-            egui::pos2(x + 6.0, y),
-            egui::Align2::CENTER_CENTER,
-            arrow,
-            egui::FontId::new(10.0, codicon::family()),
+        let center = egui::pos2(x + 6.0, y);
+        let rot = egui::emath::Rot2::from_angle(std::f32::consts::FRAC_PI_2 * openness);
+        // 向右的三角形顶点（相对于中心），旋转后变为向下
+        let a = center + rot * egui::vec2(-1.5, -2.5);
+        let b = center + rot * egui::vec2(2.5, 0.0);
+        let c = center + rot * egui::vec2(-1.5, 2.5);
+        painter.add(egui::Shape::convex_polygon(
+            vec![a, b, c],
             theme::TEXT_MUTED,
-        );
+            egui::Stroke::NONE,
+        ));
     }
     x += 12.0 + 6.0;
     // 按节点判断是否已反编译，未完成的暗显，完成后动画过渡到正常色

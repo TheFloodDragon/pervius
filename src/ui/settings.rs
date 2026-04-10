@@ -5,9 +5,10 @@
 use crate::settings::{KeymapSettings, Language, Settings};
 use crate::shell::{codicon, theme};
 use eframe::egui;
-use egui_window_settings::{
-    keybind_rows, path_picker_with, section_header, sidebar_item, SettingsPanel, SettingsTheme,
+use egui_shell::components::{
+    path_picker_with, section_header, sidebar_item, SettingsPanel, SettingsTheme,
 };
+use egui_shell::keybind_rows;
 use rust_i18n::t;
 
 /// 侧栏分类

@@ -9,8 +9,6 @@ use rust_i18n::t;
 
 use super::codicon;
 
-// -- 背景层级 --
-
 /// 最深背景 #111112（Island 底色）
 pub const BG_DARKEST: egui::Color32 = egui::Color32::from_rgb(17, 17, 18);
 /// 行号栏背景 #131314（介于 island 底色与面板底色之间）
@@ -24,14 +22,10 @@ pub const BG_LIGHT: egui::Color32 = egui::Color32::from_rgb(37, 37, 39);
 /// 悬停背景 #2E2E31
 pub const BG_HOVER: egui::Color32 = egui::Color32::from_rgb(46, 46, 49);
 
-// -- 边框 --
-
 /// 主边框 #2E2E30
 pub const BORDER: egui::Color32 = egui::Color32::from_rgb(46, 46, 48);
 /// 浅边框 #3A3A3D
 pub const BORDER_LIGHT: egui::Color32 = egui::Color32::from_rgb(58, 58, 61);
-
-// -- 文字 --
 
 /// 主要文字 #ECECEF
 pub const TEXT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(236, 236, 239);
@@ -39,8 +33,6 @@ pub const TEXT_PRIMARY: egui::Color32 = egui::Color32::from_rgb(236, 236, 239);
 pub const TEXT_SECONDARY: egui::Color32 = egui::Color32::from_rgb(160, 160, 171);
 /// 暗淡文字 #5C5C6A
 pub const TEXT_MUTED: egui::Color32 = egui::Color32::from_rgb(92, 92, 106);
-
-// -- 强调色 --
 
 /// 主色调铜绿 #43B3AE
 pub const VERDIGRIS: egui::Color32 = egui::Color32::from_rgb(67, 179, 174);
@@ -52,8 +44,6 @@ pub const ACCENT_ORANGE: egui::Color32 = egui::Color32::from_rgb(224, 164, 88);
 pub const ACCENT_RED: egui::Color32 = egui::Color32::from_rgb(224, 108, 117);
 /// 辅助青 #7EC8C8
 pub const ACCENT_CYAN: egui::Color32 = egui::Color32::from_rgb(126, 200, 200);
-
-// -- 语法高亮（JetBrains New UI Dark，源自 expUI_darkScheme.xml）--
 
 /// 代码默认文字 #BCBEC4
 pub const SYN_TEXT: egui::Color32 = egui::Color32::from_rgb(188, 190, 196);
@@ -76,14 +66,10 @@ pub const SYN_METHOD: egui::Color32 = SYN_TEXT;
 /// 方法声明 #56A8F5
 pub const SYN_METHOD_DECL: egui::Color32 = egui::Color32::from_rgb(86, 168, 245);
 
-// -- 标题栏控制按钮 --
-
 /// 标题栏按钮 hover #2A2A2F
 pub const CAPTION_HOVER: egui::Color32 = egui::Color32::from_rgb(42, 42, 47);
 /// 关闭按钮 hover #C42B1C（Win11 风格红）
 pub const CLOSE_HOVER: egui::Color32 = egui::Color32::from_rgb(196, 43, 28);
-
-// -- 尺寸 --
 
 /// 标题栏高度
 pub const TITLE_BAR_HEIGHT: f32 = 36.0;
@@ -91,11 +77,6 @@ pub const TITLE_BAR_HEIGHT: f32 = 36.0;
 pub const FILE_PANEL_WIDTH: f32 = 260.0;
 /// 状态栏高度
 pub const STATUS_BAR_HEIGHT: f32 = 24.0;
-/// 边框宽度
-pub const BORDER_WIDTH: f32 = 1.0;
-
-// -- Island（IDEA 风格圆角面板）--
-
 /// Island 圆角半径
 pub const ISLAND_RADIUS: u8 = 8;
 /// Island 之间的间距
@@ -116,8 +97,8 @@ pub fn verdigris_alpha(alpha: u8) -> egui::Color32 {
 }
 
 /// 浮动窗口（Search / Settings 等）的统一主题
-pub fn window_theme() -> egui_window::WindowTheme {
-    egui_window::WindowTheme {
+pub fn window_theme() -> egui_shell::components::WindowTheme {
+    egui_shell::components::WindowTheme {
         frame: egui::Frame {
             fill: BG_GUTTER,
             corner_radius: egui::CornerRadius::same(8),
@@ -147,8 +128,8 @@ pub fn window_theme() -> egui_window::WindowTheme {
 }
 
 /// 设置面板 widget 主题
-pub fn settings_theme() -> egui_window_settings::SettingsTheme {
-    egui_window_settings::SettingsTheme {
+pub fn settings_theme() -> egui_shell::components::SettingsTheme {
+    egui_shell::components::SettingsTheme {
         text_primary: TEXT_PRIMARY,
         text_secondary: TEXT_SECONDARY,
         text_muted: TEXT_MUTED,

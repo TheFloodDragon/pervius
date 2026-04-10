@@ -18,8 +18,6 @@ fn sp(preview: &str, hl: Vec<(usize, usize)>, src: Vec<String>, line: usize) -> 
     }
 }
 
-// -- Bytecode sources --
-
 fn bc_load_worlds() -> Vec<String> {
     lines(&[
         "// Method: loadWorlds()V",
@@ -219,8 +217,6 @@ fn bc_server_level_decl() -> Vec<String> {
     ])
 }
 
-// -- Decompiled (Java) sources --
-
 fn dc_load_worlds() -> Vec<String> {
     lines(&[
         "public void loadWorlds() {",
@@ -333,8 +329,6 @@ fn dc_server_level_class() -> Vec<String> {
         "}",
     ])
 }
-
-// -- Demo results --
 
 pub fn demo_results(category: SearchCategory) -> Vec<SearchResultGroup> {
     match category {

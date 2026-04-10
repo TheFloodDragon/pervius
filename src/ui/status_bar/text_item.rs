@@ -26,22 +26,12 @@ impl TextItem {
         }
     }
 
-    /// 标记为文件上下文相关（无活跃 tab 时自动隐藏）
-    pub fn context_only(mut self) -> Self {
-        self.context_only = true;
-        self
-    }
-
     pub fn is_context_only(&self) -> bool {
         self.context_only
     }
 
     pub fn set_visible(&mut self, visible: bool) {
         self.visible = visible;
-    }
-
-    pub fn set_text(&mut self, text: impl Into<String>) {
-        self.text = text.into();
     }
 }
 

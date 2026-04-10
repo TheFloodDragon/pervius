@@ -34,6 +34,10 @@ pub struct ClassInfo {
     pub annotations: Vec<EditableAnnotation>,
     /// 是否标记 Deprecated
     pub is_deprecated: bool,
+    /// 是否被编辑过（未保存）
+    pub modified: bool,
+    /// 是否已保存到 JAR（与原始文件不同）
+    pub saved: bool,
 }
 
 /// field 信息
@@ -54,6 +58,10 @@ pub struct FieldInfo {
     pub is_deprecated: bool,
     /// 是否编译器生成
     pub is_synthetic: bool,
+    /// 是否被编辑过（未保存）
+    pub modified: bool,
+    /// 是否已保存到 JAR（与原始文件不同）
+    pub saved: bool,
 }
 
 /// method 信息
@@ -78,6 +86,20 @@ pub struct MethodInfo {
     pub bytecode: String,
     /// 是否有 Code attribute（abstract/native 没有）
     pub has_code: bool,
+    /// 是否被编辑过（未保存）
+    pub modified: bool,
+    /// 是否已保存到 JAR（与原始文件不同）
+    pub saved: bool,
+}
+
+/// 持久化的已保存成员标识（跨 tab 关闭/重开保留）
+#[derive(Clone, Hash, Eq, PartialEq)]
+pub enum SavedMember {
+    ClassInfo,
+    /// (name, descriptor)
+    Field(String, String),
+    /// (name, descriptor)
+    Method(String, String),
 }
 
 /// 可编辑的注解

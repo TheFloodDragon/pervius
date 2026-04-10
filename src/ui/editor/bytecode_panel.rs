@@ -92,18 +92,30 @@ pub fn render_bytecode_panel(ui: &mut egui::Ui, tab: &mut EditorTab) {
     let changed = match selection {
         BytecodeSelection::ClassInfo => {
             let cs = tab.class_structure.as_mut().unwrap();
-            render_class_info_editable(&mut content_ui, cs)
+            let c = render_class_info_editable(&mut content_ui, cs);
+            if c {
+                cs.info.modified = true;
+            }
+            c
         }
         BytecodeSelection::Field(idx) => {
             let cs = tab.class_structure.as_mut().unwrap();
-            cs.fields
-                .get_mut(idx)
-                .map_or(false, |field| render_field_editable(&mut content_ui, field))
+            cs.fields.get_mut(idx).map_or(false, |field| {
+                let c = render_field_editable(&mut content_ui, field, idx);
+                if c {
+                    field.modified = true;
+                }
+                c
+            })
         }
         BytecodeSelection::Method(idx) => {
             let cs = tab.class_structure.as_mut().unwrap();
             cs.methods.get_mut(idx).map_or(false, |method| {
-                render_method_editable(&mut content_ui, method)
+                let c = render_method_editable(&mut content_ui, method, idx);
+                if c {
+                    method.modified = true;
+                }
+                c
             })
         }
     };
@@ -112,7 +124,16 @@ pub fn render_bytecode_panel(ui: &mut egui::Ui, tab: &mut EditorTab) {
     }
 }
 
-// ── 左侧导航栏 ──
+/// 成员修改状态 → 颜色：未保存→橙色，已保存→绿色，未修改→无
+fn member_color(modified: bool, saved: bool) -> Option<egui::Color32> {
+    if modified {
+        Some(theme::ACCENT_ORANGE)
+    } else if saved {
+        Some(theme::ACCENT_GREEN)
+    } else {
+        None
+    }
+}
 
 fn render_nav(
     ui: &mut egui::Ui,
@@ -130,6 +151,7 @@ fn render_nav(
         &short_class_name(&cs.info.name),
         "",
         selection == BytecodeSelection::ClassInfo,
+        member_color(cs.info.modified, cs.info.saved),
     ) {
         new_selection = Some(BytecodeSelection::ClassInfo);
     }
@@ -140,7 +162,14 @@ fn render_nav(
         for (i, field) in cs.fields.iter().enumerate() {
             let selected = selection == BytecodeSelection::Field(i);
             let type_hint = short_descriptor(&field.descriptor);
-            if render_nav_item(ui, codicon::SYMBOL_FIELD, &field.name, &type_hint, selected) {
+            if render_nav_item(
+                ui,
+                codicon::SYMBOL_FIELD,
+                &field.name,
+                &type_hint,
+                selected,
+                member_color(field.modified, field.saved),
+            ) {
                 new_selection = Some(BytecodeSelection::Field(i));
             }
         }
@@ -153,7 +182,14 @@ fn render_nav(
             let selected = selection == BytecodeSelection::Method(i);
             let params = short_params(&method.descriptor);
             let label = format!("{}{params}", method.name);
-            if render_nav_item(ui, codicon::SYMBOL_METHOD, &label, "", selected) {
+            if render_nav_item(
+                ui,
+                codicon::SYMBOL_METHOD,
+                &label,
+                "",
+                selected,
+                member_color(method.modified, method.saved),
+            ) {
                 new_selection = Some(BytecodeSelection::Method(i));
             }
         }
@@ -182,21 +218,21 @@ fn render_nav_item(
     label: &str,
     suffix: &str,
     selected: bool,
+    mod_color: Option<egui::Color32>,
 ) -> bool {
     let avail_w = ui.available_width();
     let (rect, resp) =
         ui.allocate_exact_size(egui::vec2(avail_w, NAV_ROW_HEIGHT), egui::Sense::click());
     let painter = ui.painter();
-    // 选中 / hover 背景动画
-    let anim = Anim::new(ui, 0.1).with(label);
-    let target_bg = if selected {
-        theme::BG_HOVER
-    } else if resp.hovered() {
-        theme::BG_LIGHT
-    } else {
-        egui::Color32::TRANSPARENT
-    };
-    let bg = anim.color("bg", target_bg);
+    // 用 resp.id 作为动画 key，避免同名方法（如重载 <init>()）共享动画状态
+    let anim = Anim::new(ui, 0.1).with(resp.id);
+    let bg = anim.select_bg(
+        selected,
+        resp.hovered(),
+        resp.clicked(),
+        theme::BG_HOVER,
+        theme::BG_LIGHT,
+    );
     if bg.a() > 0 {
         painter.rect_filled(rect, 0.0, bg);
     }
@@ -221,11 +257,16 @@ fn render_nav_item(
             theme::TEXT_MUTED
         },
     );
-    let label_color = if selected {
+    let target_label = if let Some(c) = mod_color {
+        c
+    } else if selected {
         theme::TEXT_PRIMARY
     } else {
         theme::TEXT_SECONDARY
     };
+    let label_color = Anim::new(ui, 0.35)
+        .with(resp.id)
+        .color("label", target_label);
     let clip = egui::Rect::from_min_max(
         egui::pos2(text_x, rect.top()),
         egui::pos2(rect.right() - 4.0, rect.bottom()),
@@ -274,8 +315,6 @@ fn render_nav_item(
     resp.clicked()
 }
 
-// ── 右侧：Class Info（可编辑） ──
-
 fn render_class_info_editable(ui: &mut egui::Ui, cs: &mut ClassStructure) -> bool {
     let mut changed = false;
     egui::ScrollArea::vertical()
@@ -316,12 +355,10 @@ fn render_class_info_editable(ui: &mut egui::Ui, cs: &mut ClassStructure) -> boo
     changed
 }
 
-// ── 右侧：Field（可编辑） ──
-
-fn render_field_editable(ui: &mut egui::Ui, field: &mut FieldInfo) -> bool {
+fn render_field_editable(ui: &mut egui::Ui, field: &mut FieldInfo, idx: usize) -> bool {
     let mut changed = false;
     egui::ScrollArea::vertical()
-        .id_salt("bc_field")
+        .id_salt(("bc_field", idx))
         .auto_shrink(false)
         .show(ui, |ui| {
             ui.add_space(CONTENT_PAD);
@@ -348,12 +385,10 @@ fn render_field_editable(ui: &mut egui::Ui, field: &mut FieldInfo) -> bool {
     changed
 }
 
-// ── 右侧：Method（可编辑） ──
-
-fn render_method_editable(ui: &mut egui::Ui, method: &mut MethodInfo) -> bool {
+fn render_method_editable(ui: &mut egui::Ui, method: &mut MethodInfo, idx: usize) -> bool {
     let mut changed = false;
     egui::ScrollArea::both()
-        .id_salt("bc_method")
+        .id_salt(("bc_method", idx))
         .auto_shrink(false)
         .show(ui, |ui| {
             ui.add_space(CONTENT_PAD);
@@ -398,6 +433,7 @@ fn render_method_editable(ui: &mut egui::Ui, method: &mut MethodInfo) -> bool {
                     changed |= ui
                         .add(
                             egui::TextEdit::multiline(&mut method.bytecode)
+                                .id(ui.id().with(("bc_code", idx)))
                                 .font(egui::FontId::monospace(CODE_FONT_SIZE))
                                 .desired_width(f32::INFINITY)
                                 .desired_rows(line_count)
@@ -428,8 +464,6 @@ fn render_method_editable(ui: &mut egui::Ui, method: &mut MethodInfo) -> bool {
         });
     changed
 }
-
-// ── 注解结构化编辑 ──
 
 /// Kotlin 编译器内部注解，编辑无意义，只读展示
 fn is_kotlin_internal_annotation(type_desc: &str) -> bool {
@@ -568,8 +602,6 @@ fn render_annotations(ui: &mut egui::Ui, annotations: &mut Vec<EditableAnnotatio
     changed
 }
 
-// ── 通用 widget ──
-
 /// 单行可编辑文本（无边框 monospace），返回 Response
 fn styled_singleline(
     ui: &mut egui::Ui,
@@ -667,8 +699,6 @@ fn render_preview(ui: &mut egui::Ui, text: &str) {
         );
     });
 }
-
-// ── 辅助 ──
 
 /// 从方法描述符提取可读返回类型
 fn return_type_readable(descriptor: &str) -> String {

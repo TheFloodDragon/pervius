@@ -326,8 +326,6 @@ impl FindBar {
     }
 }
 
-// -- 按钮工厂 --
-
 /// Codicon 图标 toggle 按钮（带 active 状态）
 fn icon_toggle(icon: &str, active: bool) -> FlatButton<'_> {
     FlatButton::new(icon)
@@ -346,8 +344,6 @@ fn icon_btn(icon: &str) -> FlatButton<'_> {
         .inactive_color(theme::TEXT_MUTED)
         .min_size(egui::vec2(22.0, 22.0))
 }
-
-// -- 工具函数 --
 
 fn text_for_view(tab: &EditorTab) -> &str {
     match tab.active_view {
@@ -424,8 +420,6 @@ fn parse_hex_query(query: &str) -> Option<Vec<u8>> {
         .collect();
     bytes.ok()
 }
-
-// -- 搜索引擎 --
 
 fn find_all(text: &str, query: &str, case_sensitive: bool, whole_word: bool) -> Vec<FindMatch> {
     if query.is_empty() {

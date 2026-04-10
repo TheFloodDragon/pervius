@@ -6,29 +6,19 @@
 //!
 //! @author sky
 
+use rust_i18n::t;
 use std::io::Write;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt as _;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::Path;
 
-use super::decompiler;
+use super::process;
 
-/// 定位 classforge.jar（exe 同目录，匹配 classforge*.jar）
-fn find_classforge() -> Result<PathBuf, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe
-        .parent()
-        .ok_or_else(|| "cannot determine exe directory".to_string())?;
-    let entries = std::fs::read_dir(exe_dir).map_err(|e| e.to_string())?;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name.starts_with("classforge") && name.ends_with(".jar") {
-            return Ok(entry.path());
-        }
+/// 获取 ClassForge 显示文本（有版本号则带版本，否则只显示名称）
+pub fn classforge_version() -> Option<String> {
+    let path = super::find_jar("classforge", |_| true).ok()?;
+    match super::jar_version("classforge", &path) {
+        Some(version) => Some(t!("status.classforge_version", version = version).to_string()),
+        None => Some("ClassForge".to_string()),
     }
-    Err(format!("classforge.jar not found in {}", exe_dir.display()))
 }
 
 /// 方法字节码编辑
@@ -55,20 +45,14 @@ pub fn patch_methods(
     edits: &[MethodEdit],
     jar_path: Option<&Path>,
 ) -> Result<Vec<u8>, String> {
-    let java = decompiler::find_java()?;
-    let classforge = find_classforge()?;
-    let mut cmd = Command::new(&java);
-    cmd.arg("-jar").arg(&classforge).arg("--patch");
+    let classforge = super::find_jar("classforge", |_| true)?;
+    let mut cmd = process::JavaCommand::new(&classforge)?;
+    cmd.arg("--patch");
     if let Some(path) = jar_path {
         cmd.arg("--classpath").arg(path);
     }
-    cmd.stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     let mut child = cmd
-        .spawn()
+        .spawn_with_stdin()
         .map_err(|e| format!("classforge spawn failed: {e}"))?;
     if let Some(mut stdin) = child.stdin.take() {
         // class 数据

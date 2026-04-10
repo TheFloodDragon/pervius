@@ -5,9 +5,10 @@
 use super::class_info::ClassInfoItem;
 use super::decompile_progress::DecompileProgressItem;
 use super::item::{Alignment, StatusItem};
+use super::modified_count::ModifiedCountItem;
 use super::text_item::TextItem;
 use super::view_toggle::ViewToggleItem;
-use crate::java::decompiler;
+use crate::java::{classforge, decompiler};
 use crate::shell::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
@@ -31,8 +32,12 @@ impl Default for StatusBar {
         ));
         s.add(ClassInfoItem::new());
         if let Some(ver) = decompiler::vineflower_version() {
-            s.add(TextItem::new(ver, theme::ACCENT_GREEN, Alignment::Right).context_only());
+            s.add(TextItem::new(ver, theme::ACCENT_GREEN, Alignment::Right));
         }
+        if let Some(ver) = classforge::classforge_version() {
+            s.add(TextItem::new(ver, theme::ACCENT_GREEN, Alignment::Right));
+        }
+        s.add(ModifiedCountItem::new());
         s.add(ViewToggleItem::new());
         s.add(DecompileProgressItem::new());
         s
@@ -94,6 +99,18 @@ impl StatusBar {
         if let Some(item) = self.item_mut::<DecompileProgressItem>() {
             item.set_progress(info);
         }
+    }
+
+    /// 同步已修改文件路径
+    pub fn sync_modified_count(&mut self, saved: Vec<String>, unsaved: Vec<String>) {
+        if let Some(item) = self.item_mut::<ModifiedCountItem>() {
+            item.set_paths(saved, unsaved);
+        }
+    }
+
+    /// 取出弹出列表中用户点击的文件路径
+    pub fn take_clicked_file(&mut self) -> Option<String> {
+        self.item_mut::<ModifiedCountItem>()?.take_clicked()
     }
 
     /// 渲染状态栏

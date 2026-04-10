@@ -15,9 +15,6 @@ fn byte_hex_color(b: u8, theme: &HexTheme) -> egui::Color32 {
         _ => theme.hex_high_color,
     }
 }
-
-// -- 列头 --
-
 pub(crate) fn header(ui: &mut egui::Ui, cols: &Cols, theme: &HexTheme, total_w: f32) {
     let (response, painter) =
         ui.allocate_painter(egui::vec2(total_w, HEADER_H), egui::Sense::hover());
@@ -57,9 +54,6 @@ pub(crate) fn header(ui: &mut egui::Ui, cols: &Cols, theme: &HexTheme, total_w: 
         egui::Stroke::new(1.0, theme.border),
     );
 }
-
-// -- 数据行 --
-
 pub(crate) fn row(
     painter: &egui::Painter,
     cols: &Cols,

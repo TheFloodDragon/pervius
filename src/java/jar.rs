@@ -38,12 +38,6 @@ pub struct JarArchive {
 }
 
 impl JarArchive {
-    /// 从文件路径打开 JAR/ZIP（同步，阻塞调用方）
-    pub fn open(path: &Path) -> Result<Self, String> {
-        let progress = LoadProgress::new();
-        Self::open_with_progress(path, &progress)
-    }
-
     /// 带进度回报的打开方法（供后台线程调用）
     pub fn open_with_progress(path: &Path, progress: &LoadProgress) -> Result<Self, String> {
         let data = std::fs::read(path).map_err(|e| e.to_string())?;
@@ -85,11 +79,6 @@ impl JarArchive {
     pub fn put(&mut self, path: &str, data: Vec<u8>) {
         self.modified_entries.insert(path.to_string());
         self.entries.insert(path.to_string(), data);
-    }
-
-    /// 该条目是否已修改但未落盘
-    pub fn is_entry_modified(&self, path: &str) -> bool {
-        self.modified_entries.contains(path)
     }
 
     /// 是否有任何已修改但未落盘的条目

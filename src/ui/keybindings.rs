@@ -7,8 +7,6 @@ use crate::settings::KeymapSettings;
 use eframe::egui;
 use egui_keybind::{KeyBind, KeyMap};
 
-// -- 默认快捷键（用于 KeymapSettings::default 和编辑器占位符）--
-
 pub const DEFAULT_TOGGLE_EXPLORER: KeyBind = KeyBind::alt(egui::Key::Num1);
 pub const DEFAULT_FIND_IN_FILES: KeyBind = KeyBind::ctrl_shift(egui::Key::F);
 pub const DEFAULT_OPEN_JAR: KeyBind = KeyBind::ctrl(egui::Key::O);
@@ -35,5 +33,6 @@ pub fn build_keymap(km: &KeymapSettings) -> KeyMap<Layout> {
         .bind(km.save, |l: &mut Layout| l.save_active_tab())
         .bind(km.cycle_view, |l: &mut Layout| l.editor.cycle_view())
         .bind(km.open_settings, |l: &mut Layout| l.open_settings())
+        .bind(km.export_decompiled, |l: &mut Layout| l.export_decompiled())
         .bind_double_shift(|l: &mut Layout| l.search.open())
 }

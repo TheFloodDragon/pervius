@@ -4,7 +4,6 @@
 
 use super::result::{SearchMatch, SearchResultGroup, SourcePreview};
 use crate::shell::{codicon, theme};
-use crate::ui::widget::FlatButton;
 use eframe::egui;
 use rust_i18n::t;
 
@@ -25,19 +24,6 @@ pub fn preview_for(m: &SearchMatch, mode: SearchMode) -> &SourcePreview {
         SearchMode::Decompiled => &m.decompiled,
         SearchMode::Bytecode => &m.bytecode,
     }
-}
-
-pub fn toggle_icon(ui: &mut egui::Ui, icon: &str, active: bool, tooltip: &str) -> bool {
-    ui.add(
-        FlatButton::new(icon)
-            .font_size(15.0)
-            .font_family(codicon::family())
-            .active(active)
-            .inactive_color(theme::TEXT_MUTED)
-            .min_size(egui::vec2(28.0, 24.0)),
-    )
-    .on_hover_text(tooltip)
-    .clicked()
 }
 
 pub fn render_group_header(ui: &mut egui::Ui, group: &SearchResultGroup) -> bool {

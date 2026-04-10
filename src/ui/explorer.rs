@@ -53,11 +53,6 @@ impl FilePanel {
         }
     }
 
-    /// 使索引失效（树结构变化后调用）
-    pub fn invalidate_index(&mut self) {
-        self.filter_index = None;
-    }
-
     /// 在给定 rect 内渲染（背景由 layout island 绘制）
     pub fn render(
         &mut self,
@@ -219,9 +214,8 @@ impl FilePanel {
             return;
         }
         self.filter_visible = result.visible;
-        if let Some(ref path) = result.first_match {
-            self.selected = result.first_match.clone();
-            tree::reveal(&mut self.roots, path);
+        if result.first_match.is_some() {
+            self.selected = result.first_match;
             self.scroll_to_selected = true;
         }
     }

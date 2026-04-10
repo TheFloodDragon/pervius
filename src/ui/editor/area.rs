@@ -8,17 +8,24 @@ use super::style::dock;
 use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
 use super::viewer::{EditorTabViewer, TabAction};
+use crate::java::class_structure::SavedMember;
 use crate::java::decompiler;
 use crate::shell::theme;
 use eframe::egui;
 use egui_dock::{DockArea, DockState, SurfaceIndex};
 use rust_i18n::t;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// 编辑器区域状态
 pub struct EditorArea {
+    /// egui-dock 管理的 tab 布局
     pub dock_state: DockState<EditorTab>,
+    /// 编辑器内查找栏
     pub find_bar: FindBar,
+    /// 被 is_modified 拦截的关闭动作，由 Layout 消费并弹出确认对话框
+    pub blocked_close: Option<TabAction>,
+    /// 已保存成员记录（entry_path → 成员集合），跨 tab 关闭/重开保留
+    pub saved_members: HashMap<String, HashSet<SavedMember>>,
 }
 
 impl EditorArea {
@@ -26,6 +33,8 @@ impl EditorArea {
         Self {
             dock_state: DockState::new(vec![]),
             find_bar: FindBar::new(),
+            blocked_close: None,
+            saved_members: HashMap::new(),
         }
     }
 
@@ -44,12 +53,16 @@ impl EditorArea {
             action: None,
             find_bar: &mut self.find_bar,
             jar_modified,
+            pending_close: None,
         };
         DockArea::new(&mut self.dock_state)
             .style(style)
             .show_leaf_collapse_buttons(false)
             .show_leaf_close_all_buttons(false)
             .show_inside(ui, &mut viewer);
+        if let Some(entry_path) = viewer.pending_close.take() {
+            self.blocked_close = Some(TabAction::Close(entry_path));
+        }
         if let Some(action) = viewer.action.take() {
             self.handle_tab_action(action);
         }
@@ -158,7 +171,37 @@ impl EditorArea {
         }
     }
 
-    pub fn open_tab(&mut self, tab: EditorTab) {
+    pub fn open_tab(&mut self, mut tab: EditorTab) {
+        // 恢复跨 tab 关闭/重开保留的已保存成员标记
+        if let Some(entry_path) = &tab.entry_path {
+            if let Some(saved) = self.saved_members.get(entry_path) {
+                if let Some(cs) = &mut tab.class_structure {
+                    for member in saved {
+                        match member {
+                            SavedMember::ClassInfo => cs.info.saved = true,
+                            SavedMember::Field(n, d) => {
+                                if let Some(f) = cs
+                                    .fields
+                                    .iter_mut()
+                                    .find(|f| f.name == *n && f.descriptor == *d)
+                                {
+                                    f.saved = true;
+                                }
+                            }
+                            SavedMember::Method(n, d) => {
+                                if let Some(m) = cs
+                                    .methods
+                                    .iter_mut()
+                                    .find(|m| m.name == *n && m.descriptor == *d)
+                                {
+                                    m.saved = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         self.dock_state.main_surface_mut().push_to_focused_leaf(tab);
     }
 
@@ -192,6 +235,15 @@ impl EditorArea {
     /// 当前聚焦 tab 的条目路径
     pub fn focused_entry_path(&mut self) -> Option<String> {
         self.focused_tab()?.entry_path.clone()
+    }
+
+    /// 有编辑但未保存的 tab 条目路径
+    pub fn unsaved_paths(&self) -> Vec<String> {
+        self.dock_state
+            .iter_all_tabs()
+            .filter(|(_, t)| t.is_modified)
+            .filter_map(|(_, t)| t.entry_path.clone())
+            .collect()
     }
 
     pub fn set_focused_view(&mut self, view: ActiveView) {
@@ -250,10 +302,19 @@ impl EditorArea {
             })
         });
         if let Some(node_path) = path {
-            let active = self.dock_state[node_path.surface][node_path.node]
-                .get_leaf()
-                .map(|leaf| leaf.active);
+            let leaf = self.dock_state[node_path.surface][node_path.node].get_leaf();
+            let active = leaf.map(|l| l.active);
             if let Some(tab_idx) = active {
+                let is_modified = leaf
+                    .and_then(|l| l.tabs.get(tab_idx.0))
+                    .is_some_and(|t| t.is_modified);
+                if is_modified {
+                    let entry_path = leaf
+                        .and_then(|l| l.tabs.get(tab_idx.0))
+                        .and_then(|t| t.entry_path.clone());
+                    self.blocked_close = Some(TabAction::Close(entry_path));
+                    return;
+                }
                 let tab_path = egui_dock::TabPath::new(node_path.surface, node_path.node, tab_idx);
                 self.dock_state.remove_tab(tab_path);
             }
@@ -262,10 +323,51 @@ impl EditorArea {
 
     /// 关闭所有 tab
     pub fn close_all_tabs(&mut self) {
+        if self.dock_state.iter_all_tabs().any(|(_, t)| t.is_modified) {
+            self.blocked_close = Some(TabAction::CloseAll);
+            return;
+        }
         self.dock_state = DockState::new(vec![]);
     }
 
     fn handle_tab_action(&mut self, action: TabAction) {
+        if self.has_modified_in_action(&action) {
+            self.blocked_close = Some(action);
+            return;
+        }
+        self.force_tab_action(action);
+    }
+
+    /// 待关闭的 tab 中是否有未保存修改
+    fn has_modified_in_action(&self, action: &TabAction) -> bool {
+        match action {
+            TabAction::Close(path) => self
+                .dock_state
+                .iter_all_tabs()
+                .any(|(_, t)| t.entry_path == *path && t.is_modified),
+            TabAction::CloseAll => self.dock_state.iter_all_tabs().any(|(_, t)| t.is_modified),
+            TabAction::CloseOthers(keep) => self
+                .dock_state
+                .iter_all_tabs()
+                .any(|(_, t)| t.entry_path != *keep && t.is_modified),
+            TabAction::CloseToRight(after) => {
+                let found = self.dock_state.find_tab_from(|t| t.entry_path == *after);
+                match found {
+                    Some(tab_path) => self.dock_state[tab_path.surface][tab_path.node]
+                        .get_leaf()
+                        .is_some_and(|leaf| {
+                            leaf.tabs[tab_path.tab.0 + 1..]
+                                .iter()
+                                .any(|t| t.is_modified)
+                        }),
+                    None => false,
+                }
+            }
+        }
+    }
+
+    /// 强制执行 tab 关闭动作（跳过 is_modified 检查，由确认对话框调用）
+    pub fn force_tab_action(&mut self, action: TabAction) {
         match action {
             TabAction::Close(path) => {
                 let found = self.dock_state.find_tab_from(|t| t.entry_path == path);

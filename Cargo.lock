@@ -1021,28 +1021,13 @@ dependencies = [
 name = "egui-shell"
 version = "0.1.0"
 dependencies = [
- "eframe",
- "image",
- "resvg",
-]
-
-[[package]]
-name = "egui-window"
-version = "0.1.0"
-dependencies = [
- "eframe",
-]
-
-[[package]]
-name = "egui-window-settings"
-version = "0.1.0"
-dependencies = [
  "dirs",
  "eframe",
  "egui-animation",
  "egui-keybind",
- "egui-window",
+ "image",
  "log",
+ "resvg",
  "serde",
  "toml",
 ]
@@ -1074,6 +1059,7 @@ version = "0.19.1"
 dependencies = [
  "duplicate",
  "egui",
+ "egui-animation",
  "paste",
  "thiserror 2.0.18",
 ]
@@ -2605,8 +2591,6 @@ dependencies = [
  "egui-keybind",
  "egui-notify",
  "egui-shell",
- "egui-window",
- "egui-window-settings",
  "egui_dock",
  "encoding_rs",
  "env_logger",

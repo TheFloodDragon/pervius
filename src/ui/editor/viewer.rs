@@ -34,6 +34,8 @@ pub struct EditorTabViewer<'a> {
     pub find_bar: &'a mut FindBar,
     /// JAR 中已保存但未落盘的条目路径
     pub jar_modified: &'a HashSet<String>,
+    /// on_close 被 is_modified 拦截时记录要关闭的 tab 路径
+    pub pending_close: Option<Option<String>>,
 }
 
 impl TabViewer for EditorTabViewer<'_> {
@@ -87,6 +89,9 @@ impl TabViewer for EditorTabViewer<'_> {
         }
         // 渲染内容
         match tab.active_view {
+            ActiveView::Decompiled if tab.is_text => {
+                render::render_editable(ui, tab, &matches, current)
+            }
             ActiveView::Decompiled => render::render_decompiled(ui, tab, &matches, current),
             ActiveView::Bytecode => bytecode_panel::render_bytecode_panel(ui, tab),
             ActiveView::Hex => render::render_hex(ui, tab, &matches, current),
@@ -136,8 +141,10 @@ impl TabViewer for EditorTabViewer<'_> {
     }
 
     fn on_close(&mut self, tab: &mut Self::Tab) -> OnCloseResponse {
-        // 点 X 关闭 = 放弃该 tab 的未保存编辑
-        tab.is_modified = false;
+        if tab.is_modified {
+            self.pending_close = Some(tab.entry_path.clone());
+            return OnCloseResponse::Focus;
+        }
         OnCloseResponse::Close
     }
 

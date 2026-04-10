@@ -88,6 +88,33 @@ impl Anim {
         Color32::from_rgba_premultiplied(r as u8, g as u8, b as u8, a as u8)
     }
 
+    /// 选中/悬停背景色动画。
+    ///
+    /// 根据 `selected`、`hovered`、`clicked` 状态确定目标颜色，通过内部 `color("bg", ...)` 做平滑过渡：
+    /// - `selected` 或 `clicked` → `selected_color`
+    /// - `hovered`（且未选中）→ `hover_color`
+    /// - 否则 → `Color32::TRANSPARENT`
+    ///
+    /// `clicked` 用于点击帧立即使用选中色，避免 hover → transparent → selected 的闪烁——
+    /// 因为选中状态通常在下一帧才由父级更新，中间会经过一帧透明。
+    pub fn select_bg(
+        &self,
+        selected: bool,
+        hovered: bool,
+        clicked: bool,
+        selected_color: Color32,
+        hover_color: Color32,
+    ) -> Color32 {
+        let target = if selected || clicked {
+            selected_color
+        } else if hovered {
+            hover_color
+        } else {
+            Color32::TRANSPARENT
+        };
+        self.color("bg", target)
+    }
+
     /// 动画化 `Vec2`，x/y 分量独立过渡。
     pub fn vec2(&self, salt: impl Hash, target: Vec2) -> Vec2 {
         let id = self.base_id.with(salt);

@@ -14,18 +14,12 @@ pub struct CodeData {
     pub spans: Vec<Span>,
     /// 每行在源码中的起始字节偏移
     pub line_starts: Vec<usize>,
-    /// 最长行字节数（用于计算水平滚动范围）
-    pub max_line_len: usize,
 }
 
 impl CodeData {
     pub fn new(source: &str, spans: Vec<Span>) -> Self {
-        let (line_starts, max_line_len) = highlight::compute_line_starts(source);
-        Self {
-            spans,
-            line_starts,
-            max_line_len,
-        }
+        let line_starts = highlight::compute_line_starts(source);
+        Self { spans, line_starts }
     }
 
     pub fn line_count(&self) -> usize {
@@ -54,6 +48,8 @@ pub struct EditorTab {
     pub active_view: ActiveView,
     /// .class 文件才显示三视图切换
     pub is_class: bool,
+    /// 纯文本文件（可直接编辑）
+    pub is_text: bool,
     /// class 文件版本信息（如 "Java 21 (class 65.0)"）
     pub class_info: Option<String>,
     pub is_modified: bool,
@@ -69,39 +65,9 @@ pub struct EditorTab {
     pub bc_selection: BytecodeSelection,
     /// 字节码面板左侧导航栏宽度（可拖拽调整）
     pub nav_width: f32,
-    /// 每个 method 的字节码高亮数据（与 class_structure.methods 平行）
-    pub(super) method_code_data: Vec<CodeData>,
 }
 
 impl EditorTab {
-    pub fn new(
-        title: impl Into<String>,
-        decompiled: impl Into<String>,
-        raw_bytes: Vec<u8>,
-        language: Language,
-    ) -> Self {
-        let decompiled = decompiled.into();
-        let dec_data = CodeData::new(&decompiled, highlight::compute_spans(&decompiled, language));
-        Self {
-            title: title.into(),
-            entry_path: None,
-            decompiled,
-            raw_bytes,
-            language,
-            active_view: ActiveView::Decompiled,
-            is_class: false,
-            class_info: None,
-            is_modified: false,
-            hex_state: HexViewState::default(),
-            decompiled_data: dec_data,
-            decompiled_line_mapping: Vec::new(),
-            class_structure: None,
-            bc_selection: BytecodeSelection::ClassInfo,
-            nav_width: 220.0,
-            method_code_data: Vec::new(),
-        }
-    }
-
     /// 创建 .class 文件 tab
     pub fn new_class(
         title: impl Into<String>,
@@ -111,17 +77,6 @@ impl EditorTab {
     ) -> Self {
         let cs = crate::java::bytecode::disassemble(&raw_bytes).ok();
         let class_info = cs.as_ref().map(|c| c.info.version.clone());
-        let method_code_data = cs
-            .as_ref()
-            .map(|c| {
-                c.methods
-                    .iter()
-                    .map(|m| {
-                        CodeData::new(&m.bytecode, highlight::compute_bytecode_spans(&m.bytecode))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
         let bc_selection = cs
             .as_ref()
             .map(|c| {
@@ -142,6 +97,7 @@ impl EditorTab {
             language,
             active_view: ActiveView::Hex,
             is_class: true,
+            is_text: false,
             class_info,
             is_modified: false,
             hex_state: HexViewState::default(),
@@ -150,7 +106,6 @@ impl EditorTab {
             class_structure: cs,
             bc_selection,
             nav_width: 220.0,
-            method_code_data,
         }
     }
 
@@ -171,6 +126,7 @@ impl EditorTab {
             language,
             active_view: ActiveView::Decompiled,
             is_class: false,
+            is_text: true,
             class_info: None,
             is_modified: false,
             hex_state: HexViewState::default(),
@@ -179,7 +135,6 @@ impl EditorTab {
             class_structure: None,
             bc_selection: BytecodeSelection::ClassInfo,
             nav_width: 220.0,
-            method_code_data: Vec::new(),
         }
     }
 
@@ -197,6 +152,7 @@ impl EditorTab {
             language: Language::Plain,
             active_view: ActiveView::Hex,
             is_class: false,
+            is_text: false,
             class_info: None,
             is_modified: false,
             hex_state: HexViewState::default(),
@@ -205,7 +161,6 @@ impl EditorTab {
             class_structure: None,
             bc_selection: BytecodeSelection::ClassInfo,
             nav_width: 220.0,
-            method_code_data: Vec::new(),
         }
     }
 
@@ -236,12 +191,11 @@ impl EditorTab {
         }
     }
 
-    /// 当前选中方法的字节码 CodeData
-    pub fn selected_bytecode_data(&self) -> Option<&CodeData> {
-        if let BytecodeSelection::Method(idx) = self.bc_selection {
-            self.method_code_data.get(idx)
-        } else {
-            None
-        }
+    /// 重建反编译/文本视图的高亮数据（文本编辑后调用）
+    pub fn refresh_decompiled_data(&mut self) {
+        self.decompiled_data = CodeData::new(
+            &self.decompiled,
+            highlight::compute_spans(&self.decompiled, self.language),
+        );
     }
 }

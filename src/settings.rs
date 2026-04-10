@@ -1,15 +1,15 @@
 //! 用户配置：数据定义 + 业务逻辑
 //!
-//! TOML 持久化由 [`egui_window_settings::SettingsFile`] trait 提供，
+//! TOML 持久化由 [`egui_shell::components::SettingsFile`] trait 提供，
 //! 所有 section 均标注 `#[serde(default)]`，新增字段不会破坏旧配置文件。
 //!
 //! @author sky
 
 use egui_keybind::KeyBind;
-use egui_window_settings::SettingsFile;
+use egui_shell::components::SettingsFile;
 use rust_i18n::t;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 最近打开列表上限
@@ -142,27 +142,6 @@ impl Settings {
     /// 仅读取语言配置（用于启动时在 UI 初始化前设置 locale）
     pub fn load_for_locale() -> Self {
         Self::load()
-    }
-
-    /// 解析生效的 java 路径，空字符串时回退到 JAVA_HOME 环境变量
-    pub fn java_executable(&self) -> Option<PathBuf> {
-        let home = if self.java.java_home.is_empty() {
-            std::env::var("JAVA_HOME").ok()?
-        } else {
-            self.java.java_home.clone()
-        };
-        let path = PathBuf::from(&home);
-        if !path.exists() {
-            return None;
-        }
-        let exe = path
-            .join("bin")
-            .join(if cfg!(windows) { "java.exe" } else { "java" });
-        if exe.exists() {
-            Some(exe)
-        } else {
-            None
-        }
     }
 
     /// 将文件加入最近打开列表头部（去重 + 截断）

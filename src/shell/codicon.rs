@@ -7,27 +7,12 @@
 
 use eframe::egui;
 
-// -- 窗口控制 --
-
-/// 关闭按钮
-pub const CHROME_CLOSE: &str = "\u{EAB8}";
-/// 最大化按钮
-pub const CHROME_MAXIMIZE: &str = "\u{EAB9}";
-/// 最小化按钮
-pub const CHROME_MINIMIZE: &str = "\u{EABA}";
-/// 还原按钮
-pub const CHROME_RESTORE: &str = "\u{EABB}";
-
-// -- 文件系统 --
-
 /// 文件图标
 pub const FILE: &str = "\u{EA7B}";
 /// 关闭的文件夹
 pub const FOLDER: &str = "\u{EA83}";
 /// 展开的文件夹
 pub const FOLDER_OPENED: &str = "\u{EAF7}";
-/// 文件树图标（explorer 视图）
-pub const FILES: &str = "\u{EAF0}";
 /// 符号类（class 图标）
 pub const SYMBOL_CLASS: &str = "\u{EB5B}";
 /// Java 文件图标（咖啡杯）
@@ -38,8 +23,6 @@ pub const SYMBOL_FIELD: &str = "\u{EB5F}";
 pub const SYMBOL_METHOD: &str = "\u{EA8C}";
 /// JAR / 归档包图标
 pub const PACKAGE: &str = "\u{EB29}";
-
-// -- 箭头 / 折叠 --
 
 /// 向右箭头（折叠状态）
 pub const CHEVRON_RIGHT: &str = "\u{EAB6}";
@@ -52,28 +35,14 @@ pub const EXPAND_ALL: &str = "\u{EB95}";
 /// 全部折叠
 pub const COLLAPSE_ALL: &str = "\u{EAC5}";
 
-// -- 通用 UI --
-
 /// 搜索
 pub const SEARCH: &str = "\u{EA6D}";
 /// 设置齿轮
 pub const SETTINGS_GEAR: &str = "\u{EB51}";
-/// 汉堡菜单
-pub const MENU: &str = "\u{EB94}";
 /// 关闭 / X 号
 pub const CLOSE: &str = "\u{EA76}";
-/// 更多（三点菜单）
-pub const ELLIPSIS: &str = "\u{EA7C}";
-/// 结构视图（符号大纲）
-pub const SYMBOL_MISC: &str = "\u{EA91}";
 /// App logo（beaker 图标）
 pub const BEAKER: &str = "\u{EAC4}";
-/// 导出
-pub const EXPORT: &str = "\u{EBAC}";
-/// 复制
-pub const COPY: &str = "\u{EBCC}";
-/// 修改标记（实心圆点，Unicode 通用符号，非 Codicon 字体）
-pub const CIRCLE_FILLED: &str = "\u{25CF}";
 /// 图钉（大头针，竖直）
 pub const PIN: &str = "\u{EBA0}";
 /// 大小写敏感

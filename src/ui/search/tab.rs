@@ -12,7 +12,7 @@ use crate::shell::{codicon, theme};
 use crate::ui::editor::highlight;
 use crate::ui::widget::FlatButton;
 use eframe::egui;
-use egui_window::FloatingWindow;
+use egui_shell::components::FloatingWindow;
 use rust_i18n::t;
 
 /// 预览面板行高

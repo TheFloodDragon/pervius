@@ -192,6 +192,135 @@ pub fn render_decompiled(
     );
 }
 
+/// 可编辑文本视图（TextEdit + 语法高亮 + 搜索高亮 + 行号）
+///
+/// 文本变更后自动刷新语法高亮数据并标记 tab 为已修改。
+pub fn render_editable(
+    ui: &mut egui::Ui,
+    tab: &mut EditorTab,
+    matches: &[FindMatch],
+    current: Option<usize>,
+) {
+    let line_count = tab.decompiled.split('\n').count().max(1);
+    let gutter_w = line_number_width(line_count);
+    let code_font = egui::FontId::monospace(CODE_FONT_SIZE);
+    let match_ranges: Vec<(usize, usize)> = matches.iter().map(|m| (m.start, m.end)).collect();
+    let match_ref = match_ranges.as_slice();
+    // layouter 内实时计算 spans，确保与当前文本同步（消除编辑闪烁）
+    let lang = tab.language;
+    // 诊断：从 layouter 闭包内传出 span 统计
+    let span_debug = std::cell::Cell::new((0usize, 0usize, 0usize));
+    let mut layouter =
+        |ui: &egui::Ui, text_buf: &dyn egui::TextBuffer, _wrap_width: f32| -> Arc<egui::Galley> {
+            let s = text_buf.as_str();
+            let spans = highlight::compute_spans(s, lang);
+            let non_plain = spans
+                .iter()
+                .filter(|s| s.2 != highlight::TokenKind::Plain)
+                .count();
+            span_debug.set((s.len(), spans.len(), non_plain));
+            let job = highlight::build_layout_job_with_matches(s, &spans, match_ref, current);
+            ui.fonts_mut(|f| f.layout_job(job))
+        };
+    let mut galley_y = 0.0f32;
+    let mut edge_scroll_delta = 0.0f32;
+    let mut wheel_delta = 0.0f32;
+    let mut changed = false;
+    ui.horizontal_top(|ui| {
+        ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
+        let output = egui::TextEdit::multiline(&mut tab.decompiled)
+            .desired_width(f32::INFINITY)
+            .font(code_font.clone())
+            .frame(egui::Frame::NONE)
+            .layouter(&mut layouter)
+            .show(ui);
+        galley_y = output.galley_pos.y;
+        changed = output.response.changed();
+        if output.response.dragged() {
+            let clip = ui.clip_rect();
+            let dt = ui.input(|i| i.stable_dt).min(0.1);
+            let edge_zone = 30.0;
+            let max_speed = 800.0;
+            if let Some(pos) = output.response.interact_pointer_pos() {
+                let speed = if pos.y < clip.top() {
+                    let dist = clip.top() - pos.y + edge_zone;
+                    (dist / edge_zone).min(3.0) * max_speed
+                } else if pos.y > clip.bottom() {
+                    let dist = pos.y - clip.bottom() + edge_zone;
+                    -((dist / edge_zone).min(3.0) * max_speed)
+                } else if pos.y < clip.top() + edge_zone {
+                    let factor = (clip.top() + edge_zone - pos.y) / edge_zone;
+                    factor * max_speed * 0.3
+                } else if pos.y > clip.bottom() - edge_zone {
+                    let factor = (pos.y - clip.bottom() + edge_zone) / edge_zone;
+                    -(factor * max_speed * 0.3)
+                } else {
+                    0.0
+                };
+                edge_scroll_delta = speed * dt;
+            }
+            wheel_delta = ui.input(|i| i.smooth_scroll_delta.y);
+        }
+    });
+    if changed {
+        tab.refresh_decompiled_data();
+        tab.is_modified = true;
+    }
+    if edge_scroll_delta != 0.0 {
+        ui.scroll_with_delta_animation(
+            egui::vec2(0.0, edge_scroll_delta),
+            egui::style::ScrollAnimation::none(),
+        );
+        ui.ctx().request_repaint();
+    }
+    if wheel_delta != 0.0 {
+        ui.scroll_with_delta_animation(
+            egui::vec2(0.0, wheel_delta),
+            egui::style::ScrollAnimation::none(),
+        );
+        ui.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
+    }
+    // 行号 overlay
+    let clip = ui.clip_rect();
+    let painter = ui.painter();
+    let measure = painter.layout_no_wrap("M".to_string(), code_font.clone(), egui::Color32::WHITE);
+    let line_height = measure.size().y;
+    let line_count_now = tab.decompiled.split('\n').count().max(1);
+    painter.rect_filled(
+        egui::Rect::from_min_size(
+            egui::pos2(clip.left(), clip.top()),
+            egui::vec2(gutter_w + GUTTER_PAD, clip.height()),
+        ),
+        0.0,
+        theme::BG_GUTTER,
+    );
+    let gutter_right_x = clip.left() + gutter_w;
+    let first = ((clip.top() - galley_y) / line_height).max(0.0) as usize;
+    let last = ((clip.bottom() - galley_y) / line_height + 1.0)
+        .ceil()
+        .min(line_count_now as f32) as usize;
+    for i in first..last {
+        let y = galley_y + i as f32 * line_height;
+        painter.text(
+            egui::pos2(gutter_right_x - 8.0, y),
+            egui::Align2::RIGHT_TOP,
+            i + 1,
+            code_font.clone(),
+            theme::TEXT_MUTED,
+        );
+    }
+    // DEBUG: span 统计可视化（诊断高亮丢失问题，确认后移除）
+    let (text_len, span_count, colored_count) = span_debug.get();
+    let debug_text = format!("len={text_len} spans={span_count} colored={colored_count}");
+    painter.text(
+        egui::pos2(clip.right() - 8.0, clip.top() + 4.0),
+        egui::Align2::RIGHT_TOP,
+        debug_text,
+        egui::FontId::monospace(11.0),
+        egui::Color32::from_rgb(255, 100, 100),
+    );
+}
+
 /// Hex 视图
 pub fn render_hex(
     ui: &mut egui::Ui,

@@ -20,8 +20,7 @@ use confirm::ConfirmAction;
 use eframe::egui;
 use egui_keybind::KeyMap;
 use egui_notify::Toasts;
-use egui_window_settings::SettingsFile;
-use rust_i18n::t;
+use egui_shell::components::SettingsFile;
 use std::collections::HashSet;
 use std::sync::mpsc;
 
@@ -113,7 +112,7 @@ impl Layout {
         self.check_re_decompile();
         self.check_single_decompile();
         // keybind 录制中跳过快捷键分发，避免录制按键同时触发动作
-        if !egui_window_settings::is_recording_keybind(ui.ctx()) {
+        if !egui_shell::components::is_recording_keybind(ui.ctx()) {
             let view_before = self.editor.focused_view();
             let mut keys = std::mem::take(&mut self.keys);
             keys.dispatch(ui.ctx(), self);
@@ -121,6 +120,10 @@ impl Layout {
             // Tab 切换视图后清除焦点，防止 begin_pass 焦点导航产生的闪烁
             if self.editor.focused_view() != view_before {
                 ui.ctx().memory_mut(|m| m.stop_text_input());
+            }
+            // 快捷键触发的 tab 关闭被 is_modified 拦截
+            if let Some(action) = self.editor.blocked_close.take() {
+                self.pending_confirm = Some(ConfirmAction::TabClose(action));
             }
         }
         let t = self.explorer_anim_t(ui);
@@ -132,6 +135,11 @@ impl Layout {
             self.render_resize_handle(ui, &rects);
         }
         self.render_editor(ui, rects.editor);
+        if let Some(action) = self.editor.blocked_close.take() {
+            if self.pending_confirm.is_none() {
+                self.pending_confirm = Some(ConfirmAction::TabClose(action));
+            }
+        }
         self.sync_explorer_selection();
         self.render_status_bar(ui, rects.status);
         self.search.render(ui.ctx());
@@ -247,6 +255,14 @@ impl Layout {
             self.editor.focused_is_class(),
             class_info.as_deref(),
         );
+        let saved_paths: Vec<String> = self
+            .jar
+            .as_ref()
+            .map(|j| j.modified_entry_paths().iter().cloned().collect())
+            .unwrap_or_default();
+        let unsaved_paths = self.editor.unsaved_paths();
+        self.status_bar
+            .sync_modified_count(saved_paths, unsaved_paths);
         // 同步反编译进度
         if let Some((ref name, _)) = self.pending_re_decompile {
             // 重反编译启动中（后台清缓存）
@@ -289,6 +305,11 @@ impl Layout {
         );
         if let Some(v) = self.status_bar.take_view_change() {
             self.editor.set_focused_view(v);
+        }
+        if let Some(path) = self.status_bar.take_clicked_file() {
+            if !self.editor.focus_tab(&path) {
+                self.file_panel.pending_open = Some(path);
+            }
         }
     }
 

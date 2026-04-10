@@ -4,13 +4,13 @@
 
 use std::collections::HashSet;
 use std::io::BufRead;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 
 use rust_i18n::t;
+
+use super::process;
 
 /// 反编译进度（跨线程共享）
 pub struct DecompileProgress {
@@ -40,65 +40,20 @@ impl Drop for DecompileTask {
             return;
         }
         log::info!("Killing vineflower process (PID {pid})");
-        kill_process_tree(pid);
+        process::kill_tree(pid);
     }
-}
-
-/// 终止进程及其子进程树
-#[cfg(windows)]
-fn kill_process_tree(pid: u32) {
-    let mut cmd = std::process::Command::new("taskkill");
-    cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
-    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    let _ = cmd.output();
-}
-
-#[cfg(not(windows))]
-fn kill_process_tree(pid: u32) {
-    let _ = std::process::Command::new("kill")
-        .arg(pid.to_string())
-        .output();
-}
-
-/// 从 JAVA_HOME 环境变量定位 java 可执行文件
-pub fn find_java() -> Result<PathBuf, String> {
-    let java_home =
-        std::env::var("JAVA_HOME").map_err(|_| t!("decompiler.java_home_not_set").to_string())?;
-    let java_home = PathBuf::from(java_home);
-    let java = if cfg!(windows) {
-        java_home.join("bin").join("java.exe")
-    } else {
-        java_home.join("bin").join("java")
-    };
-    if !java.exists() {
-        return Err(t!("decompiler.java_not_found", path = java.display()).to_string());
-    }
-    Ok(java)
 }
 
 /// 获取 Vineflower 版本号（从 JAR 文件名解析）
 pub fn vineflower_version() -> Option<String> {
     let path = find_vineflower().ok()?;
-    let name = path.file_stem()?.to_str()?;
-    let version = name.strip_prefix("vineflower-")?;
+    let version = super::jar_version("vineflower", &path)?;
     Some(t!("decompiler.vineflower_version", version = version).to_string())
 }
 
-/// 定位 vineflower JAR（exe 同目录，匹配 vineflower-*.jar）
+/// 定位 vineflower JAR（exe 同目录，匹配 vineflower-*.jar，排除 -slim）
 pub fn find_vineflower() -> Result<PathBuf, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let exe_dir = exe
-        .parent()
-        .ok_or_else(|| t!("decompiler.no_exe_dir").to_string())?;
-    let entries = std::fs::read_dir(exe_dir).map_err(|e| e.to_string())?;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name.starts_with("vineflower") && name.ends_with(".jar") && !name.contains("-slim") {
-            return Ok(entry.path());
-        }
-    }
-    Err(t!("decompiler.vineflower_not_found", path = exe_dir.display()).to_string())
+    super::find_jar("vineflower", |name| !name.contains("-slim"))
 }
 
 /// 获取缓存根目录
@@ -137,7 +92,7 @@ pub struct CachedSource {
 }
 
 /// 获取缓存源码文件路径（不读取内容）
-pub fn cached_source_path(hash: &str, class_path: &str) -> Option<std::path::PathBuf> {
+pub fn cached_source_path(hash: &str, class_path: &str) -> Option<PathBuf> {
     let dir = cache_dir(hash).ok()?;
     let base = class_to_base_path(class_path);
     for ext in &[".java", ".kt"] {
@@ -243,7 +198,7 @@ pub fn start(
     hash: &str,
     _class_count: u32,
 ) -> Result<DecompileTask, String> {
-    let java = find_java()?;
+    process::find_java()?;
     let vineflower = find_vineflower()?;
     let output_dir = cache_dir(hash)?;
     std::fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
@@ -258,7 +213,7 @@ pub fn start(
     let p = progress.clone();
     let cp = child_pid.clone();
     std::thread::spawn(move || {
-        let result = run_vineflower(&java, &vineflower, &jar_path, &output_dir, &p, &cp);
+        let result = run_vineflower(&vineflower, &jar_path, &output_dir, &p, &cp);
         let _ = tx.send(result);
     });
     Ok(DecompileTask {
@@ -271,29 +226,21 @@ pub fn start(
 
 /// 执行 vineflower 进程并解析进度
 fn run_vineflower(
-    java: &Path,
     vineflower: &Path,
     jar_path: &Path,
     output_dir: &Path,
     progress: &DecompileProgress,
     child_pid: &AtomicU32,
 ) -> Result<(), String> {
-    let mut cmd = std::process::Command::new(java);
-    // 限制线程数，避免吃满 CPU
     let thr = std::thread::available_parallelism()
         .map(|n| n.get().max(2) / 2)
         .unwrap_or(2);
-    cmd.arg("-jar")
-        .arg(vineflower)
-        .arg("--bytecode-source-mapping=1")
+    let mut cmd = process::JavaCommand::new(vineflower)?;
+    cmd.arg("--bytecode-source-mapping=1")
         .arg("--__dump_original_lines__=1")
         .arg(format!("-thr={thr}"))
         .arg(jar_path)
-        .arg(output_dir)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    #[cfg(windows)]
-    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        .arg(output_dir);
     let mut child = cmd
         .spawn()
         .map_err(|e| t!("decompiler.spawn_failed", error = e).to_string())?;
@@ -408,7 +355,6 @@ pub fn decompile_single_class(
     jar_path: &Path,
     hash: &str,
 ) -> Result<CachedSource, String> {
-    let java = find_java()?;
     let vineflower = find_vineflower()?;
     // 输出直接写入缓存目录
     let output_dir = cache_dir(hash)?;
@@ -423,19 +369,12 @@ pub fn decompile_single_class(
         std::fs::create_dir_all(parent).map_err(|e| format!("{e}"))?;
     }
     std::fs::write(&class_file, bytes).map_err(|e| format!("{e}"))?;
-    // 运行 Vineflower（传入目录而非单文件，保留包路径结构）
-    let mut cmd = std::process::Command::new(&java);
-    cmd.arg("-jar")
-        .arg(&vineflower)
-        .arg("--bytecode-source-mapping=1")
+    let mut cmd = process::JavaCommand::new(&vineflower)?;
+    cmd.arg("--bytecode-source-mapping=1")
         .arg("--__dump_original_lines__=1")
         .arg(format!("-e={}", jar_path.display()))
         .arg(tmp_input.as_os_str())
-        .arg(output_dir.as_os_str())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    #[cfg(windows)]
-    cmd.creation_flags(0x08000000);
+        .arg(output_dir.as_os_str());
     let output = cmd.output().map_err(|e| format!("spawn failed: {e}"))?;
     let _ = std::fs::remove_dir_all(&tmp_input);
     if !output.status.success() {

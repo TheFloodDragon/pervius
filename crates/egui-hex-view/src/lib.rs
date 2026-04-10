@@ -19,9 +19,6 @@ use layout::Cols;
 pub const fn color(r: u8, g: u8, b: u8, a: u8) -> egui::Color32 {
     egui::Color32::from_rgba_premultiplied(r, g, b, a)
 }
-
-// -- 布局常量 --
-
 /// 每行字节数
 pub(crate) const BYTES_PER_ROW: usize = 16;
 /// 代码字体大小
@@ -42,9 +39,6 @@ pub(crate) const PAD_LEFT: f32 = 12.0;
 pub(crate) const PAD_TOP: f32 = 4.0;
 /// 列头高度
 pub(crate) const HEADER_H: f32 = 24.0;
-
-// -- 主题 --
-
 /// 主题配色（所有颜色由调用方提供）
 #[derive(Clone)]
 pub struct HexTheme {
@@ -127,9 +121,6 @@ impl Default for HexLabels {
         }
     }
 }
-
-// -- 交互状态 --
-
 /// 用户点击的活跃区域
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Region {
@@ -162,9 +153,6 @@ impl Default for HexViewState {
         }
     }
 }
-
-// -- 入口 --
-
 /// 渲染 HexGrid（列头 + ScrollArea 网格 + Inspector 浮层）
 ///
 /// `highlights` 为搜索匹配的字节范围 `(start, end)`，

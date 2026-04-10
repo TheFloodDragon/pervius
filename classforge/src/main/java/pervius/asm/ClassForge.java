@@ -101,8 +101,16 @@ public class ClassForge {
             String code = readPrefixedStringU32(dis);
             edits.put(name + desc, code);
         }
-        // 第一遍：用 ClassNode 收集被修改方法的原始 INVOKEDYNAMIC 信息，执行汇编
-        ClassNode cn = new ClassNode();
+        // 第一遍：只读取需要 patch 的方法（跳过无关方法，避免参数注解数量不匹配触发 ASM AIOOBE）
+        ClassNode cn = new ClassNode(Opcodes.ASM9) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+                if (!edits.containsKey(name + descriptor)) {
+                    return null;
+                }
+                return super.visitMethod(access, name, descriptor, signature, exceptions);
+            }
+        };
         new ClassReader(classData).accept(cn, ClassReader.SKIP_FRAMES);
         Map<String, MethodNode> modified = new LinkedHashMap<>();
         for (MethodNode mn : cn.methods) {
