@@ -96,9 +96,7 @@ fn parse_one_type(s: &str, start: usize) -> (String, usize) {
 
 /// 从 .class 字节解析版本信息
 pub fn parse_class_version(bytes: &[u8]) -> Option<String> {
-    if bytes.len() < 8 || bytes[0..4] != [0xCA, 0xFE, 0xBA, 0xBE] {
-        return None;
-    }
+    tabookit::ensure!(bytes.len() >= 8 && bytes[0..4] == [0xCA, 0xFE, 0xBA, 0xBE]);
     let minor = u16::from_be_bytes([bytes[4], bytes[5]]);
     let major = u16::from_be_bytes([bytes[6], bytes[7]]);
     let java_ver = if major >= 49 {
@@ -169,12 +167,14 @@ pub fn uppercase_opcode(line: &str) -> String {
 
 /// 去除 bootstrap method 前缀并保留索引：`#0:name:desc` → `#0 name desc`
 fn strip_bsm_ref(s: &str) -> String {
-    if let Some(rest) = s.strip_prefix('#') {
-        if let Some(colon_pos) = rest.find(':') {
+    tabookit::or!(
+        tabookit::chain! {
+            let rest = s.strip_prefix('#')?;
+            let colon_pos = rest.find(':')?;
             let bsm_idx = &rest[..colon_pos];
             let remainder = rest[colon_pos + 1..].replacen(':', "", 1);
-            return format!("#{bsm_idx} {remainder}");
-        }
-    }
-    s.to_string()
+            format!("#{bsm_idx} {remainder}")
+        },
+        s.to_string()
+    )
 }

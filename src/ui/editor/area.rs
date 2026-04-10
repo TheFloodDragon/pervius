@@ -22,7 +22,7 @@ pub struct EditorArea {
     pub dock_state: DockState<EditorTab>,
     /// 编辑器内查找栏
     pub find_bar: FindBar,
-    /// 被 is_modified 拦截的关闭动作，由 Layout 消费并弹出确认对话框
+    /// 被 is_modified 拦截的关闭动作，由 App 消费并弹出确认对话框
     pub blocked_close: Option<TabAction>,
     /// 已保存成员记录（entry_path → 成员集合），跨 tab 关闭/重开保留
     pub saved_members: HashMap<String, HashSet<SavedMember>>,
@@ -269,10 +269,7 @@ impl EditorArea {
 
     /// 反编译完成后，刷新所有已打开的 .class tab 的源码
     pub fn refresh_class_tabs(&mut self, jar_hash: Option<&str>) {
-        let hash = match jar_hash {
-            Some(h) => h,
-            None => return,
-        };
+        let hash = tabookit::or!(jar_hash, return);
         for (_, tab) in self.dock_state.iter_all_tabs_mut() {
             let entry = match &tab.entry_path {
                 Some(p) if p.ends_with(".class") => p.clone(),

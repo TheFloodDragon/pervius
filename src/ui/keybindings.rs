@@ -2,7 +2,7 @@
 //!
 //! @author sky
 
-use super::layout::Layout;
+use crate::app::App;
 use crate::settings::KeymapSettings;
 use eframe::egui;
 use egui_keybind::{KeyBind, KeyMap};
@@ -19,20 +19,22 @@ pub const DEFAULT_CYCLE_VIEW: KeyBind = KeyBind::key(egui::Key::Tab);
 pub const DEFAULT_OPEN_SETTINGS: KeyBind = KeyBind::ctrl(egui::Key::Comma);
 
 /// 根据用户配置构建 KeyMap
-pub fn build_keymap(km: &KeymapSettings) -> KeyMap<Layout> {
+pub fn build_keymap(km: &KeymapSettings) -> KeyMap<App> {
     KeyMap::new()
-        .bind(km.toggle_explorer, |l: &mut Layout| {
-            l.explorer_visible = !l.explorer_visible
+        .bind(km.toggle_explorer, |a: &mut App| {
+            a.layout.explorer_visible = !a.layout.explorer_visible
         })
-        .bind(km.open_jar, |l: &mut Layout| l.request_open_jar_dialog())
-        .bind(km.close_tab, |l: &mut Layout| l.editor.close_active_tab())
-        .bind(km.close_all_tabs, |l: &mut Layout| {
-            l.editor.close_all_tabs()
+        .bind(km.open_jar, |a: &mut App| a.request_open_jar_dialog())
+        .bind(km.close_tab, |a: &mut App| {
+            a.layout.editor.close_active_tab()
         })
-        .bind(km.find, |l: &mut Layout| l.editor.open_find())
-        .bind(km.save, |l: &mut Layout| l.save_active_tab())
-        .bind(km.cycle_view, |l: &mut Layout| l.editor.cycle_view())
-        .bind(km.open_settings, |l: &mut Layout| l.open_settings())
-        .bind(km.export_decompiled, |l: &mut Layout| l.export_decompiled())
-        .bind_double_shift(|l: &mut Layout| l.search.open())
+        .bind(km.close_all_tabs, |a: &mut App| {
+            a.layout.editor.close_all_tabs()
+        })
+        .bind(km.find, |a: &mut App| a.layout.editor.open_find())
+        .bind(km.save, |a: &mut App| a.save_active_tab())
+        .bind(km.cycle_view, |a: &mut App| a.layout.editor.cycle_view())
+        .bind(km.open_settings, |a: &mut App| a.open_settings())
+        .bind(km.export_decompiled, |a: &mut App| a.export_decompiled())
+        .bind_double_shift(|a: &mut App| a.layout.search.open())
 }

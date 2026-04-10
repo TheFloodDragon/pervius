@@ -38,10 +38,7 @@ impl StatusItem for ClassInfoItem {
     }
 
     fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> f32 {
-        let text = match &self.text {
-            Some(t) => t,
-            None => return 0.0,
-        };
+        let text = tabookit::or!(&self.text, return 0.0);
         let painter = ui.painter();
         let galley = painter.layout_no_wrap(
             text.clone(),

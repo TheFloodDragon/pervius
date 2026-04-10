@@ -4,6 +4,8 @@
 //!
 //! @author sky
 
+use std::collections::HashSet;
+
 /// 解析后的 class 结构化数据
 pub struct ClassStructure {
     /// class 级别元数据
@@ -12,6 +14,44 @@ pub struct ClassStructure {
     pub fields: Vec<FieldInfo>,
     /// 方法列表
     pub methods: Vec<MethodInfo>,
+}
+
+impl ClassStructure {
+    /// 收集已修改或已保存的成员
+    pub fn collect_saved_members(&self) -> HashSet<SavedMember> {
+        let mut set = HashSet::new();
+        if self.info.modified || self.info.saved {
+            set.insert(SavedMember::ClassInfo);
+        }
+        for f in &self.fields {
+            if f.modified || f.saved {
+                set.insert(SavedMember::Field(f.name.clone(), f.descriptor.clone()));
+            }
+        }
+        for m in &self.methods {
+            if m.modified || m.saved {
+                set.insert(SavedMember::Method(m.name.clone(), m.descriptor.clone()));
+            }
+        }
+        set
+    }
+
+    /// 恢复 saved 标记（重建 class structure 后调用）
+    pub fn restore_saved_flags(&mut self, saved: &HashSet<SavedMember>) {
+        if saved.contains(&SavedMember::ClassInfo) {
+            self.info.saved = true;
+        }
+        for f in &mut self.fields {
+            if saved.contains(&SavedMember::Field(f.name.clone(), f.descriptor.clone())) {
+                f.saved = true;
+            }
+        }
+        for m in &mut self.methods {
+            if saved.contains(&SavedMember::Method(m.name.clone(), m.descriptor.clone())) {
+                m.saved = true;
+            }
+        }
+    }
 }
 
 /// class 级别元数据

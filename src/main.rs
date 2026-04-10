@@ -6,12 +6,13 @@
 
 rust_i18n::i18n!("locales", fallback = "en");
 
+mod app;
 mod appearance;
 mod settings;
 mod ui;
 
+use app::App;
 use eframe::egui;
-use ui::layout::Layout;
 
 fn main() -> eframe::Result {
     env_logger::Builder::from_default_env()
@@ -39,22 +40,18 @@ fn main() -> eframe::Result {
             window: appearance::theme::window_config(),
         },
     };
-    appearance::run(options, |_cc| {
-        Box::new(PervApp {
-            layout: Layout::new(),
-        })
-    })
+    appearance::run(options, |_cc| Box::new(PervApp { app: App::new() }))
 }
 
 struct PervApp {
-    layout: Layout,
+    app: App,
 }
 
 impl appearance::AppContent for PervApp {
     fn ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context, theme: &appearance::ShellTheme) {
-        self.layout.render(ui, theme);
+        self.app.render(ui, theme);
     }
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
-        ui::menu::menu_bar(ui, &mut self.layout);
+        ui::menu::menu_bar(ui, &mut self.app);
     }
 }

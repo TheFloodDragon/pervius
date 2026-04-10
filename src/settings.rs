@@ -21,18 +21,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const MAX_RECENT: usize = 10;
 
 /// 界面语言
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Language {
+    #[default]
     #[serde(rename = "en")]
     En,
     #[serde(rename = "zh")]
     Zh,
-}
-
-impl Default for Language {
-    fn default() -> Self {
-        Self::En
-    }
 }
 
 impl Language {

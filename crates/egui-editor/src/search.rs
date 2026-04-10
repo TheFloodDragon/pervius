@@ -78,12 +78,8 @@ fn find_bytes_raw(data: &[u8], pattern: &[u8]) -> Vec<FindMatch> {
 /// 尝试将查询解析为 hex 字节序列（如 "CAFEBABE" 或 "CA FE BA BE"）
 pub fn parse_hex_query(query: &str) -> Option<Vec<u8>> {
     let cleaned: String = query.chars().filter(|c| !c.is_whitespace()).collect();
-    if cleaned.is_empty() || cleaned.len() % 2 != 0 {
-        return None;
-    }
-    if !cleaned.chars().all(|c| c.is_ascii_hexdigit()) {
-        return None;
-    }
+    tabookit::ensure!(!cleaned.is_empty() && cleaned.len() % 2 == 0);
+    tabookit::ensure!(cleaned.chars().all(|c| c.is_ascii_hexdigit()));
     let bytes: Result<Vec<u8>, _> = (0..cleaned.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&cleaned[i..i + 2], 16))

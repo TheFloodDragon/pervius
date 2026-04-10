@@ -14,11 +14,13 @@ use tree::TreeNode;
 
 /// 文件面板状态
 pub struct FilePanel {
+    /// 根目录（文件树顶部）
     pub roots: Vec<TreeNode>,
+    /// 当前选中项（路径）
     pub selected: Option<String>,
-    /// 待打开的文件条目路径（由 Layout 消费）
+    /// 待打开的文件条目路径（由 App 消费）
     pub pending_open: Option<String>,
-    /// 待定位的文件条目路径（由 Layout 消费，在资源管理器中打开）
+    /// 待定位的文件条目路径（由 App 消费，在资源管理器中打开）
     pub pending_reveal: Option<String>,
     /// 需要滚动到选中项
     pub scroll_to_selected: bool,
@@ -200,10 +202,7 @@ impl FilePanel {
 
     /// 拉取后台过滤结果（每帧调用，非阻塞）
     fn poll_filter_result(&mut self) {
-        let rx = match &self.filter_rx {
-            Some(rx) => rx,
-            None => return,
-        };
+        let rx = tabookit::or!(&self.filter_rx, return);
         let (seq, result) = match rx.try_recv() {
             Ok(v) => v,
             Err(_) => return,

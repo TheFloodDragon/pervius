@@ -242,10 +242,7 @@ fn render_range(
 /// - 文件夹：路径在集合中（反编译线程写入类名时同时写入文件夹前缀）
 /// - class 文件：去掉 `.class` 后缀和内部类 `$` 后缀，检查外层类是否在集合中
 fn is_node_decompiled(node: &TreeNode, decompiled_classes: Option<&HashSet<String>>) -> bool {
-    let set = match decompiled_classes {
-        None => return true,
-        Some(s) => s,
-    };
+    let set = tabookit::or!(decompiled_classes, return true);
     if node.path.is_empty() {
         return true;
     }

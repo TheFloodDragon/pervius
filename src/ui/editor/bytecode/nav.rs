@@ -2,11 +2,11 @@
 //!
 //! @author sky
 
-use pervius_java_bridge::bytecode::descriptor::{short_class_name, short_descriptor, short_params};
 use crate::appearance::{codicon, theme};
 use crate::ui::editor::tab::BytecodeSelection;
 use eframe::egui;
 use egui_animation::Anim;
+use pervius_java_bridge::bytecode::descriptor::{short_class_name, short_descriptor, short_params};
 use pervius_java_bridge::class_structure::ClassStructure;
 
 /// 导航项行高

@@ -7,7 +7,7 @@ use egui_editor::highlight::{self, Language, Span};
 use egui_hex_view::HexViewState;
 use pervius_java_bridge::class_structure::ClassStructure;
 use rust_i18n::t;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// 预处理后的代码视图数据（虚拟滚动用）
 pub struct CodeData {
@@ -203,5 +203,29 @@ impl EditorTab {
             &self.decompiled,
             highlight::compute_spans(&self.decompiled, self.language),
         );
+    }
+
+    /// 根据 tab 类型序列化当前编辑内容为字节
+    pub fn serialize_bytes(&self, jar_path: Option<&Path>) -> Result<Vec<u8>, String> {
+        if self.is_text {
+            return Ok(self.decompiled.as_bytes().to_vec());
+        }
+        if self.is_class {
+            let cs = self.class_structure.as_ref().ok_or("no class structure")?;
+            return pervius_java_bridge::save::apply_structure(&self.raw_bytes, cs, jar_path)
+                .map_err(|e| e.to_string());
+        }
+        Ok(self.raw_bytes.clone())
+    }
+
+    /// 保存成功后更新 tab 状态：写入新字节、清除修改标记、重建 class structure
+    pub fn commit_save(&mut self, new_bytes: Vec<u8>) {
+        self.raw_bytes = new_bytes;
+        self.is_modified = false;
+        if self.is_class {
+            if let Ok(new_cs) = pervius_java_bridge::bytecode::disassemble(&self.raw_bytes) {
+                self.class_structure = Some(new_cs);
+            }
+        }
     }
 }

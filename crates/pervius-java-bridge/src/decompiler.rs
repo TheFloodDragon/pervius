@@ -327,9 +327,7 @@ fn extract_class_name(line: &str) -> Option<String> {
     let marker = "Decompiling class ";
     let pos = line.find(marker)?;
     let name = line[pos + marker.len()..].trim();
-    if name.is_empty() {
-        return None;
-    }
+    tabookit::ensure!(!name.is_empty());
     if name.contains('/') {
         Some(name.to_string())
     } else {

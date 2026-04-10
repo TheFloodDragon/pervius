@@ -2,25 +2,25 @@
 //!
 //! @author sky
 
+use crate::app::App;
 use crate::appearance::theme;
-use crate::ui::layout::Layout;
 use eframe::egui;
 use egui_shell::components::{menu_item, menu_item_raw, menu_submenu, SettingsFile};
 use rust_i18n::t;
 use std::path::PathBuf;
 
-pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
+pub fn render(ui: &mut egui::Ui, app: &mut App) {
     let mt = &theme::menu_theme();
     if menu_item(
         ui,
         mt,
         &t!("menu.open_jar"),
-        Some(&layout.settings.keymap.open_jar),
+        Some(&app.settings.keymap.open_jar),
     ) {
-        layout.request_open_jar_dialog();
+        app.request_open_jar_dialog();
     }
     // Open Recent submenu
-    let recent = layout.settings.recent.clone();
+    let recent = app.settings.recent.clone();
     let mut open_path: Option<PathBuf> = None;
     let mut clear = false;
     menu_submenu(ui, mt, &t!("menu.open_recent"), |ui| {
@@ -51,35 +51,35 @@ pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
         }
     });
     if let Some(path) = open_path {
-        layout.request_open_jar(&path);
+        app.request_open_jar(&path);
     }
     if clear {
-        layout.settings.clear_recent();
-        let _ = layout.settings.save();
+        app.settings.clear_recent();
+        let _ = app.settings.save();
     }
     ui.separator();
     if menu_item(
         ui,
         mt,
         &t!("menu.export_decompiled"),
-        Some(&layout.settings.keymap.export_decompiled),
+        Some(&app.settings.keymap.export_decompiled),
     ) {
-        layout.export_decompiled();
+        app.export_decompiled();
     }
     if menu_item(ui, mt, &t!("menu.re_decompile"), None) {
-        layout.re_decompile();
+        app.re_decompile();
     }
     ui.separator();
     if menu_item(
         ui,
         mt,
         &t!("menu.settings"),
-        Some(&layout.settings.keymap.open_settings),
+        Some(&app.settings.keymap.open_settings),
     ) {
-        layout.open_settings();
+        app.open_settings();
     }
     ui.separator();
     if menu_item_raw(ui, mt, &t!("menu.exit"), "Alt+F4") {
-        layout.request_close(ui.ctx());
+        app.request_close(ui.ctx());
     }
 }

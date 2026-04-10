@@ -14,15 +14,13 @@ pub(crate) fn show(
     theme: &HexTheme,
 ) {
     // 确定检查的字节范围
-    let (start_idx, end_idx) = if let Some((s, e)) = state.selection {
-        (s, e)
-    } else if let Some(c) = state.cursor {
-        (c, c + 1)
-    } else if let Some(h) = hover_idx {
-        (h, h + 1)
-    } else {
-        return;
-    };
+    let (start_idx, end_idx) = tabookit::or!(
+        state
+            .selection
+            .or_else(|| state.cursor.map(|c| (c, c + 1)))
+            .or_else(|| hover_idx.map(|h| (h, h + 1))),
+        return
+    );
     let end_idx = end_idx.min(data.len());
     let selected = &data[start_idx..end_idx];
     if selected.is_empty() {

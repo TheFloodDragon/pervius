@@ -1,82 +1,46 @@
-//! 主布局：Explorer / Editor 各包裹在独立 Island 内，StatusBar 全宽置底
+//! 主布局：UI 状态 + 渲染
 //!
 //! @author sky
 
-/// 轮询 `mpsc::Receiver`：有数据则返回，空或断开时执行对应分支
-macro_rules! poll_recv {
-    ($rx:expr, miss => $miss:expr, disconnect => $dc:expr) => {
-        match $rx.try_recv() {
-            Ok(r) => r,
-            Err(std::sync::mpsc::TryRecvError::Empty) => $miss,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => $dc,
-        }
-    };
-}
-
-mod confirm;
-mod decompile;
-mod export;
-mod handler;
 mod island;
-mod platform;
-mod tab;
+
+use crate::app::{App, ConfirmAction};
+use crate::appearance::theme;
+use crate::settings::{self, Settings};
+use crate::ui::explorer::tree;
+use eframe::egui;
+use egui_keybind::KeyMap;
+use egui_shell::components::{SettingsFile, SettingsPanel};
+use rust_i18n::t;
+use std::collections::HashSet;
+use std::sync::atomic::Ordering;
 
 use super::editor::EditorArea;
-use super::explorer::tree;
 use super::explorer::FilePanel;
 use super::search::SearchDialog;
 use super::status_bar::StatusBar;
-use crate::appearance::theme;
-use crate::settings::{self, Settings};
-use confirm::ConfirmAction;
-use eframe::egui;
-use egui_keybind::KeyMap;
-use egui_notify::Toasts;
-use egui_shell::components::{SettingsFile, SettingsPanel};
-use pervius_java_bridge::decompiler::{CachedSource, DecompileTask};
-use pervius_java_bridge::error::BridgeError;
-use pervius_java_bridge::jar::JarArchive;
-use std::collections::HashSet;
-use std::sync::mpsc;
 
 /// Explorer 面板最小宽度
 const EXPLORER_MIN_WIDTH: f32 = 160.0;
 /// Explorer 面板最大宽度
 const EXPLORER_MAX_WIDTH: f32 = 600.0;
-
 /// Explorer 折叠/展开动画时长（秒）
 const EXPLORER_ANIM_DURATION: f32 = 0.08;
 
-/// 主布局状态
+/// UI 布局状态
 pub struct Layout {
     pub file_panel: FilePanel,
     pub editor: EditorArea,
     pub status_bar: StatusBar,
     pub search: SearchDialog,
     pub settings_panel: SettingsPanel<Settings>,
-    pub settings: Settings,
-    pub toasts: Toasts,
-    keys: KeyMap<Self>,
+    keys: KeyMap<App>,
     /// Explorer 面板当前宽度（可拖拽调整）
     explorer_width: f32,
     /// Explorer 面板是否可见
     pub explorer_visible: bool,
-    /// 当前打开的 JAR 归档
-    jar: Option<JarArchive>,
-    /// 后台加载中的 JAR
-    loading: Option<handler::LoadingState>,
-    /// 后台反编译任务
-    decompiling: Option<DecompileTask>,
-    /// 已反编译的类集合（None = 全部已反编译，Some = 仅集合内的类已完成）
-    decompiled_classes: Option<HashSet<String>>,
     /// FPS 叠加层开关（F12）
     show_fps: bool,
-    /// 待确认的破坏性动作
-    pub pending_confirm: Option<ConfirmAction>,
-    /// 单文件反编译结果接收队列（支持并发多个）
-    pending_decompiles: Vec<(String, mpsc::Receiver<Result<CachedSource, BridgeError>>)>,
-    /// 后台重反编译启动中（清缓存 + start 在子线程）
-    pending_re_decompile: Option<(String, mpsc::Receiver<Result<DecompileTask, BridgeError>>)>,
 }
 
 struct LayoutRects {
@@ -86,8 +50,7 @@ struct LayoutRects {
 }
 
 impl Layout {
-    pub fn new() -> Self {
-        let settings = Settings::load();
+    pub fn new(settings: &Settings) -> Self {
         let keys = super::keybindings::build_keymap(&settings.keymap);
         Self {
             file_panel: FilePanel::new(),
@@ -95,22 +58,17 @@ impl Layout {
             status_bar: StatusBar::default(),
             search: SearchDialog::new(),
             settings_panel: settings::new_panel(),
-            settings,
-            toasts: Toasts::default(),
             keys,
             explorer_width: theme::FILE_PANEL_WIDTH,
             explorer_visible: true,
-            jar: None,
-            loading: None,
-            decompiling: None,
-            decompiled_classes: None,
             show_fps: false,
-            pending_confirm: None,
-            pending_decompiles: Vec::new(),
-            pending_re_decompile: None,
         }
     }
+}
 
+// ─── 渲染逻辑（impl App 定义在 UI 模块，访问 self.layout.* 进行绘制）───
+
+impl App {
     /// 在 CentralPanel 内绘制完整布局
     pub fn render(&mut self, ui: &mut egui::Ui, shell_theme: &egui_shell::ShellTheme) {
         // 拦截窗口关闭请求
@@ -128,40 +86,41 @@ impl Layout {
         self.check_single_decompile();
         // keybind 录制中跳过快捷键分发，避免录制按键同时触发动作
         if !egui_shell::components::is_recording_keybind(ui.ctx()) {
-            let view_before = self.editor.focused_view();
-            let mut keys = std::mem::take(&mut self.keys);
+            let view_before = self.layout.editor.focused_view();
+            let mut keys = std::mem::take(&mut self.layout.keys);
             keys.dispatch(ui.ctx(), self);
-            self.keys = keys;
+            self.layout.keys = keys;
             // Tab 切换视图后清除焦点，防止 begin_pass 焦点导航产生的闪烁
-            if self.editor.focused_view() != view_before {
+            if self.layout.editor.focused_view() != view_before {
                 ui.ctx().memory_mut(|m| m.stop_text_input());
             }
             // 快捷键触发的 tab 关闭被 is_modified 拦截
-            if let Some(action) = self.editor.blocked_close.take() {
+            if let Some(action) = self.layout.editor.blocked_close.take() {
                 self.pending_confirm = Some(ConfirmAction::TabClose(action));
             }
         }
         let t = self.explorer_anim_t(ui);
-        let rects = Self::compute_rects(ui.max_rect(), self.explorer_width * t, t > 0.0);
+        let rects = compute_rects(ui.max_rect(), self.layout.explorer_width * t, t > 0.0);
         if t > 0.0 {
             self.render_explorer(ui, rects.explorer);
         }
-        if self.explorer_visible && t >= 1.0 {
+        if self.layout.explorer_visible && t >= 1.0 {
             self.render_resize_handle(ui, &rects);
         }
         self.render_editor(ui, rects.editor);
-        if let Some(action) = self.editor.blocked_close.take() {
+        if let Some(action) = self.layout.editor.blocked_close.take() {
             if self.pending_confirm.is_none() {
                 self.pending_confirm = Some(ConfirmAction::TabClose(action));
             }
         }
         self.sync_explorer_selection();
         self.render_status_bar(ui, rects.status);
-        self.search.render(ui.ctx(), shell_theme);
-        if let Some(new_settings) = settings::show(&mut self.settings_panel, ui.ctx(), shell_theme)
+        self.layout.search.render(ui.ctx(), shell_theme);
+        if let Some(new_settings) =
+            settings::show(&mut self.layout.settings_panel, ui.ctx(), shell_theme)
         {
             // keybind 配置变更时重建 KeyMap
-            self.keys = super::keybindings::build_keymap(&new_settings.keymap);
+            self.layout.keys = super::keybindings::build_keymap(&new_settings.keymap);
             // 语言变更时更新 locale
             if new_settings.language != self.settings.language {
                 rust_i18n::set_locale(new_settings.language.code());
@@ -173,9 +132,9 @@ impl Layout {
         }
         self.toasts.show(ui.ctx());
         if ui.input(|i| i.key_pressed(egui::Key::F12)) {
-            self.show_fps = !self.show_fps;
+            self.layout.show_fps = !self.layout.show_fps;
         }
-        if self.show_fps {
+        if self.layout.show_fps {
             self.render_fps_overlay(ui);
         }
         self.render_confirm(ui.ctx());
@@ -214,7 +173,7 @@ impl Layout {
                 .max_rect(rect),
         );
         child.set_clip_rect(rect);
-        self.file_panel.render(
+        self.layout.file_panel.render(
             &mut child,
             &tab_modified,
             &jar_modified,
@@ -226,7 +185,9 @@ impl Layout {
     fn render_editor(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
         island::paint(ui, rect);
         if let Some(loading) = &self.loading {
-            handler::paint_loading(ui, rect, loading);
+            let current = loading.progress.current.load(Ordering::Relaxed);
+            let total = loading.progress.total.load(Ordering::Relaxed);
+            paint_loading(ui, rect, &loading.name, current, total);
             ui.ctx().request_repaint();
         } else {
             let jar_modified = self
@@ -234,7 +195,7 @@ impl Layout {
                 .as_ref()
                 .map(|j| j.modified_paths().map(|s| s.to_string()).collect())
                 .unwrap_or_default();
-            self.editor.render(
+            self.layout.editor.render(
                 &mut ui.new_child(
                     egui::UiBuilder::new()
                         .id(egui::Id::new("editor_island"))
@@ -256,8 +217,8 @@ impl Layout {
         let sense = ui.interact(handle_rect, id, egui::Sense::drag());
         if sense.dragged() {
             let delta = sense.drag_delta().x;
-            self.explorer_width =
-                (self.explorer_width + delta).clamp(EXPLORER_MIN_WIDTH, EXPLORER_MAX_WIDTH);
+            self.layout.explorer_width =
+                (self.layout.explorer_width + delta).clamp(EXPLORER_MIN_WIDTH, EXPLORER_MAX_WIDTH);
         }
         if sense.dragged() || sense.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
@@ -265,10 +226,14 @@ impl Layout {
     }
 
     fn render_status_bar(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
-        let class_info = self.editor.focused_class_info().map(|s| s.to_string());
-        self.status_bar.sync_view(
-            self.editor.focused_view(),
-            self.editor.focused_is_class(),
+        let class_info = self
+            .layout
+            .editor
+            .focused_class_info()
+            .map(|s| s.to_string());
+        self.layout.status_bar.sync_view(
+            self.layout.editor.focused_view(),
+            self.layout.editor.focused_is_class(),
             class_info.as_deref(),
         );
         let saved_paths: Vec<String> = self
@@ -276,31 +241,26 @@ impl Layout {
             .as_ref()
             .map(|j| j.modified_paths().map(|s| s.to_string()).collect())
             .unwrap_or_default();
-        let unsaved_paths = self.editor.unsaved_paths();
-        self.status_bar
+        let unsaved_paths = self.layout.editor.unsaved_paths();
+        self.layout
+            .status_bar
             .sync_modified_count(saved_paths, unsaved_paths);
         // 同步反编译进度
         if let Some((ref name, _)) = self.pending_re_decompile {
             // 重反编译启动中（后台清缓存）
-            self.status_bar.sync_decompile_single(name);
+            self.layout.status_bar.sync_decompile_single(name);
         } else if !self.pending_decompiles.is_empty() {
             // 单文件反编译中（取最后一个的短名）
             let name = &self.pending_decompiles.last().unwrap().0;
             let short = name.rsplit('/').next().unwrap_or(name);
-            self.status_bar.sync_decompile_single(short);
+            self.layout.status_bar.sync_decompile_single(short);
         } else {
             let decompile_info = self.decompiling.as_ref().map(|task| {
-                let current = task
-                    .progress
-                    .current
-                    .load(std::sync::atomic::Ordering::Relaxed);
-                let total = task
-                    .progress
-                    .total
-                    .load(std::sync::atomic::Ordering::Relaxed);
+                let current = task.progress.current.load(Ordering::Relaxed);
+                let total = task.progress.total.load(Ordering::Relaxed);
                 (task.jar_name.clone(), current, total)
             });
-            self.status_bar.sync_decompile(
+            self.layout.status_bar.sync_decompile(
                 decompile_info
                     .as_ref()
                     .map(|(n, c, t)| (n.as_str(), *c, *t)),
@@ -312,57 +272,20 @@ impl Layout {
         {
             ui.ctx().request_repaint();
         }
-        self.status_bar.render(
+        self.layout.status_bar.render(
             &mut ui.new_child(
                 egui::UiBuilder::new()
                     .max_rect(rect)
                     .id(egui::Id::new("status_bar")),
             ),
         );
-        if let Some(v) = self.status_bar.take_view_change() {
-            self.editor.set_focused_view(v);
+        if let Some(v) = self.layout.status_bar.take_view_change() {
+            self.layout.editor.set_focused_view(v);
         }
-        if let Some(path) = self.status_bar.take_clicked_file() {
-            if !self.editor.focus_tab(&path) {
-                self.file_panel.pending_open = Some(path);
+        if let Some(path) = self.layout.status_bar.take_clicked_file() {
+            if !self.layout.editor.focus_tab(&path) {
+                self.layout.file_panel.pending_open = Some(path);
             }
-        }
-    }
-
-    /// 从总 rect 计算各区域的 rect
-    fn compute_rects(
-        total: egui::Rect,
-        explorer_width: f32,
-        explorer_visible: bool,
-    ) -> LayoutRects {
-        let mh = theme::ISLAND_MARGIN_H;
-        let mv = theme::ISLAND_MARGIN_V;
-        let status_top = total.bottom() - theme::STATUS_BAR_HEIGHT - mv;
-        let island_top = total.top() + mv * 0.5;
-        let island_bottom = status_top - mv;
-        let island_left = total.left() + mh;
-        let island_right = total.right() - mh;
-        let (explorer, editor_left) = if explorer_visible {
-            let explorer = egui::Rect::from_min_max(
-                egui::pos2(island_left, island_top),
-                egui::pos2(island_left + explorer_width, island_bottom),
-            );
-            (explorer, explorer.right() + theme::ISLAND_GAP)
-        } else {
-            (egui::Rect::NOTHING, island_left)
-        };
-        let editor = egui::Rect::from_min_max(
-            egui::pos2(editor_left, island_top),
-            egui::pos2(island_right, island_bottom),
-        );
-        let status = egui::Rect::from_min_size(
-            egui::pos2(total.left(), status_top),
-            egui::vec2(total.width(), theme::STATUS_BAR_HEIGHT),
-        );
-        LayoutRects {
-            explorer,
-            editor,
-            status,
         }
     }
 
@@ -377,18 +300,22 @@ impl Layout {
                 return t;
             }
         }
-        let t = ctx.animate_bool_with_time(anim_id, self.explorer_visible, EXPLORER_ANIM_DURATION);
+        let t = ctx.animate_bool_with_time(
+            anim_id,
+            self.layout.explorer_visible,
+            EXPLORER_ANIM_DURATION,
+        );
         ctx.data_mut(|d| d.insert_temp::<(u64, f32)>(cache_id, (frame, t)));
         t
     }
 
     /// 编辑器聚焦 tab 变化时同步 explorer 选中状态
     fn sync_explorer_selection(&mut self) {
-        if let Some(path) = self.editor.focused_entry_path() {
-            if self.file_panel.selected.as_ref() != Some(&path) {
-                tree::reveal(&mut self.file_panel.roots, &path);
-                self.file_panel.selected = Some(path);
-                self.file_panel.scroll_to_selected = true;
+        if let Some(path) = self.layout.editor.focused_entry_path() {
+            if self.layout.file_panel.selected.as_ref() != Some(&path) {
+                tree::reveal(&mut self.layout.file_panel.roots, &path);
+                self.layout.file_panel.selected = Some(path);
+                self.layout.file_panel.scroll_to_selected = true;
             }
         }
     }
@@ -397,7 +324,7 @@ impl Layout {
     fn split_modified_entries(&self) -> (HashSet<String>, HashSet<String>) {
         let mut tab_set = HashSet::new();
         let mut jar_set = HashSet::new();
-        for (_, tab) in self.editor.dock_state.iter_all_tabs() {
+        for (_, tab) in self.layout.editor.dock_state.iter_all_tabs() {
             if tab.is_modified {
                 if let Some(path) = &tab.entry_path {
                     Self::insert_with_parents(&mut tab_set, path);
@@ -425,9 +352,76 @@ impl Layout {
         }
         set.insert(String::new());
     }
+}
 
-    /// 打开设置对话框
-    pub fn open_settings(&mut self) {
-        self.settings_panel.open(&self.settings);
+/// 从总 rect 计算各区域的 rect
+fn compute_rects(total: egui::Rect, explorer_width: f32, explorer_visible: bool) -> LayoutRects {
+    let mh = theme::ISLAND_MARGIN_H;
+    let mv = theme::ISLAND_MARGIN_V;
+    let status_top = total.bottom() - theme::STATUS_BAR_HEIGHT - mv;
+    let island_top = total.top() + mv * 0.5;
+    let island_bottom = status_top - mv;
+    let island_left = total.left() + mh;
+    let island_right = total.right() - mh;
+    let (explorer, editor_left) = if explorer_visible {
+        let explorer = egui::Rect::from_min_max(
+            egui::pos2(island_left, island_top),
+            egui::pos2(island_left + explorer_width, island_bottom),
+        );
+        (explorer, explorer.right() + theme::ISLAND_GAP)
+    } else {
+        (egui::Rect::NOTHING, island_left)
+    };
+    let editor = egui::Rect::from_min_max(
+        egui::pos2(editor_left, island_top),
+        egui::pos2(island_right, island_bottom),
+    );
+    let status = egui::Rect::from_min_size(
+        egui::pos2(total.left(), status_top),
+        egui::vec2(total.width(), theme::STATUS_BAR_HEIGHT),
+    );
+    LayoutRects {
+        explorer,
+        editor,
+        status,
+    }
+}
+
+/// 绘制 JAR 加载进度
+fn paint_loading(ui: &egui::Ui, rect: egui::Rect, name: &str, current: u32, total: u32) {
+    let frac = if total > 0 {
+        current as f32 / total as f32
+    } else {
+        0.0
+    };
+    let painter = ui.painter();
+    let cx = rect.center().x;
+    let cy = rect.center().y;
+    // 标题
+    painter.text(
+        egui::pos2(cx, cy - 20.0),
+        egui::Align2::CENTER_CENTER,
+        t!("layout.opening", name = name),
+        egui::FontId::proportional(13.0),
+        theme::TEXT_SECONDARY,
+    );
+    // 进度条
+    let bar_w = 240.0;
+    let bar_h = 4.0;
+    let bar_rect = egui::Rect::from_center_size(egui::pos2(cx, cy), egui::vec2(bar_w, bar_h));
+    painter.rect_filled(bar_rect, 2.0, theme::BG_MEDIUM);
+    if frac > 0.0 {
+        let fill = egui::Rect::from_min_size(bar_rect.left_top(), egui::vec2(bar_w * frac, bar_h));
+        painter.rect_filled(fill, 2.0, theme::VERDIGRIS);
+    }
+    // 计数
+    if total > 0 {
+        painter.text(
+            egui::pos2(cx, cy + 16.0),
+            egui::Align2::CENTER_CENTER,
+            format!("{current} / {total}"),
+            egui::FontId::proportional(11.0),
+            theme::TEXT_MUTED,
+        );
     }
 }

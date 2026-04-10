@@ -284,23 +284,17 @@ impl SearchDialog {
     }
 
     fn render_preview(&mut self, ui: &mut egui::Ui) {
-        let (gi, mi) = match self.selected {
-            Some(sel) => sel,
-            None => {
-                ui.centered_and_justified(|ui| {
-                    ui.label(
-                        egui::RichText::new(t!("search.select_preview"))
-                            .size(12.0)
-                            .color(theme::TEXT_MUTED),
-                    );
-                });
-                return;
-            }
-        };
-        let m = match self.results.get(gi).and_then(|g| g.matches.get(mi)) {
-            Some(m) => m,
-            None => return,
-        };
+        let (gi, mi) = tabookit::or!(self.selected, {
+            ui.centered_and_justified(|ui| {
+                ui.label(
+                    egui::RichText::new(t!("search.select_preview"))
+                        .size(12.0)
+                        .color(theme::TEXT_MUTED),
+                );
+            });
+            return;
+        });
+        let m = tabookit::or!(self.results.get(gi).and_then(|g| g.matches.get(mi)), return);
         let sp = widget::preview_for(m, self.mode);
         let bytecode = self.mode == SearchMode::Bytecode;
         let cache_key = (gi, mi, bytecode);

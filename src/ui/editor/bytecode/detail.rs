@@ -2,11 +2,13 @@
 //!
 //! @author sky
 
-use pervius_java_bridge::bytecode::descriptor::{return_type_readable, short_class_name, short_descriptor, short_params};
 use crate::appearance::{codicon, theme};
 use crate::ui::widget::{flat_button_theme, FlatButton};
 use eframe::egui;
 use egui_editor::search::FindMatch;
+use pervius_java_bridge::bytecode::descriptor::{
+    return_type_readable, short_class_name, short_descriptor, short_params,
+};
 use pervius_java_bridge::class_structure::{
     ClassStructure, EditableAnnotation, FieldInfo, MethodInfo,
 };

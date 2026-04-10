@@ -62,10 +62,7 @@ impl StatusItem for ViewToggleItem {
     }
 
     fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> f32 {
-        let active = match self.active {
-            Some(v) => v,
-            None => return 0.0,
-        };
+        let active = tabookit::or!(self.active, return 0.0);
         let painter = ui.painter();
         let font = egui::FontId::proportional(11.0);
         let pad = 6.0;

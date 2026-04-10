@@ -49,6 +49,8 @@ pub const ACCENT_CYAN: egui::Color32 = egui::Color32::from_rgb(126, 200, 200);
 pub const SYN_TEXT: egui::Color32 = egui::Color32::from_rgb(188, 190, 196);
 /// 关键字 #CF8E6D
 pub const SYN_KEYWORD: egui::Color32 = egui::Color32::from_rgb(207, 142, 109);
+/// JVM 操作码 #6897BB（区别于关键字，偏蓝灰，JetBrains 风格）
+pub const SYN_OPCODE: egui::Color32 = egui::Color32::from_rgb(104, 151, 187);
 /// 字符串 #6AAB73
 pub const SYN_STRING: egui::Color32 = egui::Color32::from_rgb(106, 171, 115);
 /// 类型（与默认文字同色，IntelliJ 不对类引用做特殊着色）
@@ -188,6 +190,7 @@ pub fn editor_theme() -> egui_editor::CodeViewTheme {
         syntax: egui_editor::SyntaxTheme {
             text: SYN_TEXT,
             keyword: SYN_KEYWORD,
+            opcode: SYN_OPCODE,
             string: SYN_STRING,
             type_name: SYN_TYPE,
             number: SYN_NUMBER,

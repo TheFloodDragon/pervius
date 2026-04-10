@@ -15,13 +15,9 @@ pub(crate) fn hit_test(
 ) -> Option<(usize, Region)> {
     let rx = pos.x - origin.x;
     let ry = pos.y - origin.y - PAD_TOP;
-    if ry < 0.0 {
-        return None;
-    }
+    tabookit::ensure!(ry >= 0.0);
     let row = (ry / ROW_H) as usize;
-    if row >= total_rows {
-        return None;
-    }
+    tabookit::ensure!(row < total_rows);
     let row_offset = row * BYTES_PER_ROW;
     let row_end = (row_offset + BYTES_PER_ROW).min(data_len);
     let row_count = row_end - row_offset;
@@ -89,13 +85,11 @@ pub(crate) fn handle_mouse(
 }
 /// 选区范围 [start, end)，无选区时返回 (0, 0)
 fn selection_range(state: &HexViewState) -> (usize, usize) {
-    if let Some((s, e)) = state.selection {
-        (s, e)
-    } else if let Some(c) = state.cursor {
-        (c, c + 1)
-    } else {
-        (0, 0)
-    }
+    tabookit::first!(it in
+        state.selection => *it,
+        state.cursor => (*it, *it + 1),
+        else (0, 0),
+    )
 }
 
 pub(crate) fn context_menu(

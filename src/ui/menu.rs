@@ -7,16 +7,16 @@ mod file;
 mod help;
 mod view;
 
-use super::layout::Layout;
+use crate::app::App;
 use crate::appearance::theme;
 use crate::ui::widget::{flat_button_theme, FlatButton};
 use eframe::egui;
 use rust_i18n::t;
 
 /// 渲染菜单栏（注入到标题栏）
-pub fn menu_bar(ui: &mut egui::Ui, layout: &mut Layout) {
+pub fn menu_bar(ui: &mut egui::Ui, app: &mut App) {
     let fbt = flat_button_theme();
-    let menus: &[(&str, fn(&mut egui::Ui, &mut Layout))] = &[
+    let menus: &[(&str, fn(&mut egui::Ui, &mut App))] = &[
         (&t!("menu.file"), file::render),
         (&t!("menu.edit"), edit::render),
         (&t!("menu.view"), view::render),
@@ -28,7 +28,7 @@ pub fn menu_bar(ui: &mut egui::Ui, layout: &mut Layout) {
             .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
             .show(|ui| {
                 ui.style_mut().visuals.widgets.hovered.bg_fill = theme::BG_HOVER;
-                render(ui, layout);
+                render(ui, app);
             });
     }
 }
