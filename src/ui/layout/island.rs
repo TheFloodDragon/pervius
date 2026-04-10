@@ -2,7 +2,7 @@
 //!
 //! @author sky
 
-use crate::shell::theme;
+use crate::appearance::theme;
 use eframe::egui;
 
 /// 绘制 island 圆角背景（深色，与窗口底色 BG_DARK 形成对比）

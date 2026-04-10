@@ -12,6 +12,8 @@ pub const CHROME_MAXIMIZE: &str = "\u{EAB9}";
 pub const CHROME_MINIMIZE: &str = "\u{EABA}";
 /// 还原按钮 U+EABB
 pub const CHROME_RESTORE: &str = "\u{EABB}";
+/// 向右箭头（子菜单展开）U+EAB6
+pub const CHEVRON_RIGHT: &str = "\u{EAB6}";
 
 /// Codicon 字体族名称
 pub fn family() -> egui::FontFamily {

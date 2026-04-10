@@ -344,30 +344,35 @@ fn mark_decompiled(set: &Mutex<HashSet<String>>, class_name: &str) {
     }
 }
 
-/// 单文件反编译：将 class 字节写入临时输入目录，跑 Vineflower，输出直接写入缓存目录
+/// 单文件反编译：将 class 字节写入临时目录，跑 Vineflower
 ///
 /// `class_path` 形如 `com/example/Foo.class`，用于构建临时目录结构。
 /// `jar_path` 用作 Vineflower 的 context library（-e 参数），提供依赖解析。
-/// `hash` 为 JAR 哈希，决定缓存目录位置。
+/// `cache_hash` 传入 `Some(hash)` 时输出写入缓存目录（首次预览），传入 `None` 时输出写入临时目录（保存后重编译）。
 pub fn decompile_single_class(
     bytes: &[u8],
     class_path: &str,
     jar_path: &Path,
-    hash: &str,
+    cache_hash: Option<&str>,
 ) -> Result<CachedSource, String> {
     let vineflower = find_vineflower()?;
-    // 输出直接写入缓存目录
-    let output_dir = cache_dir(hash)?;
-    std::fs::create_dir_all(&output_dir).map_err(|e| format!("{e}"))?;
-    // 唯一临时输入目录（原子计数器避免并发冲突）
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp_input = std::env::temp_dir().join(format!("pervius_single_{id}"));
+    let tmp_input = std::env::temp_dir().join(format!("pervius_single_{id}_in"));
+    // 有 hash 则写入缓存目录，无则用临时目录
+    let (output_dir, is_tmp_output) = match cache_hash {
+        Some(h) => (cache_dir(h)?, false),
+        None => (
+            std::env::temp_dir().join(format!("pervius_single_{id}_out")),
+            true,
+        ),
+    };
     // 写入临时 .class 文件（保持包目录结构）
     let class_file = tmp_input.join(class_path);
     if let Some(parent) = class_file.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("{e}"))?;
     }
+    std::fs::create_dir_all(&output_dir).map_err(|e| format!("{e}"))?;
     std::fs::write(&class_file, bytes).map_err(|e| format!("{e}"))?;
     let mut cmd = process::JavaCommand::new(&vineflower)?;
     cmd.arg("--bytecode-source-mapping=1")
@@ -378,14 +383,19 @@ pub fn decompile_single_class(
     let output = cmd.output().map_err(|e| format!("spawn failed: {e}"))?;
     let _ = std::fs::remove_dir_all(&tmp_input);
     if !output.status.success() {
+        if is_tmp_output {
+            let _ = std::fs::remove_dir_all(&output_dir);
+        }
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("vineflower failed: {stderr}"));
     }
-    // 从缓存目录读取结果
     let base = class_to_base_path(class_path);
     for (ext, is_kt) in &[(".java", false), (".kt", true)] {
         let file = output_dir.join(format!("{base}{ext}"));
         if let Ok(raw) = std::fs::read_to_string(&file) {
+            if is_tmp_output {
+                let _ = std::fs::remove_dir_all(&output_dir);
+            }
             let (source, line_mapping) = strip_line_markers(&raw);
             return Ok(CachedSource {
                 source,
@@ -393,6 +403,9 @@ pub fn decompile_single_class(
                 line_mapping,
             });
         }
+    }
+    if is_tmp_output {
+        let _ = std::fs::remove_dir_all(&output_dir);
     }
     Err("Vineflower produced no output".to_string())
 }

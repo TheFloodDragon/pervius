@@ -9,7 +9,7 @@
 use super::find::FindMatch;
 use super::highlight;
 use super::tab::EditorTab;
-use crate::shell::theme;
+use crate::appearance::theme;
 use eframe::egui;
 use std::sync::Arc;
 

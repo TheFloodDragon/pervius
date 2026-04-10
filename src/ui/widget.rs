@@ -2,7 +2,7 @@
 //!
 //! @author sky
 
-use crate::shell::theme;
+use crate::appearance::theme;
 use eframe::egui;
 
 /// 扁平文本按钮（菜单栏、搜索分类、模式切换等通用小型按钮）

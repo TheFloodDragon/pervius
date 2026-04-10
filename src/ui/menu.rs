@@ -9,7 +9,7 @@ pub mod item;
 mod view;
 
 use super::layout::Layout;
-use crate::shell::theme;
+use crate::appearance::theme;
 use crate::ui::widget::FlatButton;
 use eframe::egui;
 use rust_i18n::t;

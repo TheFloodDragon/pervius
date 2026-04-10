@@ -4,7 +4,7 @@
 
 use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
-use crate::shell::{codicon, theme};
+use crate::appearance::{codicon, theme};
 use crate::ui::widget::FlatButton;
 use eframe::egui;
 use rust_i18n::t;

@@ -8,7 +8,7 @@ use super::category::SearchCategory;
 use super::demo;
 use super::result::SearchResultGroup;
 use super::widget::{self, render_group_header, render_match_row, separator, SearchMode};
-use crate::shell::{codicon, theme};
+use crate::appearance::{codicon, theme};
 use crate::ui::editor::highlight;
 use crate::ui::widget::FlatButton;
 use eframe::egui;

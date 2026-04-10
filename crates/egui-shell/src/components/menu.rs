@@ -1,10 +1,24 @@
 //! 菜单项渲染原语
 //!
+//! 提供 `menu_item` / `menu_item_raw` / `menu_submenu` 三个函数，
+//! 通过 `MenuTheme` 接收配色，与具体应用解耦。
+//!
 //! @author sky
 
-use crate::appearance::{codicon, theme};
+use crate::codicon;
 use eframe::egui;
 use egui_keybind::KeyBind;
+
+/// 菜单配色
+#[derive(Clone)]
+pub struct MenuTheme {
+    /// 主文字色（label）
+    pub text_primary: egui::Color32,
+    /// 暗淡文字色（快捷键）
+    pub text_muted: egui::Color32,
+    /// hover 背景色
+    pub bg_hover: egui::Color32,
+}
 
 /// 菜单项内容最小宽度上下文 key
 ///
@@ -13,13 +27,18 @@ use egui_keybind::KeyBind;
 const MENU_FILL_WIDTH: &str = "__menu_fill_w";
 
 /// 菜单项：label 靠左，快捷键靠右（从 KeyBind 取标签）
-pub fn menu_item(ui: &mut egui::Ui, label: &str, keybind: Option<&KeyBind>) -> bool {
+pub fn menu_item(
+    ui: &mut egui::Ui,
+    theme: &MenuTheme,
+    label: &str,
+    keybind: Option<&KeyBind>,
+) -> bool {
     let shortcut = keybind.map(|k| k.label()).unwrap_or_default();
-    menu_item_raw(ui, label, &shortcut)
+    menu_item_raw(ui, theme, label, &shortcut)
 }
 
 /// 菜单项：label 靠左，快捷键靠右（原始字符串版本，用于系统级快捷键如 Ctrl+C）
-pub fn menu_item_raw(ui: &mut egui::Ui, label: &str, shortcut: &str) -> bool {
+pub fn menu_item_raw(ui: &mut egui::Ui, theme: &MenuTheme, label: &str, shortcut: &str) -> bool {
     let label_font = egui::FontId::proportional(12.0);
     let shortcut_font = egui::FontId::proportional(11.0);
     let padding = 8.0;
@@ -27,11 +46,11 @@ pub fn menu_item_raw(ui: &mut egui::Ui, label: &str, shortcut: &str) -> bool {
     let height = 22.0;
     let label_galley =
         ui.painter()
-            .layout_no_wrap(label.to_owned(), label_font, theme::TEXT_PRIMARY);
+            .layout_no_wrap(label.to_owned(), label_font, theme.text_primary);
     let shortcut_galley = if !shortcut.is_empty() {
         Some(
             ui.painter()
-                .layout_no_wrap(shortcut.to_owned(), shortcut_font, theme::TEXT_MUTED),
+                .layout_no_wrap(shortcut.to_owned(), shortcut_font, theme.text_muted),
         )
     } else {
         None
@@ -47,57 +66,62 @@ pub fn menu_item_raw(ui: &mut egui::Ui, label: &str, shortcut: &str) -> bool {
     let (rect, resp) = ui.allocate_at_least(egui::vec2(desired_w, height), egui::Sense::click());
     let painter = ui.painter();
     if resp.hovered() {
-        painter.rect_filled(rect, egui::CornerRadius::same(3), theme::BG_HOVER);
+        painter.rect_filled(rect, egui::CornerRadius::same(3), theme.bg_hover);
     }
     let label_y = rect.center().y - label_galley.size().y / 2.0;
     painter.galley(
         egui::pos2(rect.left() + padding, label_y),
         label_galley,
-        theme::TEXT_PRIMARY,
+        theme.text_primary,
     );
     if let Some(sg) = shortcut_galley {
         let sy = rect.center().y - sg.size().y / 2.0;
         painter.galley(
             egui::pos2(rect.right() - padding - sg.size().x, sy),
             sg,
-            theme::TEXT_MUTED,
+            theme.text_muted,
         );
     }
     resp.clicked()
 }
 
 /// 带子菜单的菜单项：label 靠左，右侧 chevron，hover 时展开子菜单
-pub fn menu_submenu(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
+pub fn menu_submenu(
+    ui: &mut egui::Ui,
+    theme: &MenuTheme,
+    label: &str,
+    add_contents: impl FnOnce(&mut egui::Ui),
+) {
     let label_font = egui::FontId::proportional(12.0);
     let chevron_font = egui::FontId::new(10.0, codicon::family());
     let padding = 8.0;
     let height = 22.0;
     let label_galley =
         ui.painter()
-            .layout_no_wrap(label.to_owned(), label_font, theme::TEXT_PRIMARY);
+            .layout_no_wrap(label.to_owned(), label_font, theme.text_primary);
     let chevron_galley = ui.painter().layout_no_wrap(
         codicon::CHEVRON_RIGHT.to_owned(),
         chevron_font,
-        theme::TEXT_MUTED,
+        theme.text_muted,
     );
     let content_w = label_galley.size().x + 24.0 + chevron_galley.size().x;
     let desired_w = content_w + padding * 2.0;
     let (rect, resp) = ui.allocate_at_least(egui::vec2(desired_w, height), egui::Sense::hover());
     let painter = ui.painter();
     if resp.hovered() {
-        painter.rect_filled(rect, egui::CornerRadius::same(3), theme::BG_HOVER);
+        painter.rect_filled(rect, egui::CornerRadius::same(3), theme.bg_hover);
     }
     let label_y = rect.center().y - label_galley.size().y / 2.0;
     painter.galley(
         egui::pos2(rect.left() + padding, label_y),
         label_galley,
-        theme::TEXT_PRIMARY,
+        theme.text_primary,
     );
     let cy = rect.center().y - chevron_galley.size().y / 2.0;
     painter.galley(
         egui::pos2(rect.right() - padding - chevron_galley.size().x, cy),
         chevron_galley,
-        theme::TEXT_MUTED,
+        theme.text_muted,
     );
     // 子菜单弹出
     let sub_id = ui.id().with(label).with("_sub");
@@ -114,7 +138,7 @@ pub fn menu_submenu(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&m
             .fixed_pos(popup_pos)
             .show(ui.ctx(), |ui| {
                 frame.show(ui, |ui| {
-                    ui.style_mut().visuals.widgets.hovered.bg_fill = theme::BG_HOVER;
+                    ui.style_mut().visuals.widgets.hovered.bg_fill = theme.bg_hover;
                     ui.set_min_width(cached_width);
                     add_contents(ui);
                     let w = ui.min_rect().width();
@@ -126,7 +150,7 @@ pub fn menu_submenu(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&m
             });
         // 清除全局 key，不影响其他菜单
         ui.ctx().data_mut(|d| d.insert_temp(fill_key, 0.0f32));
-        // trigger 或 popup 区域内有 hover 就保持打开（不用 union 避免覆盖到父菜单其他项）
+        // trigger 或 popup 区域内有 hover 就保持打开
         let popup_rect = area_resp.response.rect;
         let still_hovering = ui.ctx().input(|i| {
             i.pointer

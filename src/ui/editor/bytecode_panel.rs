@@ -4,8 +4,8 @@
 
 use super::highlight;
 use super::tab::{BytecodeSelection, EditorTab};
+use crate::appearance::{codicon, theme};
 use crate::java::class_structure::{ClassStructure, EditableAnnotation, FieldInfo, MethodInfo};
-use crate::shell::{codicon, theme};
 use crate::ui::widget::FlatButton;
 use eframe::egui;
 use egui_animation::Anim;

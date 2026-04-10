@@ -3,7 +3,7 @@
 //! @author sky
 
 use super::Layout;
-use crate::shell::theme;
+use crate::appearance::theme;
 use crate::ui::editor::TabAction;
 use eframe::egui;
 use rust_i18n::t;

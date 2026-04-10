@@ -4,9 +4,9 @@
 
 rust_i18n::i18n!("locales", fallback = "en");
 
+mod appearance;
 mod java;
 mod settings;
-mod shell;
 mod ui;
 
 use eframe::egui;
@@ -19,21 +19,21 @@ fn main() -> eframe::Result {
     // 从持久化配置中读取语言并设置 locale
     let saved_settings = settings::Settings::load_for_locale();
     rust_i18n::set_locale(saved_settings.language.code());
-    let options = shell::ShellOptions {
+    let options = appearance::ShellOptions {
         title: "Pervius".to_owned(),
         size: [1280.0, 800.0],
-        theme: shell::ShellTheme {
-            bg: shell::theme::BG_DARK,
-            bg_hover: shell::theme::BG_HOVER,
-            text_primary: shell::theme::TEXT_PRIMARY,
-            text_secondary: shell::theme::TEXT_SECONDARY,
-            accent: shell::theme::VERDIGRIS,
-            caption_hover: shell::theme::CAPTION_HOVER,
-            close_hover: shell::theme::CLOSE_HOVER,
-            title_bar_height: shell::theme::TITLE_BAR_HEIGHT,
+        theme: appearance::ShellTheme {
+            bg: appearance::theme::BG_DARK,
+            bg_hover: appearance::theme::BG_HOVER,
+            text_primary: appearance::theme::TEXT_PRIMARY,
+            text_secondary: appearance::theme::TEXT_SECONDARY,
+            accent: appearance::theme::VERDIGRIS,
+            caption_hover: appearance::theme::CAPTION_HOVER,
+            close_hover: appearance::theme::CLOSE_HOVER,
+            title_bar_height: appearance::theme::TITLE_BAR_HEIGHT,
         },
     };
-    shell::run(options, |_cc| {
+    appearance::run(options, |_cc| {
         Box::new(PervApp {
             layout: Layout::new(),
         })
@@ -44,7 +44,7 @@ struct PervApp {
     layout: Layout,
 }
 
-impl shell::AppContent for PervApp {
+impl appearance::AppContent for PervApp {
     fn ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
         self.layout.render(ui);
     }

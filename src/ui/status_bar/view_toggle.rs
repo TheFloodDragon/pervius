@@ -2,7 +2,7 @@
 //!
 //! @author sky
 
-use crate::shell::theme;
+use crate::appearance::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
 use egui_animation::Anim;

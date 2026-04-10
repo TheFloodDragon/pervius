@@ -2,7 +2,7 @@
 //!
 //! @author sky
 
-use crate::shell::theme;
+use crate::appearance::theme;
 use rust_i18n::t;
 
 /// classview 主题色映射到 HexTheme

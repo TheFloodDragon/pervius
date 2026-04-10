@@ -7,7 +7,7 @@
 //! @author sky
 
 use super::node::TreeNode;
-use crate::shell::{codicon, theme};
+use crate::appearance::{codicon, theme};
 use crate::ui::menu::item::menu_item_raw;
 use eframe::egui;
 use egui_animation::Anim;

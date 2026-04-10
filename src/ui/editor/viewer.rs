@@ -7,7 +7,7 @@ use super::find::FindBar;
 use super::render;
 use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
-use crate::shell::{codicon, theme};
+use crate::appearance::{codicon, theme};
 use crate::ui::keybindings;
 use crate::ui::menu::item::menu_item;
 use eframe::egui;

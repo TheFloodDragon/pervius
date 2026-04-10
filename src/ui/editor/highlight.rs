@@ -16,7 +16,7 @@ mod sql;
 mod xml;
 mod yaml;
 
-use crate::shell::theme;
+use crate::appearance::theme;
 use eframe::egui;
 use eframe::egui::text::LayoutJob;
 

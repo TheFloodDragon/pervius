@@ -3,7 +3,7 @@
 //! @author sky
 
 use super::result::{SearchMatch, SearchResultGroup, SourcePreview};
-use crate::shell::{codicon, theme};
+use crate::appearance::{codicon, theme};
 use eframe::egui;
 use rust_i18n::t;
 

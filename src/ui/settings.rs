@@ -2,8 +2,8 @@
 //!
 //! @author sky
 
+use crate::appearance::{codicon, theme};
 use crate::settings::{KeymapSettings, Language, Settings};
-use crate::shell::{codicon, theme};
 use eframe::egui;
 use egui_shell::components::{
     path_picker_with, section_header, sidebar_item, SettingsPanel, SettingsTheme,

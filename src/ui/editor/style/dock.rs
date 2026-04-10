@@ -2,7 +2,7 @@
 //!
 //! @author sky
 
-use crate::shell::theme;
+use crate::appearance::theme;
 use eframe::egui;
 use egui_dock::Style as DockStyle;
 

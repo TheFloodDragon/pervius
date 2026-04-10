@@ -2,7 +2,7 @@
 //!
 //! @author sky
 
-use crate::shell::{codicon, theme};
+use crate::appearance::{codicon, theme};
 use eframe::egui;
 
 /// 文件树节点

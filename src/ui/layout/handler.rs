@@ -3,10 +3,10 @@
 //! @author sky
 
 use super::Layout;
+use crate::appearance::theme;
 use crate::java::class_structure::SavedMember;
 use crate::java::decompiler;
 use crate::java::jar::{JarArchive, LoadProgress};
-use crate::shell::theme;
 use crate::ui::editor::highlight::Language;
 use crate::ui::editor::view_toggle::ActiveView;
 use crate::ui::editor::{EditorArea, EditorTab};
@@ -96,14 +96,24 @@ impl Layout {
             None => return,
         };
         let hash = self.jar.as_ref().map(|j| j.hash.as_str());
-        let has_cache = hash
-            .and_then(|h| decompiler::cached_source_path(h, &entry_path))
-            .is_some();
+        let is_modified = self
+            .jar
+            .as_ref()
+            .map(|j| j.modified_entry_paths().contains(&entry_path))
+            .unwrap_or(false);
+        let has_cache = !is_modified
+            && hash
+                .and_then(|h| decompiler::cached_source_path(h, &entry_path))
+                .is_some();
         let tab = Self::create_tab(&entry_path, &bytes, hash);
         self.editor.open_tab(tab);
-        // 缓存未命中的 .class 文件立即触发单文件反编译
-        if !has_cache && entry_path.ends_with(".class") {
-            self.start_single_decompile(&entry_path);
+        // 已修改条目强制重新反编译（不写缓存），缓存未命中则正常反编译写缓存
+        if entry_path.ends_with(".class") {
+            if is_modified {
+                self.start_single_decompile(&entry_path, false);
+            } else if !has_cache {
+                self.start_single_decompile(&entry_path, true);
+            }
         }
     }
 
@@ -306,7 +316,7 @@ impl Layout {
                     jar.put(&entry_path, new_bytes);
                 }
                 log::info!("Saved: {entry_path}");
-                self.start_single_decompile(&entry_path);
+                self.start_single_decompile(&entry_path, false);
             }
             Err(e) => {
                 log::error!("Save failed: {entry_path}: {e}");
@@ -316,13 +326,19 @@ impl Layout {
     }
 
     /// 后台反编译单个 .class 文件
-    pub(super) fn start_single_decompile(&mut self, entry_path: &str) {
+    ///
+    /// `write_cache` 为 true 时输出写入缓存目录（首次预览），为 false 时仅返回内存结果（保存后重编译）。
+    pub(super) fn start_single_decompile(&mut self, entry_path: &str, write_cache: bool) {
         let jar = match &self.jar {
             Some(j) => j,
             None => return,
         };
         let jar_path = jar.path.clone();
-        let hash = jar.hash.clone();
+        let hash = if write_cache {
+            Some(jar.hash.clone())
+        } else {
+            None
+        };
         let bytes = match jar.get(entry_path) {
             Some(b) => b.to_vec(),
             None => return,
@@ -331,8 +347,12 @@ impl Layout {
         let (tx, rx) = mpsc::channel();
         let cp = class_path.clone();
         std::thread::spawn(move || {
-            let result =
-                crate::java::decompiler::decompile_single_class(&bytes, &cp, &jar_path, &hash);
+            let result = crate::java::decompiler::decompile_single_class(
+                &bytes,
+                &cp,
+                &jar_path,
+                hash.as_deref(),
+            );
             let _ = tx.send(result);
         });
         self.pending_decompiles.push((class_path, rx));

@@ -2,7 +2,7 @@
 //!
 //! @author sky
 
-use crate::shell::theme;
+use crate::appearance::theme;
 use eframe::egui;
 use egui_shell::components::status_bar::{Alignment, ItemResponse, StatusItem};
 use rust_i18n::t;

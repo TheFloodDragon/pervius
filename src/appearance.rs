@@ -1,4 +1,4 @@
-//! 窗口壳子：re-export egui-shell + classview 专属色板和图标
+//! 外观：re-export egui-shell + classview 专属色板和图标
 //!
 //! @author sky
 
