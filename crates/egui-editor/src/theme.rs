@@ -51,6 +51,8 @@ pub struct CodeViewTheme {
     pub search_current_bg: egui::Color32,
     /// 代码字体大小
     pub code_font_size: f32,
+    /// 行高亮闪烁底色（scroll_to_line 触发，alpha 由动画控制）
+    pub line_highlight: egui::Color32,
 }
 
 /// 查找栏图标配置

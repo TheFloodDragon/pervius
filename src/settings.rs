@@ -24,28 +24,28 @@ const MAX_RECENT: usize = 10;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Language {
     #[default]
-    #[serde(rename = "en")]
-    En,
     #[serde(rename = "zh")]
     Zh,
+    #[serde(rename = "en")]
+    En,
 }
 
 impl Language {
-    pub const ALL: &[Self] = &[Self::En, Self::Zh];
+    pub const ALL: &[Self] = &[Self::Zh, Self::En];
 
     /// 返回 rust-i18n 使用的 locale code
     pub fn code(self) -> &'static str {
         match self {
-            Self::En => "en",
             Self::Zh => "zh",
+            Self::En => "en",
         }
     }
 
     /// 返回语言显示名称
     pub fn label(self) -> String {
         match self {
-            Self::En => t!("lang.en").to_string(),
             Self::Zh => t!("lang.zh").to_string(),
+            Self::En => t!("lang.en").to_string(),
         }
     }
 }

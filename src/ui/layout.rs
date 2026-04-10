@@ -146,9 +146,16 @@ impl App {
             .sync_state(search_index, has_jar, index_building);
         self.layout.search.render(ui.ctx(), shell_theme);
         if let Some(req) = self.layout.search.take_pending_open() {
-            if !self.layout.editor.focus_tab(&req.entry_path) {
+            if !self
+                .layout
+                .editor
+                .focus_tab_at(&req.entry_path, Some(req.line))
+            {
+                let path = req.entry_path.clone();
                 self.layout.file_panel.pending_open = Some(req.entry_path);
                 self.handle_pending_open();
+                // 新开的 tab 也需要设置滚动目标
+                self.layout.editor.focus_tab_at(&path, Some(req.line));
             }
         }
         if let Some(new_settings) =

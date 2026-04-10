@@ -76,6 +76,8 @@ tabookit::class! {
         pub editable_layout_cache: Option<EditableLayoutCache>,
         /// 视窗模式手动覆盖（None = 自动检测，Some(true) = 强制启用，Some(false) = 强制关闭）
         pub viewport_override: Option<bool>,
+        /// 待滚动到的目标行号（0-based），设置后下一帧动画滚动到该行
+        pub pending_scroll_to_line: Option<usize>,
     }
 
     /// 创建 .class 文件 tab
@@ -120,6 +122,7 @@ tabookit::class! {
             layout_cache: None,
             editable_layout_cache: None,
             viewport_override: None,
+            pending_scroll_to_line: None,
         }
     }
 
@@ -153,6 +156,7 @@ tabookit::class! {
             layout_cache: None,
             editable_layout_cache: None,
             viewport_override: None,
+            pending_scroll_to_line: None,
         }
     }
 
@@ -183,6 +187,7 @@ tabookit::class! {
             layout_cache: None,
             editable_layout_cache: None,
             viewport_override: None,
+            pending_scroll_to_line: None,
         }
     }
 

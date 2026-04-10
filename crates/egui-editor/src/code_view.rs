@@ -184,6 +184,7 @@ pub fn code_view(
     current: Option<usize>,
     theme: &CodeViewTheme,
     cache: &mut Option<LayoutCache>,
+    scroll_to_line: &mut Option<usize>,
 ) {
     let line_count = text.split('\n').count().max(1);
     let max_number = if line_mapping.is_empty() {
@@ -222,17 +223,72 @@ pub fn code_view(
     let mut galley_y = 0.0f32;
     let mut edge_scroll_delta = 0.0f32;
     let mut wheel_delta = 0.0f32;
+    // 滚动到指定行时记录触发时间
+    let hl_time_id = id.with("__hl_time");
+    let hl_line_id = id.with("__hl_line");
+    if scroll_to_line.is_some() {
+        let line = scroll_to_line.unwrap();
+        let now = ui.input(|i| i.time);
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(hl_time_id, now);
+            d.insert_temp(hl_line_id, line);
+        });
+    }
     ui.horizontal_top(|ui| {
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
+        // 行高亮背景（在 TextEdit 之前绘制，避免遮盖文字）
+        const HOLD: f64 = 0.5;
+        const FADE: f64 = 0.8;
+        let hl_time: Option<f64> = ui.ctx().data(|d| d.get_temp(hl_time_id));
+        if let Some(start) = hl_time {
+            let elapsed = ui.input(|i| i.time) - start;
+            let alpha = if elapsed < HOLD {
+                1.0
+            } else {
+                (1.0 - ((elapsed - HOLD) / FADE)).max(0.0)
+            };
+            if alpha > 0.001 {
+                let hl_line: usize = ui.ctx().data(|d| d.get_temp(hl_line_id).unwrap_or(0));
+                let row_h = ui.fonts_mut(|f| {
+                    f.layout_no_wrap("M".into(), code_font.clone(), egui::Color32::WHITE)
+                        .size()
+                        .y
+                });
+                let top_y = ui.min_rect().top();
+                let y = top_y + hl_line as f32 * row_h;
+                let full_width = ui.max_rect().width();
+                let rect = egui::Rect::from_min_size(
+                    egui::pos2(ui.max_rect().left(), y),
+                    egui::vec2(full_width, row_h),
+                );
+                let [r, g, b, _] = theme.line_highlight.to_array();
+                let a = (alpha as f32 * 255.0) as u8;
+                ui.painter().rect_filled(
+                    rect,
+                    0.0,
+                    egui::Color32::from_rgba_unmultiplied(r, g, b, a),
+                );
+                ui.ctx().request_repaint_after_secs(0.016);
+            } else {
+                ui.ctx().data_mut(|d| {
+                    d.remove_temp::<f64>(hl_time_id);
+                    d.remove_temp::<usize>(hl_line_id);
+                });
+            }
+        }
         let mut buf: &str = text;
-        let output = egui::TextEdit::multiline(&mut buf)
-            .id(id)
-            .desired_width(f32::INFINITY)
-            .font(code_font.clone())
-            .frame(egui::Frame::NONE)
-            .layouter(&mut layouter)
-            .show(ui);
+        let output = code_text_edit(&mut buf, id, code_font.clone(), &mut layouter).show(ui);
         galley_y = output.galley_pos.y;
+        // 滚动到指定行
+        if let Some(line) = scroll_to_line.take() {
+            let row_h = output.galley.size().y / line_count.max(1) as f32;
+            let target_y = galley_y + line as f32 * row_h;
+            let line_rect = egui::Rect::from_min_size(
+                egui::pos2(output.galley_pos.x, target_y),
+                egui::vec2(1.0, row_h),
+            );
+            ui.scroll_to_rect(line_rect, Some(egui::Align::Center));
+        }
         if output.response.dragged() {
             let (ed, wd) = detect_edge_scroll(&output.response, ui);
             edge_scroll_delta = ed;
@@ -347,13 +403,7 @@ pub fn code_view_editable(
     let mut changed = false;
     ui.horizontal_top(|ui| {
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
-        let output = egui::TextEdit::multiline(text)
-            .id(id)
-            .desired_width(f32::INFINITY)
-            .font(code_font.clone())
-            .frame(egui::Frame::NONE)
-            .layouter(&mut layouter)
-            .show(ui);
+        let output = code_text_edit(text, id, code_font.clone(), &mut layouter).show(ui);
         galley_y = output.galley_pos.y;
         changed = output.response.changed();
         if output.response.dragged() {
@@ -475,6 +525,25 @@ pub(crate) fn apply_scroll_delta(ui: &mut egui::Ui, edge_delta: f32, wheel_delta
         );
         ui.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
     }
+}
+
+/// 构建代码编辑器通用的 TextEdit（无边框、等宽字体、满宽、自定义 layouter）
+pub(crate) fn code_text_edit<'t>(
+    text: &'t mut dyn egui::TextBuffer,
+    id: egui::Id,
+    font: egui::FontId,
+    layouter: &'t mut dyn FnMut(
+        &egui::Ui,
+        &dyn egui::TextBuffer,
+        f32,
+    ) -> std::sync::Arc<egui::Galley>,
+) -> egui::TextEdit<'t> {
+    egui::TextEdit::multiline(text)
+        .id(id)
+        .desired_width(f32::INFINITY)
+        .font(font)
+        .frame(egui::Frame::NONE)
+        .layouter(layouter)
 }
 
 /// 视窗→普通模式过渡帧 overlay

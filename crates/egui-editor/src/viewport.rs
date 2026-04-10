@@ -221,13 +221,13 @@ pub(crate) fn code_view_editable_viewport(
 
     ui.horizontal_top(|ui| {
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
-        let output = egui::TextEdit::multiline(&mut viewport_buf)
-            .id(id)
-            .desired_width(f32::INFINITY)
-            .font(code_font.clone())
-            .frame(egui::Frame::NONE)
-            .layouter(&mut layouter)
-            .show(ui);
+        let output = crate::code_view::code_text_edit(
+            &mut viewport_buf,
+            id,
+            code_font.clone(),
+            &mut layouter,
+        )
+        .show(ui);
         galley_y = output.galley_pos.y;
         changed = output.response.changed();
         if let Some(cr) = output.cursor_range {

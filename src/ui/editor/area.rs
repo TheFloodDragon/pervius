@@ -184,15 +184,24 @@ tabookit::class! {
 
     /// 聚焦已打开的 tab（按 entry_path 匹配），返回是否找到
     pub fn focus_tab(&mut self, entry_path: &str) -> bool {
+        self.focus_tab_at(entry_path, None)
+    }
+
+    /// 切换到指定 tab 并滚动到目标行
+    pub fn focus_tab_at(&mut self, entry_path: &str, line: Option<usize>) -> bool {
         let found = self
             .dock_state
             .find_tab_from(|tab| tab.entry_path.as_deref() == Some(entry_path));
-        if let Some(tab_path) = found {
-            let _ = self.dock_state.set_active_tab(tab_path);
-            true
-        } else {
-            false
+        let Some(tab_path) = found else {
+            return false;
+        };
+        let _ = self.dock_state.set_active_tab(tab_path);
+        if let Some(line) = line {
+            if let Some(tab) = self.focused_tab() {
+                tab.pending_scroll_to_line = Some(line);
+            }
         }
+        true
     }
 
     pub fn focused_view(&mut self) -> Option<ActiveView> {

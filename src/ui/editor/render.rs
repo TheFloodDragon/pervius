@@ -35,6 +35,7 @@ pub fn render_decompiled(
         current,
         &t,
         &mut tab.layout_cache,
+        &mut tab.pending_scroll_to_line,
     );
 }
 

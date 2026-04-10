@@ -29,7 +29,6 @@ pub struct SearchOpenRequest {
     /// JAR 内条目路径
     pub entry_path: String,
     /// 目标行号（0-based）
-    #[allow(dead_code)]
     pub line: usize,
 }
 
@@ -501,6 +500,7 @@ tabookit::class! {
             scroll = scroll.vertical_scroll_offset(offset);
             self.scroll_to_match = false;
         }
+        let mut hl_line = if need_recompute { Some(match_line) } else { None };
         scroll.show(ui, |ui| {
             egui_editor::code_view::code_view(
                 ui,
@@ -512,6 +512,7 @@ tabookit::class! {
                 Some(0),
                 &t,
                 &mut cache.layout_cache,
+                &mut hl_line,
             );
         });
     }
