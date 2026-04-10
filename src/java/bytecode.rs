@@ -10,6 +10,7 @@ use super::class_structure::{
 };
 use ristretto_classfile::attributes::{Annotation, AnnotationElement, Attribute, Instruction};
 use ristretto_classfile::{ClassFile, Constant, ConstantPool};
+use std::collections::HashMap;
 use std::fmt::Write;
 
 /// 将 .class 原始字节反汇编为结构化 class 数据
@@ -306,13 +307,55 @@ fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> Me
     };
     for attr in &method.attributes {
         match attr {
-            Attribute::Code { code, .. } => {
+            Attribute::Code {
+                code,
+                exception_table,
+                attributes: code_attrs,
+                ..
+            } => {
                 has_code = true;
+                // 从 LineNumberTable 构建 instruction_index → line_number 映射
+                let mut line_map: HashMap<usize, u16> = HashMap::new();
+                for code_attr in code_attrs {
+                    if let Attribute::LineNumberTable { line_numbers, .. } = code_attr {
+                        for ln in line_numbers {
+                            line_map.insert(ln.start_pc as usize, ln.line_number);
+                        }
+                    }
+                }
+                // 输出 .catch 指令
+                for entry in exception_table {
+                    let catch_type = if entry.catch_type == 0 {
+                        "*".to_string()
+                    } else {
+                        cp.try_get_class(entry.catch_type)
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|_| format!("#{}", entry.catch_type))
+                    };
+                    writeln!(
+                        bytecode,
+                        ".catch {} {} {} {}",
+                        catch_type, entry.range_pc.start, entry.range_pc.end, entry.handler_pc,
+                    )
+                    .unwrap();
+                }
+                // 输出指令，在对应位置插入 .line，逻辑行之间空一行
+                let mut has_prev_insn = false;
                 for (i, insn) in code.iter().enumerate() {
-                    if i > 0 {
+                    if let Some(&line) = line_map.get(&i) {
+                        if has_prev_insn {
+                            bytecode.push('\n');
+                        }
+                        if !bytecode.is_empty() && !bytecode.ends_with('\n') {
+                            bytecode.push('\n');
+                        }
+                        writeln!(bytecode, ".line {line}").unwrap();
+                    }
+                    if !bytecode.is_empty() && !bytecode.ends_with('\n') {
                         bytecode.push('\n');
                     }
                     write!(bytecode, "{}", format_instruction(insn, &resolve)).unwrap();
+                    has_prev_insn = true;
                 }
             }
             Attribute::Exceptions {

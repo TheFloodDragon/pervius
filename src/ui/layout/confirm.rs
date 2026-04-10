@@ -55,12 +55,15 @@ impl Layout {
 
     /// 执行已确认的动作
     fn execute_confirmed(&mut self, action: ConfirmAction, ctx: &egui::Context) {
+        // 清除所有未保存标记，避免 has_unsaved_changes() 再次拦截
+        for (_, tab) in self.editor.dock_state.iter_all_tabs_mut() {
+            tab.is_modified = false;
+        }
+        if let Some(jar) = &mut self.jar {
+            jar.clear_modified();
+        }
         match action {
             ConfirmAction::Close => {
-                // 清除所有未保存标记，避免下一帧再次拦截关闭
-                for (_, tab) in self.editor.dock_state.iter_all_tabs_mut() {
-                    tab.is_modified = false;
-                }
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
             ConfirmAction::OpenDialog => {

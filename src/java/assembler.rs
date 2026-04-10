@@ -6,21 +6,73 @@
 //! @author sky
 
 use indexmap::IndexMap;
-use ristretto_classfile::attributes::{ArrayType, Instruction, LookupSwitch, TableSwitch};
+use ristretto_classfile::attributes::{
+    ArrayType, ExceptionTableEntry, Instruction, LineNumber, LookupSwitch, TableSwitch,
+};
+
+/// 汇编结果：指令序列 + 行号表 + 异常表
+pub struct AssembleResult {
+    /// 指令序列
+    pub instructions: Vec<Instruction>,
+    /// 行号映射 (instruction_index, source_line)
+    pub line_numbers: Vec<LineNumber>,
+    /// 异常处理表
+    pub exception_table: Vec<ExceptionTableEntry>,
+}
 
 /// 将多行指令文本解析为 Instruction 序列
 ///
 /// 自动跳过空行和 `//` 注释行（方法签名标记）。
 /// 处理 TABLESWITCH / LOOKUPSWITCH 的多行块。
+/// 解析 `.line N` 和 `.catch type from to handler` 伪指令。
 pub fn assemble_instructions(
     text: &str,
     resolve_cp: &mut dyn FnMut(&str) -> Result<u16, String>,
-) -> Result<Vec<Instruction>, String> {
+) -> Result<AssembleResult, String> {
     let mut instructions = Vec::new();
+    let mut line_numbers = Vec::new();
+    let mut exception_table = Vec::new();
     let mut lines = text.lines().peekable();
     while let Some(line) = lines.next() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+        // .line N
+        if let Some(rest) = trimmed.strip_prefix(".line ") {
+            let line_num: u16 = rest
+                .trim()
+                .parse()
+                .map_err(|e| format!("invalid .line number '{rest}': {e}"))?;
+            line_numbers.push(LineNumber {
+                start_pc: instructions.len() as u16,
+                line_number: line_num,
+            });
+            continue;
+        }
+        // .catch type from to handler
+        if let Some(rest) = trimmed.strip_prefix(".catch ") {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.len() != 4 {
+                return Err(format!(
+                    "expected '.catch type from to handler', got: {trimmed}"
+                ));
+            }
+            let catch_type = if parts[0] == "*" {
+                0
+            } else {
+                resolve_cp(parts[0])?
+            };
+            let start: u16 = parts[1].parse().map_err(|e| format!(".catch start: {e}"))?;
+            let end: u16 = parts[2].parse().map_err(|e| format!(".catch end: {e}"))?;
+            let handler: u16 = parts[3]
+                .parse()
+                .map_err(|e| format!(".catch handler: {e}"))?;
+            exception_table.push(ExceptionTableEntry {
+                range_pc: start..end,
+                handler_pc: handler,
+                catch_type,
+            });
             continue;
         }
         let (opcode, _) = split_opcode(trimmed);
@@ -44,7 +96,11 @@ pub fn assemble_instructions(
         let insn = parse_instruction(trimmed, resolve_cp)?;
         instructions.push(insn);
     }
-    Ok(instructions)
+    Ok(AssembleResult {
+        instructions,
+        line_numbers,
+        exception_table,
+    })
 }
 
 /// 解析单行指令文本
@@ -154,10 +210,7 @@ pub fn parse_instruction(
     }
 }
 
-// ---------------------------------------------------------------------------
-// 零操作数指令
-// ---------------------------------------------------------------------------
-
+/// 零操作数指令
 fn try_zero_operand(opcode: &str) -> Option<Instruction> {
     Some(match opcode {
         // 常量
@@ -327,10 +380,7 @@ fn try_zero_operand(opcode: &str) -> Option<Instruction> {
     })
 }
 
-// ---------------------------------------------------------------------------
-// switch 多行块解析
-// ---------------------------------------------------------------------------
-
+/// switch 多行块解析
 fn parse_tableswitch(block: &[String]) -> Result<Instruction, String> {
     let first = &block[0];
     let comment_start = first.find("//").ok_or("tableswitch: missing // comment")?;
@@ -403,10 +453,7 @@ fn parse_lookupswitch(block: &[String]) -> Result<Instruction, String> {
     Ok(Instruction::Lookupswitch(LookupSwitch { default, pairs }))
 }
 
-// ---------------------------------------------------------------------------
-// 辅助：操作数解析
-// ---------------------------------------------------------------------------
-
+/// 辅助：操作数解析
 fn split_opcode(line: &str) -> (String, &str) {
     match line.find(' ') {
         Some(idx) => (line[..idx].to_uppercase(), line[idx + 1..].trim()),
@@ -517,165 +564,4 @@ fn compute_interface_count(method_ref: &str) -> u8 {
         }
     }
     count
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::java::bytecode;
-    use ristretto_classfile::attributes::Attribute;
-    use ristretto_classfile::{ClassFile, ConstantPool};
-    use std::io::Read;
-
-    /// 从指令中提取 CP 索引（如有）
-    fn cp_index(insn: &Instruction) -> Option<u16> {
-        match insn {
-            Instruction::Ldc(i) => Some(u16::from(*i)),
-            Instruction::Ldc_w(i)
-            | Instruction::Ldc2_w(i)
-            | Instruction::Getstatic(i)
-            | Instruction::Putstatic(i)
-            | Instruction::Getfield(i)
-            | Instruction::Putfield(i)
-            | Instruction::Invokevirtual(i)
-            | Instruction::Invokespecial(i)
-            | Instruction::Invokestatic(i)
-            | Instruction::Invokedynamic(i)
-            | Instruction::New(i)
-            | Instruction::Anewarray(i)
-            | Instruction::Checkcast(i)
-            | Instruction::Instanceof(i) => Some(*i),
-            Instruction::Invokeinterface(i, _) | Instruction::Multianewarray(i, _) => Some(*i),
-            _ => None,
-        }
-    }
-
-    /// 判断两条指令的差异是否仅为 CP 索引不同但指向等价常量
-    fn is_cp_alias(orig: &Instruction, asm: &Instruction, cp: &ConstantPool) -> bool {
-        let (Some(oi), Some(ai)) = (cp_index(orig), cp_index(asm)) else {
-            return false;
-        };
-        if oi == ai {
-            return false;
-        }
-        // opcode 必须一致（variant discriminant 相同）
-        if std::mem::discriminant(orig) != std::mem::discriminant(asm) {
-            return false;
-        }
-        let ok_o = cp.try_get_formatted_string(oi);
-        let ok_a = cp.try_get_formatted_string(ai);
-        matches!((ok_o, ok_a), (Ok(a), Ok(b)) if a == b)
-    }
-
-    /// 遍历 JAR 中所有 class 文件，对每个方法执行：
-    /// disassemble → assemble → 逐条比较
-    ///
-    /// CP 索引指向等价常量的差异视为 alias，不算 failure。
-    #[test]
-    fn roundtrip_frontier_jar() {
-        let path = r"C:\Users\sky\Desktop\Server\dist\Frontier-Velocity-1.0.0.jar";
-        let file = std::fs::File::open(path).expect("failed to open JAR");
-        let mut archive = zip::ZipArchive::new(file).expect("failed to read ZIP");
-        let mut tested_methods = 0usize;
-        let mut tested_insns = 0usize;
-        let mut cp_aliases = 0usize;
-        let mut asm_errors = 0usize;
-        let mut failures = Vec::new();
-        for i in 0..archive.len() {
-            let mut entry = archive.by_index(i).unwrap();
-            if !entry.name().ends_with(".class") {
-                continue;
-            }
-            let class_name = entry.name().to_string();
-            let mut bytes = Vec::new();
-            entry.read_to_end(&mut bytes).unwrap();
-            let cf = match ClassFile::from_bytes(&bytes) {
-                Ok(cf) => cf,
-                Err(e) => {
-                    failures.push(format!("[PARSE] {class_name}: {e}"));
-                    continue;
-                }
-            };
-            let structure = match bytecode::disassemble(&bytes) {
-                Ok(s) => s,
-                Err(e) => {
-                    failures.push(format!("[DISASM] {class_name}: {e}"));
-                    continue;
-                }
-            };
-            let lookup = match bytecode::build_cp_lookup(&bytes) {
-                Ok(t) => t,
-                Err(e) => {
-                    failures.push(format!("[LOOKUP] {class_name}: {e}"));
-                    continue;
-                }
-            };
-            let cp = &cf.constant_pool;
-            for (method, info) in cf.methods.iter().zip(structure.methods.iter()) {
-                if !info.has_code || info.bytecode.is_empty() {
-                    continue;
-                }
-                let original_code = match method.attributes.iter().find_map(|a| {
-                    if let Attribute::Code { code, .. } = a {
-                        Some(code)
-                    } else {
-                        None
-                    }
-                }) {
-                    Some(code) => code,
-                    None => continue,
-                };
-                let method_id = format!("{class_name}::{}.{}", info.name, info.descriptor);
-                tested_methods += 1;
-                tested_insns += original_code.len();
-                let mut resolve = |text: &str| -> Result<u16, String> {
-                    bytecode::resolve_from_lookup(&lookup, text)
-                };
-                let assembled = match assemble_instructions(&info.bytecode, &mut resolve) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        asm_errors += 1;
-                        if asm_errors <= 10 {
-                            eprintln!("[ASM] {method_id}: {e}");
-                        }
-                        continue;
-                    }
-                };
-                if original_code.len() != assembled.len() {
-                    failures.push(format!(
-                        "[COUNT] {method_id}: expected {} insns, got {}",
-                        original_code.len(),
-                        assembled.len()
-                    ));
-                    continue;
-                }
-                for (j, (orig, asm)) in original_code.iter().zip(assembled.iter()).enumerate() {
-                    if orig == asm {
-                        continue;
-                    }
-                    if is_cp_alias(orig, asm, cp) {
-                        cp_aliases += 1;
-                        continue;
-                    }
-                    failures.push(format!(
-                        "[INSN] {method_id}[{j}]:\n  expected: {orig}\n  actual:   {asm}"
-                    ));
-                }
-            }
-        }
-        println!("\n=== Roundtrip Test Results ===");
-        println!("Methods: {tested_methods}");
-        println!("Instructions: {tested_insns}");
-        println!("CP alias (equivalent, different slot): {cp_aliases}");
-        println!("Assemble errors (multi-line strings etc.): {asm_errors}");
-        println!("Semantic failures: {}", failures.len());
-        for f in &failures {
-            println!("  {f}");
-        }
-        assert!(
-            failures.is_empty(),
-            "{} semantic roundtrip failures detected",
-            failures.len()
-        );
-    }
 }

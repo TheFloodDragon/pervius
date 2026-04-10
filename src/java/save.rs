@@ -148,10 +148,33 @@ fn apply_methods(
                     create_cp_entry(cp, text)
                 };
                 match assembler::assemble_instructions(&mi.bytecode, &mut resolve) {
-                    Ok(instructions) => {
+                    Ok(result) => {
                         for attr in &mut method.attributes {
-                            if let Attribute::Code { code, .. } = attr {
-                                *code = instructions;
+                            if let Attribute::Code {
+                                code,
+                                exception_table,
+                                attributes,
+                                ..
+                            } = attr
+                            {
+                                *code = result.instructions;
+                                *exception_table = result.exception_table;
+                                // StackMapTable 旧索引已失效，必须移除
+                                attributes.retain(|a| {
+                                    !matches!(
+                                        a,
+                                        Attribute::LineNumberTable { .. }
+                                            | Attribute::StackMapTable { .. }
+                                    )
+                                });
+                                // 从汇编结果重建 LineNumberTable
+                                if !result.line_numbers.is_empty() {
+                                    let name_idx = find_or_add_utf8(cp, "LineNumberTable");
+                                    attributes.push(Attribute::LineNumberTable {
+                                        name_index: name_idx,
+                                        line_numbers: result.line_numbers,
+                                    });
+                                }
                                 break;
                             }
                         }

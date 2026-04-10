@@ -91,7 +91,11 @@ impl FilePanel {
             egui::pos2(rect.left() + 2.0, title_rect.bottom()),
             egui::pos2(rect.right() - 8.0, rect.bottom()),
         );
-        let mut body_ui = ui.new_child(egui::UiBuilder::new().max_rect(body_rect));
+        let mut body_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(body_rect)
+                .id_salt("explorer_body"),
+        );
         self.render_tree(&mut body_ui, tab_modified, jar_modified, decompiled_classes);
         // 过滤条浮层
         self.render_filter_bar(ui, rect);
@@ -276,7 +280,11 @@ impl FilePanel {
         // 折叠按钮（最右）
         let collapse_x = title_rect.right() - 8.0 - btn_size.x * 0.5;
         let collapse_rect = egui::Rect::from_center_size(egui::pos2(collapse_x, mid_y), btn_size);
-        let mut collapse_ui = ui.new_child(egui::UiBuilder::new().max_rect(collapse_rect));
+        let mut collapse_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(collapse_rect)
+                .id_salt("collapse_btn"),
+        );
         if collapse_ui
             .add(
                 FlatButton::new(codicon::COLLAPSE_ALL)
@@ -293,7 +301,11 @@ impl FilePanel {
         // 展开按钮
         let expand_x = collapse_rect.left() - 2.0 - btn_size.x * 0.5;
         let expand_rect = egui::Rect::from_center_size(egui::pos2(expand_x, mid_y), btn_size);
-        let mut expand_ui = ui.new_child(egui::UiBuilder::new().max_rect(expand_rect));
+        let mut expand_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(expand_rect)
+                .id_salt("expand_btn"),
+        );
         if expand_ui
             .add(
                 FlatButton::new(codicon::EXPAND_ALL)

@@ -33,6 +33,38 @@ impl CodeData {
     }
 }
 
+/// 代码视图中的文本位置（行 + 列，均 0-indexed）
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub struct TextPosition {
+    /// 行索引（0-indexed）
+    pub line: usize,
+    /// 行内字符索引（0-indexed，按 char 计数）
+    pub col: usize,
+}
+
+impl PartialOrd for TextPosition {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TextPosition {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.line.cmp(&other.line).then(self.col.cmp(&other.col))
+    }
+}
+
+/// 虚拟滚动代码视图的文本选择状态
+#[derive(Default, Clone)]
+pub struct TextSelection {
+    /// 选区锚点（点击时设置）
+    pub anchor: TextPosition,
+    /// 选区游标（拖拽 / Shift+Click 时更新）
+    pub cursor: TextPosition,
+    /// 是否有活跃选区（anchor != cursor）
+    pub active: bool,
+}
+
 /// 字节码面板导航选中状态
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum BytecodeSelection {
@@ -71,6 +103,8 @@ pub struct EditorTab {
     pub nav_width: f32,
     /// 每个 method 的字节码高亮数据（与 class_structure.methods 平行）
     pub(super) method_code_data: Vec<CodeData>,
+    /// 反编译视图文本选择状态
+    pub decompiled_selection: TextSelection,
 }
 
 impl EditorTab {
@@ -99,6 +133,7 @@ impl EditorTab {
             bc_selection: BytecodeSelection::ClassInfo,
             nav_width: 220.0,
             method_code_data: Vec::new(),
+            decompiled_selection: TextSelection::default(),
         }
     }
 
@@ -151,6 +186,7 @@ impl EditorTab {
             bc_selection,
             nav_width: 220.0,
             method_code_data,
+            decompiled_selection: TextSelection::default(),
         }
     }
 
@@ -180,6 +216,7 @@ impl EditorTab {
             bc_selection: BytecodeSelection::ClassInfo,
             nav_width: 220.0,
             method_code_data: Vec::new(),
+            decompiled_selection: TextSelection::default(),
         }
     }
 
@@ -206,6 +243,7 @@ impl EditorTab {
             bc_selection: BytecodeSelection::ClassInfo,
             nav_width: 220.0,
             method_code_data: Vec::new(),
+            decompiled_selection: TextSelection::default(),
         }
     }
 
@@ -220,6 +258,7 @@ impl EditorTab {
         self.decompiled = source;
         self.language = lang;
         self.decompiled_line_mapping = line_mapping;
+        self.decompiled_selection = TextSelection::default();
     }
 
     /// 当前选中方法的字节码文本（find bar 用）

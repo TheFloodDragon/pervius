@@ -97,6 +97,11 @@ impl JarArchive {
         !self.modified_entries.is_empty()
     }
 
+    /// 清除所有已修改标记（放弃变更时调用）
+    pub fn clear_modified(&mut self) {
+        self.modified_entries.clear();
+    }
+
     /// 已修改条目路径集合（只读引用）
     pub fn modified_entry_paths(&self) -> &HashSet<String> {
         &self.modified_entries
