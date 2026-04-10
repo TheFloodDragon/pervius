@@ -1,53 +1,95 @@
 //! 搜索浮动面板：egui::Window 承载，可拖动、可 resize、不阻挡后方交互
 //!
-//! 双模式搜索（Decompiled / Bytecode），结果列表 + 底部预览编辑器
+//! 反编译源码全文搜索，结果列表 + 底部预览编辑器。
+//! 索引和搜索均在后台线程执行，UI 线程零阻塞。
 //!
 //! @author sky
 
-use super::category::SearchCategory;
-use super::demo;
+use super::index::{self, SearchIndex, SearchMessage, MAX_MATCHES};
 use super::result::SearchResultGroup;
-use super::widget::{self, render_group_header, render_match_row, separator, SearchMode};
+use super::widget::{self, render_group_header, separator};
+use crate::appearance::theme::flat_button_theme;
 use crate::appearance::{codicon, theme};
-use crate::ui::widget::{flat_button_theme, FlatButton};
 use eframe::egui;
-use egui_editor::highlight;
-use egui_shell::components::FloatingWindow;
+use egui_editor::highlight::{self, Span};
+use egui_editor::search::FindMatch;
+use egui_editor::LayoutCache;
+use egui_shell::components::{FlatButton, FloatingWindow};
 use rust_i18n::t;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-/// 预览面板行高
-const PREVIEW_LINE_HEIGHT: f32 = 18.0;
-/// 预览面板行号栏宽度
-const GUTTER_WIDTH: f32 = 40.0;
-/// 匹配行高亮背景 #43B3AE 12% 不透明度
-const MATCH_HIGHLIGHT: egui::Color32 = egui::Color32::from_rgba_premultiplied(5, 22, 21, 30);
-/// 匹配文本背景 #43B3AE 25% 不透明度（叠加在语法着色上标识匹配区间）
-const MATCH_TEXT_BG: egui::Color32 = egui::Color32::from_rgba_premultiplied(17, 45, 44, 64);
+/// 搜索输入防抖延迟（毫秒）
+const DEBOUNCE_MS: u64 = 200;
 
-/// 缓存预览面板的逐行 LayoutJob，避免每帧重复 tree-sitter 解析
+/// 搜索结果打开请求
+pub struct SearchOpenRequest {
+    /// JAR 内条目路径
+    pub entry_path: String,
+    /// 目标行号（0-based）
+    #[allow(dead_code)]
+    pub line: usize,
+}
+
+/// 预览面板缓存：源码文本 + 语法高亮 span + code_view 布局缓存
 struct PreviewCache {
-    /// (group_index, match_index, is_bytecode)
-    key: (usize, usize, bool),
-    jobs: Vec<egui::text::LayoutJob>,
+    /// 缓存键 (group_index, match_index)
+    key: (usize, usize),
+    /// 预览源码文本（从索引 clone）
+    source: String,
+    /// 语法高亮 span
+    spans: Vec<Span>,
+    /// 匹配行在源码中的字节区间（用于搜索高亮）
+    find_matches: Vec<FindMatch>,
+    /// code_view 内部布局缓存
+    layout_cache: Option<LayoutCache>,
 }
 
-/// 搜索浮动面板
-pub struct SearchDialog {
-    window: FloatingWindow,
-    query: String,
-    prev_query: String,
-    category: SearchCategory,
-    mode: SearchMode,
-    results: Vec<SearchResultGroup>,
-    focus_input: bool,
-    case_sensitive: bool,
-    use_regex: bool,
-    selected: Option<(usize, usize)>,
-    scroll_to_match: bool,
-    preview_cache: Option<PreviewCache>,
-}
+tabookit::class! {
+    /// 搜索浮动面板
+    pub struct SearchDialog {
+        /// 浮动窗口（可拖动、可 resize）
+        window: FloatingWindow,
+        /// 用户输入的搜索文本
+        query: String,
+        /// 上一帧的搜索文本（变更检测用）
+        prev_query: String,
+        /// 当前搜索结果（按类分组）
+        results: Vec<SearchResultGroup>,
+        /// 下一帧是否聚焦搜索输入框
+        focus_input: bool,
+        /// 是否区分大小写
+        case_sensitive: bool,
+        /// 是否启用正则表达式
+        use_regex: bool,
+        /// 当前选中的匹配项 (group_index, match_index)
+        selected: Option<(usize, usize)>,
+        /// 是否需要滚动预览面板到选中匹配行
+        scroll_to_match: bool,
+        /// 预览面板语法高亮缓存
+        preview_cache: Option<PreviewCache>,
+        /// 搜索索引（从 App 接收）
+        search_index: Option<Arc<SearchIndex>>,
+        /// 后台搜索流式接收端
+        search_rx: Option<mpsc::Receiver<SearchMessage>>,
+        /// 后台搜索取消标志（Drop 或新搜索时置 true）
+        search_cancel: Option<Arc<AtomicBool>>,
+        /// 上次搜索结果的统计信息
+        result_summary: Option<ResultSummary>,
+        /// 待打开的搜索结果
+        pending_open: Option<SearchOpenRequest>,
+        /// 是否有 JAR 打开（用于区分提示信息）
+        has_jar: bool,
+        /// 索引是否正在构建中
+        index_building: bool,
+        /// 搜索结果列表高度占比（可拖拽调整）
+        results_ratio: f32,
+        /// 搜索输入防抖截止时间
+        debounce_deadline: Option<Instant>,
+    }
 
-impl SearchDialog {
     pub fn new() -> Self {
         Self {
             window: FloatingWindow::new("search_window", t!("search.title").to_string())
@@ -56,8 +98,6 @@ impl SearchDialog {
                 .min_size([400.0, 300.0]),
             query: String::new(),
             prev_query: String::new(),
-            category: SearchCategory::Strings,
-            mode: SearchMode::Decompiled,
             results: Vec::new(),
             focus_input: false,
             case_sensitive: false,
@@ -65,6 +105,15 @@ impl SearchDialog {
             selected: None,
             scroll_to_match: false,
             preview_cache: None,
+            search_index: None,
+            search_rx: None,
+            search_cancel: None,
+            result_summary: None,
+            pending_open: None,
+            has_jar: false,
+            index_building: false,
+            results_ratio: 0.42,
+            debounce_deadline: None,
         }
     }
 
@@ -72,180 +121,245 @@ impl SearchDialog {
         if self.window.is_open() {
             return;
         }
+        if self.search_index.is_none() {
+            return;
+        }
         self.window.open();
         self.focus_input = true;
         self.query.clear();
         self.prev_query.clear();
-        self.category = SearchCategory::Strings;
-        self.results = demo::demo_results(self.category);
+        self.results.clear();
         self.selected = None;
+        self.result_summary = None;
+        self.preview_cache = None;
+        self.debounce_deadline = None;
+        // 取消旧搜索
+        if let Some(c) = self.search_cancel.take() {
+            c.store(true, Ordering::Relaxed);
+        }
+        self.search_rx = None;
+    }
+
+    /// 同步搜索状态（App 每帧调用）
+    pub fn sync_state(
+        &mut self,
+        index: Option<Arc<SearchIndex>>,
+        has_jar: bool,
+        index_building: bool,
+    ) {
+        self.search_index = index;
+        self.has_jar = has_jar;
+        self.index_building = index_building;
+    }
+
+    /// 取出待打开的搜索结果请求
+    pub fn take_pending_open(&mut self) -> Option<SearchOpenRequest> {
+        self.pending_open.take()
     }
 
     pub fn render(&mut self, ctx: &egui::Context, shell_theme: &egui_shell::ShellTheme) {
-        // 临时取出 window 避免 &mut self 借用冲突
+        self.poll_search_result(ctx);
+        self.poll_debounce(ctx);
         let mut window = std::mem::take(&mut self.window);
-        // header_right 需要的状态提取到局部变量，避免两个闭包同时借用 self
-        let mut mode = self.mode;
-        let mut mode_changed = false;
+        let summary = self.result_summary;
+        let searching = self.search_rx.is_some();
+        let live_matches: usize = self.results.iter().map(|g| g.matches.len()).sum();
+        let live_files = self.results.len();
         window.show(
             ctx,
             shell_theme,
             |ui| {
-                let fbt = flat_button_theme();
-                let flat = |label, active| {
-                    FlatButton::new(label, &fbt)
-                        .font_size(11.0)
-                        .active(active)
-                        .inactive_color(theme::TEXT_MUTED)
-                        .min_size(egui::vec2(0.0, 22.0))
-                };
-                let label_bytecode = t!("search.bytecode");
-                let label_decompiled = t!("search.decompiled");
-                if ui
-                    .add(flat(&label_bytecode, mode == SearchMode::Bytecode))
-                    .clicked()
-                {
-                    mode = SearchMode::Bytecode;
-                    mode_changed = true;
-                }
-                ui.add_space(2.0);
-                if ui
-                    .add(flat(&label_decompiled, mode == SearchMode::Decompiled))
-                    .clicked()
-                {
-                    mode = SearchMode::Decompiled;
-                    mode_changed = true;
+                // header 右侧：搜索统计
+                if let Some(s) = summary {
+                    ui.label(
+                        egui::RichText::new(t!(
+                            "search.summary",
+                            matches = s.total_matches,
+                            files = s.files_matched
+                        ))
+                        .size(11.0)
+                        .color(theme::TEXT_MUTED),
+                    );
+                    if s.truncated {
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(t!("search.truncated", max = MAX_MATCHES))
+                                .size(11.0)
+                                .color(theme::ACCENT_ORANGE),
+                        );
+                    }
+                } else if searching && live_matches > 0 {
+                    ui.label(
+                        egui::RichText::new(t!(
+                            "search.summary",
+                            matches = live_matches,
+                            files = live_files
+                        ))
+                        .size(11.0)
+                        .color(theme::TEXT_MUTED),
+                    );
                 }
             },
             |ui| {
                 self.render_toolbar(ui);
                 separator(ui);
-                self.render_categories(ui);
-                separator(ui);
+                // 输入变化时启动防抖定时器，不立即搜索
                 if self.query != self.prev_query {
                     self.prev_query = self.query.clone();
-                    self.results = demo::demo_results(self.category);
-                    self.selected = None;
+                    self.debounce_deadline =
+                        Some(Instant::now() + Duration::from_millis(DEBOUNCE_MS));
+                    ui.ctx()
+                        .request_repaint_after(Duration::from_millis(DEBOUNCE_MS));
                 }
                 self.render_body(ui);
             },
         );
-        if mode_changed {
-            self.mode = mode;
-            self.scroll_to_match = self.selected.is_some();
-        }
         self.window = window;
     }
 
     fn render_toolbar(&mut self, ui: &mut egui::Ui) {
-        let fbt = flat_button_theme();
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(codicon::SEARCH)
-                    .font(egui::FontId::new(14.0, codicon::family()))
-                    .color(theme::TEXT_MUTED),
-            );
-            ui.add_space(4.0);
-            let input_width = (ui.available_width() - 80.0).max(120.0);
-            let resp = ui.add_sized(
-                egui::vec2(input_width, 24.0),
-                egui::TextEdit::singleline(&mut self.query)
-                    .hint_text(t!("search.hint"))
-                    .frame(egui::Frame::NONE)
-                    .text_color(theme::TEXT_PRIMARY)
-                    .font(egui::FontId::proportional(13.0)),
-            );
-            if self.focus_input {
-                resp.request_focus();
-                self.focus_input = false;
-            }
-            ui.add_space(4.0);
-            if ui
-                .add(
-                    FlatButton::new(codicon::CASE_SENSITIVE, &fbt)
-                        .font_family(codicon::family())
-                        .font_size(15.0)
-                        .active(self.case_sensitive)
-                        .inactive_color(theme::TEXT_MUTED)
-                        .min_size(egui::vec2(28.0, 24.0)),
-                )
-                .on_hover_text(t!("search.match_case"))
-                .clicked()
-            {
-                self.case_sensitive = !self.case_sensitive;
-            }
-            ui.add_space(2.0);
-            if ui
-                .add(
-                    FlatButton::new(codicon::REGEX, &fbt)
-                        .font_family(codicon::family())
-                        .font_size(15.0)
-                        .active(self.use_regex)
-                        .inactive_color(theme::TEXT_MUTED)
-                        .min_size(egui::vec2(28.0, 24.0)),
-                )
-                .on_hover_text(t!("search.use_regex"))
-                .clicked()
-            {
-                self.use_regex = !self.use_regex;
-            }
-            ui.add_space(8.0);
-        });
-        ui.add_space(6.0);
-    }
-
-    fn render_categories(&mut self, ui: &mut egui::Ui) {
-        let fbt = flat_button_theme();
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.add_space(6.0);
-            for &cat in SearchCategory::ALL {
-                let label = cat.label();
-                if ui
-                    .add(
-                        FlatButton::new(&label, &fbt)
-                            .font_size(11.0)
-                            .active(self.category == cat)
-                            .min_size(egui::vec2(0.0, 22.0)),
-                    )
-                    .clicked()
-                {
-                    self.category = cat;
-                    self.results = demo::demo_results(self.category);
-                    self.selected = None;
-                }
-                ui.add_space(2.0);
-            }
-        });
-        ui.add_space(4.0);
+        let fbt = flat_button_theme(theme::TEXT_SECONDARY);
+        let toolbar_h = 36.0;
+        let avail_w = ui.available_width();
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(avail_w, toolbar_h), egui::Sense::hover());
+        let mut tb = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        tb.add_space(8.0);
+        tb.label(
+            egui::RichText::new(codicon::SEARCH)
+                .font(egui::FontId::new(14.0, codicon::family()))
+                .color(theme::TEXT_MUTED),
+        );
+        tb.add_space(4.0);
+        let input_width = (tb.available_width() - 80.0).max(120.0);
+        let resp = tb.add(
+            egui::TextEdit::singleline(&mut self.query)
+                .hint_text(t!("search.hint"))
+                .frame(egui::Frame::NONE)
+                .text_color(theme::TEXT_PRIMARY)
+                .font(egui::FontId::proportional(13.0))
+                .desired_width(input_width),
+        );
+        if self.focus_input {
+            resp.request_focus();
+            self.focus_input = false;
+        }
+        tb.add_space(4.0);
+        let btn_case = FlatButton::new(codicon::CASE_SENSITIVE, &fbt)
+            .font_family(codicon::family())
+            .font_size(15.0)
+            .active(self.case_sensitive)
+            .inactive_color(theme::TEXT_MUTED)
+            .min_size(egui::vec2(28.0, 24.0));
+        if tb
+            .add(btn_case)
+            .on_hover_text(t!("search.match_case"))
+            .clicked()
+        {
+            self.case_sensitive = !self.case_sensitive;
+            self.debounce_deadline = None;
+            self.prev_query = self.query.clone();
+            self.dispatch_search();
+        }
+        tb.add_space(2.0);
+        let btn_regex = FlatButton::new(codicon::REGEX, &fbt)
+            .font_family(codicon::family())
+            .font_size(15.0)
+            .active(self.use_regex)
+            .inactive_color(theme::TEXT_MUTED)
+            .min_size(egui::vec2(28.0, 24.0));
+        if tb
+            .add(btn_regex)
+            .on_hover_text(t!("search.use_regex"))
+            .clicked()
+        {
+            self.use_regex = !self.use_regex;
+            self.debounce_deadline = None;
+            self.prev_query = self.query.clone();
+            self.dispatch_search();
+        }
     }
 
     fn render_body(&mut self, ui: &mut egui::Ui) {
-        if self.results.is_empty() {
-            ui.add_space(20.0);
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new(t!("search.no_results"))
-                        .size(12.0)
-                        .color(theme::TEXT_MUTED),
-                );
-            });
+        let rect = ui.available_rect_before_wrap();
+        let placeholder = if self.search_index.is_none() {
+            Some(if !self.has_jar {
+                t!("search.no_jar")
+            } else if self.index_building {
+                t!("search.building_index")
+            } else {
+                t!("search.type_to_search")
+            })
+        } else if self.query.is_empty() {
+            Some(t!("search.type_to_search"))
+        } else if self.results.is_empty() {
+            // 搜索进行中时不显示 "无结果"，等搜索完成再判断
+            Some(if self.search_rx.is_some() {
+                t!("search.searching")
+            } else {
+                t!("search.no_results")
+            })
+        } else {
+            None
+        };
+        if let Some(msg) = placeholder {
+            // 用 painter 绘制占位文字，不注册 widget，避免状态切换时产生 ID 冲突警告
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                msg,
+                egui::FontId::proportional(12.0),
+                theme::TEXT_MUTED,
+            );
             return;
         }
-        let avail = ui.available_height();
-        let list_h = (avail * 0.42).max(80.0);
-        ui.allocate_ui(egui::vec2(ui.available_width(), list_h), |ui| {
-            self.render_results(ui);
-        });
-        separator(ui);
-        self.render_preview(ui);
+        let avail_h = rect.height();
+        let list_h =
+            (avail_h * self.results_ratio).clamp(theme::SEARCH_MIN_RESULTS_H, avail_h - theme::SEARCH_MIN_PREVIEW_H);
+        // 结果列表
+        let list_rect =
+            egui::Rect::from_min_size(rect.left_top(), egui::vec2(rect.width(), list_h));
+        let mut list_ui = ui.new_child(egui::UiBuilder::new().max_rect(list_rect));
+        self.render_results(&mut list_ui);
+        // 拖拽 resize 手柄
+        let divider_y = rect.top() + list_h;
+        let handle_rect = egui::Rect::from_center_size(
+            egui::pos2(rect.center().x, divider_y),
+            egui::vec2(rect.width(), theme::SEARCH_RESIZE_HANDLE_H),
+        );
+        let handle_id = ui.id().with("search_split_resize");
+        let handle_resp = ui.interact(handle_rect, handle_id, egui::Sense::drag());
+        if handle_resp.dragged() {
+            let new_h = (list_h + handle_resp.drag_delta().y)
+                .clamp(theme::SEARCH_MIN_RESULTS_H, avail_h - theme::SEARCH_MIN_PREVIEW_H);
+            self.results_ratio = new_h / avail_h;
+        }
+        if handle_resp.hovered() || handle_resp.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeRow);
+        }
+        // 分割线
+        ui.painter().line_segment(
+            [
+                egui::pos2(rect.left(), divider_y),
+                egui::pos2(rect.right(), divider_y),
+            ],
+            egui::Stroke::new(1.0, theme::BORDER),
+        );
+        // 预览面板
+        let preview_rect = egui::Rect::from_min_max(
+            egui::pos2(rect.left(), divider_y + 1.0),
+            rect.right_bottom(),
+        );
+        let mut preview_ui = ui.new_child(egui::UiBuilder::new().max_rect(preview_rect));
+        self.render_preview(&mut preview_ui);
+        ui.allocate_rect(rect, egui::Sense::hover());
     }
 
     fn render_results(&mut self, ui: &mut egui::Ui) {
-        let mode = self.mode;
         egui::ScrollArea::vertical()
             .id_salt("search_results")
             .show(ui, |ui| {
@@ -253,6 +367,7 @@ impl SearchDialog {
                 ui.add_space(2.0);
                 let mut toggle_idx: Option<usize> = None;
                 let mut click: Option<(usize, usize)> = None;
+                let mut dbl_click: Option<(usize, usize)> = None;
                 for (gi, group) in self.results.iter().enumerate() {
                     ui.push_id(gi, |ui| {
                         if render_group_header(ui, group) {
@@ -262,7 +377,37 @@ impl SearchDialog {
                             for (mi, m) in group.matches.iter().enumerate() {
                                 ui.push_id(mi, |ui| {
                                     let sel = self.selected == Some((gi, mi));
-                                    if render_match_row(ui, m, sel, mode) {
+                                    let avail_w = ui.available_width();
+                                    let (rect, resp) = ui.allocate_exact_size(
+                                        egui::vec2(avail_w, theme::SEARCH_ROW_HEIGHT),
+                                        egui::Sense::click(),
+                                    );
+                                    let painter = ui.painter();
+                                    if sel {
+                                        painter.rect_filled(rect, 0.0, theme::BG_HOVER);
+                                    } else if resp.hovered() {
+                                        painter.rect_filled(rect, 0.0, theme::BG_LIGHT);
+                                    }
+                                    let mid_y = rect.center().y;
+                                    let line_label = format!("{}", m.line + 1);
+                                    painter.text(
+                                        egui::pos2(rect.left() + 48.0, mid_y),
+                                        egui::Align2::RIGHT_CENTER,
+                                        &line_label,
+                                        egui::FontId::monospace(11.0),
+                                        theme::TEXT_MUTED,
+                                    );
+                                    let preview_x = rect.left() + 56.0;
+                                    let job = widget::highlight_preview(&m.preview, &m.highlights);
+                                    let galley = ui.ctx().fonts_mut(|f| f.layout_job(job));
+                                    painter.galley(
+                                        egui::pos2(preview_x, mid_y - galley.size().y / 2.0),
+                                        galley,
+                                        egui::Color32::PLACEHOLDER,
+                                    );
+                                    if resp.double_clicked() {
+                                        dbl_click = Some((gi, mi));
+                                    } else if resp.clicked() {
                                         click = Some((gi, mi));
                                     }
                                 });
@@ -273,10 +418,21 @@ impl SearchDialog {
                 if let Some(i) = toggle_idx {
                     self.results[i].expanded = !self.results[i].expanded;
                 }
-                if let Some(key) = click {
+                if let Some(key) = dbl_click.or(click) {
                     if self.selected != Some(key) {
                         self.selected = Some(key);
                         self.scroll_to_match = true;
+                    }
+                }
+                // 双击打开文件
+                if let Some((gi, mi)) = dbl_click {
+                    if let Some(group) = self.results.get(gi) {
+                        if let Some(m) = group.matches.get(mi) {
+                            self.pending_open = Some(SearchOpenRequest {
+                                entry_path: group.entry_path.clone(),
+                                line: m.line,
+                            });
+                        }
                     }
                 }
                 ui.add_space(4.0);
@@ -285,101 +441,173 @@ impl SearchDialog {
 
     fn render_preview(&mut self, ui: &mut egui::Ui) {
         let (gi, mi) = tabookit::or!(self.selected, {
-            ui.centered_and_justified(|ui| {
-                ui.label(
-                    egui::RichText::new(t!("search.select_preview"))
-                        .size(12.0)
-                        .color(theme::TEXT_MUTED),
-                );
-            });
+            let rect = ui.available_rect_before_wrap();
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                t!("search.select_preview"),
+                egui::FontId::proportional(12.0),
+                theme::TEXT_MUTED,
+            );
             return;
         });
-        let m = tabookit::or!(self.results.get(gi).and_then(|g| g.matches.get(mi)), return);
-        let sp = widget::preview_for(m, self.mode);
-        let bytecode = self.mode == SearchMode::Bytecode;
-        let cache_key = (gi, mi, bytecode);
-        // 缓存失效时重新计算语法高亮
+        let group = tabookit::or!(self.results.get(gi), return);
+        let m = tabookit::or!(group.matches.get(mi), return);
+        let index = tabookit::or!(&self.search_index, return);
+        let entry = tabookit::or!(index.entries.get(group.source_index), return);
+        let match_line = m.line;
+        // 缓存失效时重建预览数据
+        let cache_key = (gi, mi);
         let need_recompute = self
             .preview_cache
             .as_ref()
-            .map_or(true, |c| c.key != cache_key);
+            .is_none_or(|c| c.key != cache_key);
         if need_recompute {
-            // 将 preview 的匹配区间映射到 source_lines[match_line] 内的字节偏移
-            let line_ranges = if sp.match_line < sp.source_lines.len() {
-                let src_line = &sp.source_lines[sp.match_line];
-                let offset = src_line.find(&sp.preview).unwrap_or(0);
-                sp.highlight_ranges
-                    .iter()
-                    .map(|&(s, e)| (s + offset, e + offset))
-                    .collect::<Vec<_>>()
-            } else {
-                Vec::new()
-            };
-            let lang = if bytecode {
-                highlight::Language::Bytecode
-            } else {
-                highlight::Language::Java
-            };
-            let jobs = highlight::highlight_per_line(
-                &sp.source_lines,
-                lang,
-                egui::FontId::monospace(11.0),
-                sp.match_line,
-                &line_ranges,
-                MATCH_TEXT_BG,
-                &theme::editor_theme().syntax,
-            );
+            let source = entry.source.clone();
+            let lang = highlight::Language::Java;
+            let spans = highlight::compute_spans(&source, lang);
+            let find_matches = widget::compute_find_matches(&source, match_line, &m.highlights);
             self.preview_cache = Some(PreviewCache {
                 key: cache_key,
-                jobs,
+                source,
+                spans,
+                find_matches,
+                layout_cache: None,
             });
         }
-        let jobs = &self.preview_cache.as_ref().expect("just computed").jobs;
-        let scroll_to = self.scroll_to_match;
-        self.scroll_to_match = false;
-        let mono = egui::FontId::monospace(11.0);
-        let avail_w = ui.available_width();
+        let cache = self.preview_cache.as_mut().expect("just computed");
+        let t = theme::editor_theme();
+        let line_count = cache.source.split('\n').count().max(1);
+        let gutter_w = egui_editor::code_view::line_number_width(line_count);
+        let full_rect = ui.available_rect_before_wrap();
+        egui_editor::code_view::paint_editor_bg(ui, full_rect, gutter_w, &t);
+        // ScrollArea 包裹 code_view，使预览面板可滚动
+        // 使用固定 id_salt，选中变更时通过 vertical_scroll_offset 定位到匹配行
         let mut scroll = egui::ScrollArea::vertical()
-            .id_salt("search_preview")
-            .auto_shrink([false, false]);
-        if scroll_to {
-            let target_y = sp.match_line as f32 * PREVIEW_LINE_HEIGHT;
-            scroll = scroll.vertical_scroll_offset(
-                target_y.max(PREVIEW_LINE_HEIGHT * 3.0) - PREVIEW_LINE_HEIGHT * 3.0,
-            );
+            .id_salt("search_preview");
+        if self.scroll_to_match {
+            let line_h = ui.fonts_mut(|f| {
+                f.layout_no_wrap(
+                    "M".to_string(),
+                    egui::FontId::monospace(t.code_font_size),
+                    egui::Color32::WHITE,
+                )
+                .size()
+                .y
+            });
+            let target_y = match_line as f32 * line_h;
+            let avail_h = full_rect.height();
+            let offset = (target_y - avail_h * 0.3).max(0.0);
+            scroll = scroll.vertical_scroll_offset(offset);
+            self.scroll_to_match = false;
         }
         scroll.show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            for (i, _line) in sp.source_lines.iter().enumerate() {
-                let is_match = i == sp.match_line;
-                ui.push_id(i, |ui| {
-                    let (rect, _) = ui.allocate_exact_size(
-                        egui::vec2(avail_w, PREVIEW_LINE_HEIGHT),
-                        egui::Sense::hover(),
-                    );
-                    let painter = ui.painter();
-                    if is_match {
-                        painter.rect_filled(rect, 0.0, MATCH_HIGHLIGHT);
-                    }
-                    let mid_y = rect.center().y;
-                    painter.text(
-                        egui::pos2(rect.left() + GUTTER_WIDTH - 4.0, mid_y),
-                        egui::Align2::RIGHT_CENTER,
-                        &format!("{}", i + 1),
-                        mono.clone(),
-                        theme::TEXT_MUTED,
-                    );
-                    let text_x = rect.left() + GUTTER_WIDTH + 8.0;
-                    if let Some(job) = jobs.get(i) {
-                        let galley = ui.ctx().fonts_mut(|f| f.layout_job(job.clone()));
-                        painter.galley(
-                            egui::pos2(text_x, mid_y - galley.size().y / 2.0),
-                            galley,
-                            egui::Color32::PLACEHOLDER,
-                        );
-                    }
-                });
-            }
+            egui_editor::code_view::code_view(
+                ui,
+                egui::Id::new("search_preview_cv"),
+                &cache.source,
+                &cache.spans,
+                &[],
+                &cache.find_matches,
+                Some(0),
+                &t,
+                &mut cache.layout_cache,
+            );
         });
     }
+
+    /// 防抖定时器轮询（每帧 render 前调用）
+    fn poll_debounce(&mut self, ctx: &egui::Context) {
+        let deadline = tabookit::or!(self.debounce_deadline, return);
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            self.debounce_deadline = None;
+            self.dispatch_search();
+        } else {
+            ctx.request_repaint_after(remaining);
+        }
+    }
+
+    /// 派发搜索请求到后台线程
+    fn dispatch_search(&mut self) {
+        // 取消旧搜索
+        if let Some(c) = self.search_cancel.take() {
+            c.store(true, Ordering::Relaxed);
+        }
+        self.search_rx = None;
+        self.results.clear();
+        self.result_summary = None;
+        self.selected = None;
+        self.preview_cache = None;
+        if self.query.is_empty() {
+            return;
+        }
+        let index = tabookit::or!(self.search_index.clone(), return);
+        let query = self.query.clone();
+        let case_sensitive = self.case_sensitive;
+        let use_regex = self.use_regex;
+        let (tx, rx) = mpsc::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_clone = cancel.clone();
+        std::thread::spawn(move || {
+            index::search_streaming(
+                &index,
+                &query,
+                case_sensitive,
+                use_regex,
+                MAX_MATCHES,
+                &cancel_clone,
+                &tx,
+            );
+        });
+        self.search_rx = Some(rx);
+        self.search_cancel = Some(cancel);
+    }
+
+    /// 轮询搜索结果（每帧调用，限量 drain channel 增量追加）
+    fn poll_search_result(&mut self, ctx: &egui::Context) {
+        let rx = tabookit::or!(&self.search_rx, return);
+        let mut consumed = 0;
+        const BATCH: usize = 5;
+        loop {
+            match rx.try_recv() {
+                Ok(SearchMessage::Group(group)) => {
+                    self.results.push(group);
+                    consumed += 1;
+                    if consumed >= BATCH {
+                        break;
+                    }
+                }
+                Ok(SearchMessage::Done(done)) => {
+                    self.result_summary = Some(ResultSummary {
+                        total_matches: done.total_matches,
+                        files_matched: done.files_matched,
+                        truncated: done.truncated,
+                    });
+                    self.search_rx = None;
+                    self.search_cancel = None;
+                    return;
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.search_rx = None;
+                    self.search_cancel = None;
+                    return;
+                }
+            }
+        }
+        // 搜索仍在进行中，持续请求重绘以便下一帧继续 drain
+        ctx.request_repaint();
+    }
+}
+
+/// 搜索结果统计摘要
+#[derive(Clone, Copy)]
+struct ResultSummary {
+    /// 总匹配行数
+    total_matches: usize,
+    /// 有匹配的文件数
+    files_matched: usize,
+    /// 是否因超过上限而截断
+    truncated: bool,
 }
