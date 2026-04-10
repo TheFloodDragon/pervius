@@ -91,7 +91,7 @@ impl Layout {
         ctx.layer_painter(backdrop_layer).rect_filled(
             screen,
             0.0,
-            egui::Color32::from_black_alpha(120),
+            egui::Color32::from_black_alpha(80),
         );
         // 对话框
         let mut discard = false;
@@ -100,9 +100,15 @@ impl Layout {
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 egui::Frame::NONE
-                    .fill(theme::BG_GUTTER)
-                    .stroke(egui::Stroke::new(1.0, theme::BORDER))
+                    .fill(theme::BG_HOVER)
+                    .stroke(egui::Stroke::new(1.0, theme::BORDER_LIGHT))
                     .corner_radius(8.0)
+                    .shadow(egui::Shadow {
+                        spread: 2,
+                        blur: 24,
+                        offset: [0, 8],
+                        color: egui::Color32::from_black_alpha(100),
+                    })
                     .show(ui, |ui| {
                         ui.set_width(340.0);
                         // 内容区

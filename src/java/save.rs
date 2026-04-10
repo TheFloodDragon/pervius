@@ -5,18 +5,28 @@
 //!
 //! @author sky
 
-use super::assembler;
+use std::path::Path;
+
 use super::bytecode;
 use super::class_structure::ClassStructure;
+use super::classforge;
+use super::classforge::MethodEdit;
 use ristretto_classfile::attributes::{AnnotationElement, AnnotationValuePair, Attribute};
 use ristretto_classfile::{
     ClassAccessFlags, ClassFile, ConstantPool, FieldAccessFlags, MethodAccessFlags,
 };
 
 /// 将编辑后的 ClassStructure 应用到原始 class 字节，返回新的 class 字节
-pub fn apply_structure(raw_bytes: &[u8], cs: &ClassStructure) -> Result<Vec<u8>, String> {
+///
+/// metadata 修改（类名/字段名/access flags/注解）由 ristretto 处理，
+/// 字节码修改由 classforge (ASM) 处理——常量池管理、指令编码、
+/// StackMapTable 生成、max_stack/max_locals 计算全部交给 ASM。
+pub fn apply_structure(
+    raw_bytes: &[u8],
+    cs: &ClassStructure,
+    jar_path: Option<&Path>,
+) -> Result<Vec<u8>, String> {
     let mut cf = ClassFile::from_bytes(raw_bytes).map_err(|e| format!("parse error: {e}"))?;
-    // 先反汇编一份原始字节码用于比对（跳过未修改的方法）
     let original = bytecode::disassemble(raw_bytes).ok();
     if let Some(ref orig) = original {
         log::debug!(
@@ -33,44 +43,37 @@ pub fn apply_structure(raw_bytes: &[u8], cs: &ClassStructure) -> Result<Vec<u8>,
                     nm.descriptor
                 );
             }
-            if om.name != nm.name {
-                log::debug!("  method[{i}] name CHANGED: {} -> {}", om.name, nm.name);
-            }
-            if om.access != nm.access {
-                log::debug!(
-                    "  method[{i}] access CHANGED: {} -> {}",
-                    om.access,
-                    nm.access
-                );
-            }
-        }
-        for (i, (of, nf)) in orig.fields.iter().zip(cs.fields.iter()).enumerate() {
-            if of.name != nf.name {
-                log::debug!("  field[{i}] name CHANGED: {} -> {}", of.name, nf.name);
-            }
-            if of.access != nf.access {
-                log::debug!(
-                    "  field[{i}] access CHANGED: {} -> {}",
-                    of.access,
-                    nf.access
-                );
-            }
         }
     }
+    // ristretto 处理 metadata 修改
     apply_class_info(&mut cf, cs);
     apply_fields(&mut cf, cs);
-    // class info / fields 修改可能新增 CP 条目，用修改后的 CP 构建 lookup
-    let lookup = bytecode::build_cp_lookup_from_pool(&cf.constant_pool);
-    apply_methods(
+    let edits = apply_methods(
         &mut cf.methods,
         &mut cf.constant_pool,
         cs,
-        &lookup,
         original.as_ref(),
-    )?;
+    );
     let mut buf = Vec::new();
     cf.to_bytes(&mut buf)
         .map_err(|e| format!("serialize error: {e}"))?;
+    // 有字节码变动时，classforge (ASM) 接管指令编码和帧生成
+    if !edits.is_empty() {
+        match classforge::patch_methods(&buf, &edits, jar_path) {
+            Ok(patched) => {
+                log::info!(
+                    "classforge: patched {} methods ({} -> {} bytes)",
+                    edits.len(),
+                    buf.len(),
+                    patched.len()
+                );
+                buf = patched;
+            }
+            Err(e) => {
+                return Err(format!("classforge failed: {e}"));
+            }
+        }
+    }
     log::debug!(
         "apply_structure: {} -> {} bytes",
         raw_bytes.len(),
@@ -123,138 +126,46 @@ fn apply_fields(cf: &mut ClassFile, cs: &ClassStructure) {
 
 // ── methods ──
 
+/// 应用方法 metadata 修改，收集字节码编辑列表
+///
+/// metadata（name/desc/access/annotations）由 ristretto 处理，
+/// 字节码变动只记录不处理——交给 classforge (ASM)。
 fn apply_methods(
     methods: &mut [ristretto_classfile::Method],
     cp: &mut ConstantPool,
     cs: &ClassStructure,
-    lookup: &[(u16, String)],
     original: Option<&ClassStructure>,
-) -> Result<(), String> {
+) -> Vec<MethodEdit> {
+    let mut edits = Vec::new();
     for (i, (method, mi)) in methods.iter_mut().zip(cs.methods.iter()).enumerate() {
         method.access_flags = parse_method_flags(&mi.access);
         method.name_index = find_or_add_utf8(cp, &mi.name);
         method.descriptor_index = find_or_add_utf8(cp, &mi.descriptor);
-        // 字节码没改过的方法保持原样，不走重新汇编
+        // 字节码变动记录到 edits，由 classforge 处理
         if mi.has_code && !mi.bytecode.is_empty() {
             let bytecode_changed = original
                 .and_then(|o| o.methods.get(i))
                 .map(|om| om.bytecode != mi.bytecode)
                 .unwrap_or(false);
             if bytecode_changed {
-                let mut resolve = |text: &str| -> Result<u16, String> {
-                    if let Ok(idx) = bytecode::resolve_from_lookup(lookup, text) {
-                        return Ok(idx);
-                    }
-                    create_cp_entry(cp, text)
-                };
-                match assembler::assemble_instructions(&mi.bytecode, &mut resolve) {
-                    Ok(result) => {
-                        for attr in &mut method.attributes {
-                            if let Attribute::Code {
-                                code,
-                                exception_table,
-                                attributes,
-                                ..
-                            } = attr
-                            {
-                                *code = result.instructions;
-                                *exception_table = result.exception_table;
-                                // StackMapTable 旧索引已失效，必须移除
-                                attributes.retain(|a| {
-                                    !matches!(
-                                        a,
-                                        Attribute::LineNumberTable { .. }
-                                            | Attribute::StackMapTable { .. }
-                                    )
-                                });
-                                // 从汇编结果重建 LineNumberTable
-                                if !result.line_numbers.is_empty() {
-                                    let name_idx = find_or_add_utf8(cp, "LineNumberTable");
-                                    attributes.push(Attribute::LineNumberTable {
-                                        name_index: name_idx,
-                                        line_numbers: result.line_numbers,
-                                    });
-                                }
-                                break;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "Skipped bytecode reassembly for {}.{}: {e}",
-                            mi.name,
-                            mi.descriptor
-                        );
-                    }
-                }
+                edits.push(MethodEdit {
+                    name: mi.name.clone(),
+                    descriptor: mi.descriptor.clone(),
+                    bytecode: mi.bytecode.clone(),
+                });
             }
         }
         apply_annotations(&mut method.attributes, cp, &mi.annotations);
     }
-    Ok(())
+    edits
 }
 
 // ── CP entry auto-creation ──
 
-/// lookup 找不到时，根据文本格式自动创建对应的 CP 条目
-fn create_cp_entry(cp: &mut ConstantPool, text: &str) -> Result<u16, String> {
-    // String 常量: "..."
-    if text.starts_with('"') && text.ends_with('"') && text.len() >= 2 {
-        let s = &text[1..text.len() - 1];
-        return cp.add_string(s).map_err(|e| format!("{e}"));
-    }
-    // MethodRef: class/Name.method(desc)ret — 含 '(' 说明是方法引用
-    if let Some(paren) = text.find('(') {
-        let before_paren = &text[..paren];
-        let descriptor = &text[paren..];
-        if let Some(dot) = before_paren.rfind('.') {
-            let class_name = &before_paren[..dot];
-            let method_name = &before_paren[dot + 1..];
-            let class_idx = cp.add_class(class_name).map_err(|e| format!("{e}"))?;
-            return cp
-                .add_method_ref(class_idx, method_name, descriptor)
-                .map_err(|e| format!("{e}"));
-        }
-    }
-    // FieldRef: class/Name.field descriptor — 含 '.' 且 '.' 后有空格
-    if let Some(dot) = text.rfind('.') {
-        let class_name = &text[..dot];
-        let after_dot = &text[dot + 1..];
-        if let Some(space) = after_dot.find(' ') {
-            let field_name = &after_dot[..space];
-            let descriptor = after_dot[space + 1..].trim();
-            let class_idx = cp.add_class(class_name).map_err(|e| format!("{e}"))?;
-            return cp
-                .add_field_ref(class_idx, field_name, descriptor)
-                .map_err(|e| format!("{e}"));
-        }
-    }
-    // Class 引用（含 '/'）
-    if text.contains('/') {
-        return cp.add_class(text).map_err(|e| format!("{e}"));
-    }
-    // Integer
-    if let Ok(v) = text.parse::<i32>() {
-        return cp.add_integer(v).map_err(|e| format!("{e}"));
-    }
-    // Long (后缀 L)
-    if let Some(s) = text.strip_suffix('L').or_else(|| text.strip_suffix('l')) {
-        if let Ok(v) = s.parse::<i64>() {
-            return cp.add_long(v).map_err(|e| format!("{e}"));
-        }
-    }
-    // Float (后缀 f)
-    if let Some(s) = text.strip_suffix('f').or_else(|| text.strip_suffix('F')) {
-        if let Ok(v) = s.parse::<f32>() {
-            return cp.add_float(v).map_err(|e| format!("{e}"));
-        }
-    }
-    // Double
-    if let Ok(v) = text.parse::<f64>() {
-        return cp.add_double(v).map_err(|e| format!("{e}"));
-    }
-    Err(format!("Cannot resolve CP entry: {text}"))
-}
+// 已删除：create_cp_entry、INTERFACE_METHOD_PREFIX hack、resolve_from_lookup 调用、
+// assembler::assemble_instructions 调用、LVT/LVTT byte offset 转换、
+// recompute_max_stack_locals 函数。
+// 这些逻辑全部由 classforge (ASM COMPUTE_FRAMES) 接管。
 
 // ── annotations ──
 

@@ -228,18 +228,20 @@ const OPCODES: &[&str] = &[
     "WIDE",
 ];
 
-/// 访问修饰符和声明关键字（按字典序排列）
+/// 访问修饰符和声明关键字（按字典序排列，小写）
 const KEYWORDS: &[&str] = &[
     "abstract",
     "any",
     "bridge",
     "class",
     "default",
+    "define",
     "enum",
     "extends",
     "final",
     "implements",
     "interface",
+    "line",
     "native",
     "private",
     "protected",
@@ -433,8 +435,9 @@ fn classify_word(word: &str) -> TokenKind {
     if OPCODES.binary_search(&upper.as_str()).is_ok() {
         return TokenKind::Keyword;
     }
-    // 访问修饰符 / 声明关键字
-    if KEYWORDS.binary_search(&word).is_ok() {
+    // 访问修饰符 / 声明关键字（大小写不敏感）
+    let lower = word.to_ascii_lowercase();
+    if KEYWORDS.binary_search(&lower.as_str()).is_ok() {
         return TokenKind::Keyword;
     }
     // 方法特殊名

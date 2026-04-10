@@ -21,7 +21,13 @@ impl DecompileProgressItem {
         }
     }
 
-    /// 更新进度信息，None 表示无反编译任务
+    /// 设置单文件反编译状态
+    pub fn set_single(&mut self, name: &str) {
+        self.text = t!("status.decompiling_single", name = name).to_string();
+        self.visible = true;
+    }
+
+    /// 更新批量反编译进度，None 表示无任务
     pub fn set_progress(&mut self, info: Option<(&str, u32, u32)>) {
         match info {
             Some((name, current, total)) => {

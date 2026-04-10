@@ -90,6 +90,10 @@ pub struct HexTheme {
     pub header_color: egui::Color32,
     /// 列头背景色
     pub header_bg: egui::Color32,
+    /// 搜索匹配背景色
+    pub search_bg: egui::Color32,
+    /// 搜索当前匹配背景色
+    pub search_current_bg: egui::Color32,
     /// UI 文字标签
     pub labels: HexLabels,
 }
@@ -143,6 +147,8 @@ pub struct HexViewState {
     pub(crate) drag_anchor: Option<usize>,
     /// 活跃区域
     pub(crate) active_region: Region,
+    /// 滚动到指定字节（由外部 find bar 设置，消费后自动清空）
+    pub scroll_to_byte: Option<usize>,
 }
 
 impl Default for HexViewState {
@@ -152,6 +158,7 @@ impl Default for HexViewState {
             selection: None,
             drag_anchor: None,
             active_region: Region::Hex,
+            scroll_to_byte: None,
         }
     }
 }
@@ -159,7 +166,17 @@ impl Default for HexViewState {
 // -- 入口 --
 
 /// 渲染 HexGrid（列头 + ScrollArea 网格 + Inspector 浮层）
-pub fn show(ui: &mut egui::Ui, data: &[u8], state: &mut HexViewState, theme: &HexTheme) {
+///
+/// `highlights` 为搜索匹配的字节范围 `(start, end)`，
+/// `current_highlight` 为当前选中的匹配索引。
+pub fn show(
+    ui: &mut egui::Ui,
+    data: &[u8],
+    state: &mut HexViewState,
+    theme: &HexTheme,
+    highlights: &[(usize, usize)],
+    current_highlight: Option<usize>,
+) {
     if data.is_empty() {
         ui.centered_and_justified(|ui| {
             ui.label(egui::RichText::new(&theme.labels.empty).color(theme.text_muted));
@@ -198,6 +215,14 @@ pub fn show(ui: &mut egui::Ui, data: &[u8], state: &mut HexViewState, theme: &He
             }
             let origin = response.rect.min;
             let clip = ui.clip_rect();
+            // 滚动到指定字节
+            if let Some(byte_offset) = state.scroll_to_byte.take() {
+                let row = byte_offset / BYTES_PER_ROW;
+                let y = origin.y + PAD_TOP + row as f32 * ROW_H;
+                let rect =
+                    egui::Rect::from_min_size(egui::pos2(origin.x, y), egui::vec2(10.0, ROW_H));
+                ui.scroll_to_rect(rect, Some(egui::Align::Center));
+            }
             // 鼠标输入
             input::handle_mouse(&response, &cols, origin, data, state, total_rows);
             let is_dragging = state.drag_anchor.is_some() || response.dragged();
@@ -238,8 +263,19 @@ pub fn show(ui: &mut egui::Ui, data: &[u8], state: &mut HexViewState, theme: &He
             // 绘制可见行
             for row in first_row..last_row {
                 paint::row(
-                    &painter, &cols, &font, origin, row, data, state, hover_idx, hover_row, theme,
+                    &painter,
+                    &cols,
+                    &font,
+                    origin,
+                    row,
+                    data,
+                    state,
+                    hover_idx,
+                    hover_row,
+                    theme,
                     content_w,
+                    highlights,
+                    current_highlight,
                 );
             }
             // 右键菜单

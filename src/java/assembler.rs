@@ -2,6 +2,7 @@
 //!
 //! 解析 Recaf 风格大写操作码 + 内联 CP 引用的指令文本。
 //! CP 引用通过外部传入的 resolve 回调解析为常量池索引。
+//! 支持标签（L0: / L1:）、`.var`、`.vartype` 伪指令。
 //!
 //! @author sky
 
@@ -9,8 +10,37 @@ use indexmap::IndexMap;
 use ristretto_classfile::attributes::{
     ArrayType, ExceptionTableEntry, Instruction, LineNumber, LookupSwitch, TableSwitch,
 };
+use std::collections::HashMap;
 
-/// 汇编结果：指令序列 + 行号表 + 异常表
+/// 局部变量信息（文本格式，待 CP 解析）
+pub struct LocalVar {
+    /// 槽索引
+    pub slot: u16,
+    /// 变量名
+    pub name: String,
+    /// 类型描述符
+    pub descriptor: String,
+    /// 作用域起始指令索引
+    pub start_pc: u16,
+    /// 作用域长度（指令数）
+    pub length: u16,
+}
+
+/// 局部变量泛型类型信息（文本格式，待 CP 解析）
+pub struct LocalVarType {
+    /// 槽索引
+    pub slot: u16,
+    /// 变量名
+    pub name: String,
+    /// 泛型签名
+    pub signature: String,
+    /// 作用域起始指令索引
+    pub start_pc: u16,
+    /// 作用域长度（指令数）
+    pub length: u16,
+}
+
+/// 汇编结果：指令序列 + 行号表 + 异常表 + 局部变量表
 pub struct AssembleResult {
     /// 指令序列
     pub instructions: Vec<Instruction>,
@@ -18,24 +48,40 @@ pub struct AssembleResult {
     pub line_numbers: Vec<LineNumber>,
     /// 异常处理表
     pub exception_table: Vec<ExceptionTableEntry>,
+    /// 局部变量表（文本格式）
+    pub local_variables: Vec<LocalVar>,
+    /// 局部变量泛型类型表（文本格式）
+    pub local_variable_types: Vec<LocalVarType>,
 }
+
+/// INVOKEINTERFACE 操作数前缀标记，区分 InterfaceMethodRef 和 MethodRef
+pub const INTERFACE_METHOD_PREFIX: char = '\x01';
 
 /// 将多行指令文本解析为 Instruction 序列
 ///
-/// 自动跳过空行和 `//` 注释行（方法签名标记）。
-/// 处理 TABLESWITCH / LOOKUPSWITCH 的多行块。
-/// 解析 `.line N` 和 `.catch type from to handler` 伪指令。
+/// 两趟解析：
+/// - Pass 1: 扫描标签定义（`L0:` 等），构建 label → instruction_index 映射
+/// - Pass 2: 解析指令、伪指令，解析标签引用
 pub fn assemble_instructions(
     text: &str,
     resolve_cp: &mut dyn FnMut(&str) -> Result<u16, String>,
 ) -> Result<AssembleResult, String> {
+    // Pass 1: 收集标签定义
+    let label_map = collect_labels(text);
+    // Pass 2: 解析
     let mut instructions = Vec::new();
     let mut line_numbers = Vec::new();
     let mut exception_table = Vec::new();
+    let mut local_variables = Vec::new();
+    let mut local_variable_types = Vec::new();
     let mut lines = text.lines().peekable();
     while let Some(line) = lines.next() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+        // 标签定义：跳过（pass 1 已处理）
+        if is_label_def(trimmed) {
             continue;
         }
         // .line N
@@ -50,7 +96,7 @@ pub fn assemble_instructions(
             });
             continue;
         }
-        // .catch type from to handler
+        // .catch type L_from L_to L_handler
         if let Some(rest) = trimmed.strip_prefix(".catch ") {
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if parts.len() != 4 {
@@ -63,11 +109,9 @@ pub fn assemble_instructions(
             } else {
                 resolve_cp(parts[0])?
             };
-            let start: u16 = parts[1].parse().map_err(|e| format!(".catch start: {e}"))?;
-            let end: u16 = parts[2].parse().map_err(|e| format!(".catch end: {e}"))?;
-            let handler: u16 = parts[3]
-                .parse()
-                .map_err(|e| format!(".catch handler: {e}"))?;
+            let start = resolve_label_u16(parts[1], &label_map)?;
+            let end = resolve_label_u16(parts[2], &label_map)?;
+            let handler = resolve_label_u16(parts[3], &label_map)?;
             exception_table.push(ExceptionTableEntry {
                 range_pc: start..end,
                 handler_pc: handler,
@@ -75,8 +119,52 @@ pub fn assemble_instructions(
             });
             continue;
         }
+        // .var slot name descriptor L_start L_end
+        if let Some(rest) = trimmed.strip_prefix(".var ") {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.len() != 5 {
+                return Err(format!(
+                    "expected '.var slot name descriptor start end', got: {trimmed}"
+                ));
+            }
+            let slot: u16 = parts[0].parse().map_err(|e| format!(".var slot: {e}"))?;
+            let start = resolve_label_usize(parts[3], &label_map)?;
+            let end = resolve_label_usize(parts[4], &label_map)?;
+            local_variables.push(LocalVar {
+                slot,
+                name: parts[1].to_string(),
+                descriptor: parts[2].to_string(),
+                start_pc: start as u16,
+                length: (end - start) as u16,
+            });
+            continue;
+        }
+        // .vartype slot name signature L_start L_end
+        if let Some(rest) = trimmed.strip_prefix(".vartype ") {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.len() != 5 {
+                return Err(format!(
+                    "expected '.vartype slot name signature start end', got: {trimmed}"
+                ));
+            }
+            let slot: u16 = parts[0]
+                .parse()
+                .map_err(|e| format!(".vartype slot: {e}"))?;
+            let start = resolve_label_usize(parts[3], &label_map)?;
+            let end = resolve_label_usize(parts[4], &label_map)?;
+            local_variable_types.push(LocalVarType {
+                slot,
+                name: parts[1].to_string(),
+                signature: parts[2].to_string(),
+                start_pc: start as u16,
+                length: (end - start) as u16,
+            });
+            continue;
+        }
+        // Switch 多行块
         let (opcode, _) = split_opcode(trimmed);
         if opcode == "TABLESWITCH" || opcode == "LOOKUPSWITCH" {
+            let insn_index = instructions.len();
             let mut block = vec![trimmed.to_string()];
             for next in lines.by_ref() {
                 let t = next.trim();
@@ -86,27 +174,124 @@ pub fn assemble_instructions(
                 }
             }
             let insn = if opcode == "TABLESWITCH" {
-                parse_tableswitch(&block)?
+                parse_tableswitch(&block, insn_index, &label_map)?
             } else {
-                parse_lookupswitch(&block)?
+                parse_lookupswitch(&block, insn_index, &label_map)?
             };
             instructions.push(insn);
             continue;
         }
-        let insn = parse_instruction(trimmed, resolve_cp)?;
+        // 普通指令
+        let insn = parse_instruction(trimmed, resolve_cp, &label_map)?;
         instructions.push(insn);
     }
     Ok(AssembleResult {
         instructions,
         line_numbers,
         exception_table,
+        local_variables,
+        local_variable_types,
     })
 }
+
+// ── 标签解析 ──
+
+/// Pass 1: 扫描所有标签定义，构建 label_name → instruction_index 映射
+fn collect_labels(text: &str) -> HashMap<String, usize> {
+    let mut map = HashMap::new();
+    let mut insn_count = 0;
+    let mut lines = text.lines().peekable();
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+        // 标签定义
+        if is_label_def(trimmed) {
+            let label = &trimmed[..trimmed.len() - 1];
+            map.insert(label.to_string(), insn_count);
+            continue;
+        }
+        // 伪指令不占指令索引
+        if trimmed.starts_with(".line ")
+            || trimmed.starts_with(".catch ")
+            || trimmed.starts_with(".var ")
+            || trimmed.starts_with(".vartype ")
+        {
+            continue;
+        }
+        // Switch 块算 1 条指令
+        let (opcode, _) = split_opcode(trimmed);
+        if opcode == "TABLESWITCH" || opcode == "LOOKUPSWITCH" {
+            for next in lines.by_ref() {
+                if next.trim() == "}" {
+                    break;
+                }
+            }
+        }
+        insn_count += 1;
+    }
+    map
+}
+
+/// 判断是否是标签定义行（`L0:`, `L123:` 等）
+fn is_label_def(trimmed: &str) -> bool {
+    trimmed.ends_with(':') && !trimmed.contains(' ') && trimmed.len() > 1
+}
+
+/// 解析标签或数字为 u16
+fn resolve_label_u16(s: &str, labels: &HashMap<String, usize>) -> Result<u16, String> {
+    if let Some(&idx) = labels.get(s) {
+        return Ok(idx as u16);
+    }
+    s.parse::<u16>()
+        .map_err(|e| format!("invalid label or index '{s}': {e}"))
+}
+
+/// 解析标签或数字为 usize
+fn resolve_label_usize(s: &str, labels: &HashMap<String, usize>) -> Result<usize, String> {
+    if let Some(&idx) = labels.get(s) {
+        return Ok(idx);
+    }
+    s.parse::<usize>()
+        .map_err(|e| format!("invalid label or index '{s}': {e}"))
+}
+
+/// 解析分支目标（标签或数字 → u16 绝对指令索引）
+fn resolve_branch(s: &str, labels: &HashMap<String, usize>) -> Result<u16, String> {
+    if let Some(&idx) = labels.get(s.trim()) {
+        return Ok(idx as u16);
+    }
+    parse_u16(s)
+}
+
+/// 解析宽分支目标（标签或数字 → i32 绝对指令索引）
+fn resolve_branch_wide(s: &str, labels: &HashMap<String, usize>) -> Result<i32, String> {
+    if let Some(&idx) = labels.get(s.trim()) {
+        return Ok(idx as i32);
+    }
+    parse_i32(s)
+}
+
+/// 解析 switch 目标（标签 → 相对偏移，数字 → 原样）
+fn resolve_switch_target(
+    s: &str,
+    insn_index: usize,
+    labels: &HashMap<String, usize>,
+) -> Result<i32, String> {
+    if let Some(&idx) = labels.get(s.trim()) {
+        return Ok(idx as i32 - insn_index as i32);
+    }
+    parse_i32(s)
+}
+
+// ── 指令解析 ──
 
 /// 解析单行指令文本
 pub fn parse_instruction(
     line: &str,
     resolve_cp: &mut dyn FnMut(&str) -> Result<u16, String>,
+    labels: &HashMap<String, usize>,
 ) -> Result<Instruction, String> {
     let (opcode, operands) = split_opcode(line);
     if let Some(insn) = try_zero_operand(&opcode) {
@@ -128,28 +313,28 @@ pub fn parse_instruction(
         "DSTORE" => Ok(Instruction::Dstore(parse_u8(operands)?)),
         "ASTORE" => Ok(Instruction::Astore(parse_u8(operands)?)),
         "RET" => Ok(Instruction::Ret(parse_u8(operands)?)),
-        // u16 分支目标（绝对指令索引）
-        "IFEQ" => Ok(Instruction::Ifeq(parse_u16(operands)?)),
-        "IFNE" => Ok(Instruction::Ifne(parse_u16(operands)?)),
-        "IFLT" => Ok(Instruction::Iflt(parse_u16(operands)?)),
-        "IFGE" => Ok(Instruction::Ifge(parse_u16(operands)?)),
-        "IFGT" => Ok(Instruction::Ifgt(parse_u16(operands)?)),
-        "IFLE" => Ok(Instruction::Ifle(parse_u16(operands)?)),
-        "IF_ICMPEQ" => Ok(Instruction::If_icmpeq(parse_u16(operands)?)),
-        "IF_ICMPNE" => Ok(Instruction::If_icmpne(parse_u16(operands)?)),
-        "IF_ICMPLT" => Ok(Instruction::If_icmplt(parse_u16(operands)?)),
-        "IF_ICMPGE" => Ok(Instruction::If_icmpge(parse_u16(operands)?)),
-        "IF_ICMPGT" => Ok(Instruction::If_icmpgt(parse_u16(operands)?)),
-        "IF_ICMPLE" => Ok(Instruction::If_icmple(parse_u16(operands)?)),
-        "IF_ACMPEQ" => Ok(Instruction::If_acmpeq(parse_u16(operands)?)),
-        "IF_ACMPNE" => Ok(Instruction::If_acmpne(parse_u16(operands)?)),
-        "GOTO" => Ok(Instruction::Goto(parse_u16(operands)?)),
-        "JSR" => Ok(Instruction::Jsr(parse_u16(operands)?)),
-        "IFNULL" => Ok(Instruction::Ifnull(parse_u16(operands)?)),
-        "IFNONNULL" => Ok(Instruction::Ifnonnull(parse_u16(operands)?)),
-        // i32 宽分支
-        "GOTO_W" => Ok(Instruction::Goto_w(parse_i32(operands)?)),
-        "JSR_W" => Ok(Instruction::Jsr_w(parse_i32(operands)?)),
+        // 分支目标（标签或绝对指令索引）
+        "IFEQ" => Ok(Instruction::Ifeq(resolve_branch(operands, labels)?)),
+        "IFNE" => Ok(Instruction::Ifne(resolve_branch(operands, labels)?)),
+        "IFLT" => Ok(Instruction::Iflt(resolve_branch(operands, labels)?)),
+        "IFGE" => Ok(Instruction::Ifge(resolve_branch(operands, labels)?)),
+        "IFGT" => Ok(Instruction::Ifgt(resolve_branch(operands, labels)?)),
+        "IFLE" => Ok(Instruction::Ifle(resolve_branch(operands, labels)?)),
+        "IF_ICMPEQ" => Ok(Instruction::If_icmpeq(resolve_branch(operands, labels)?)),
+        "IF_ICMPNE" => Ok(Instruction::If_icmpne(resolve_branch(operands, labels)?)),
+        "IF_ICMPLT" => Ok(Instruction::If_icmplt(resolve_branch(operands, labels)?)),
+        "IF_ICMPGE" => Ok(Instruction::If_icmpge(resolve_branch(operands, labels)?)),
+        "IF_ICMPGT" => Ok(Instruction::If_icmpgt(resolve_branch(operands, labels)?)),
+        "IF_ICMPLE" => Ok(Instruction::If_icmple(resolve_branch(operands, labels)?)),
+        "IF_ACMPEQ" => Ok(Instruction::If_acmpeq(resolve_branch(operands, labels)?)),
+        "IF_ACMPNE" => Ok(Instruction::If_acmpne(resolve_branch(operands, labels)?)),
+        "GOTO" => Ok(Instruction::Goto(resolve_branch(operands, labels)?)),
+        "JSR" => Ok(Instruction::Jsr(resolve_branch(operands, labels)?)),
+        "IFNULL" => Ok(Instruction::Ifnull(resolve_branch(operands, labels)?)),
+        "IFNONNULL" => Ok(Instruction::Ifnonnull(resolve_branch(operands, labels)?)),
+        // 宽分支
+        "GOTO_W" => Ok(Instruction::Goto_w(resolve_branch_wide(operands, labels)?)),
+        "JSR_W" => Ok(Instruction::Jsr_w(resolve_branch_wide(operands, labels)?)),
         // wide 局部变量索引
         "ILOAD_W" => Ok(Instruction::Iload_w(parse_u16(operands)?)),
         "LLOAD_W" => Ok(Instruction::Lload_w(parse_u16(operands)?)),
@@ -197,7 +382,10 @@ pub fn parse_instruction(
         "INSTANCEOF" => Ok(Instruction::Instanceof(resolve_cp(operands)?)),
         // CP 引用 + 额外操作数
         "INVOKEINTERFACE" => {
-            let idx = resolve_cp(operands)?;
+            let mut key = String::with_capacity(operands.len() + 1);
+            key.push(INTERFACE_METHOD_PREFIX);
+            key.push_str(operands);
+            let idx = resolve_cp(&key)?;
             let count = compute_interface_count(operands);
             Ok(Instruction::Invokeinterface(idx, count))
         }
@@ -380,8 +568,13 @@ fn try_zero_operand(opcode: &str) -> Option<Instruction> {
     })
 }
 
-/// switch 多行块解析
-fn parse_tableswitch(block: &[String]) -> Result<Instruction, String> {
+// ── switch 多行块解析 ──
+
+fn parse_tableswitch(
+    block: &[String],
+    insn_index: usize,
+    labels: &HashMap<String, usize>,
+) -> Result<Instruction, String> {
     let first = &block[0];
     let comment_start = first.find("//").ok_or("tableswitch: missing // comment")?;
     let comment = first[comment_start + 2..].trim();
@@ -405,15 +598,9 @@ fn parse_tableswitch(block: &[String]) -> Result<Instruction, String> {
             break;
         }
         if let Some(rest) = t.strip_prefix("default:") {
-            default = rest
-                .trim()
-                .parse()
-                .map_err(|e| format!("tableswitch default: {e}"))?;
+            default = resolve_switch_target(rest.trim(), insn_index, labels)?;
         } else if let Some(colon_pos) = t.find(':') {
-            let offset: i32 = t[colon_pos + 1..]
-                .trim()
-                .parse()
-                .map_err(|e| format!("tableswitch offset: {e}"))?;
+            let offset = resolve_switch_target(t[colon_pos + 1..].trim(), insn_index, labels)?;
             offsets.push(offset);
         }
     }
@@ -425,7 +612,11 @@ fn parse_tableswitch(block: &[String]) -> Result<Instruction, String> {
     }))
 }
 
-fn parse_lookupswitch(block: &[String]) -> Result<Instruction, String> {
+fn parse_lookupswitch(
+    block: &[String],
+    insn_index: usize,
+    labels: &HashMap<String, usize>,
+) -> Result<Instruction, String> {
     let mut pairs = IndexMap::new();
     let mut default = 0i32;
     for line in &block[1..] {
@@ -434,26 +625,21 @@ fn parse_lookupswitch(block: &[String]) -> Result<Instruction, String> {
             break;
         }
         if let Some(rest) = t.strip_prefix("default:") {
-            default = rest
-                .trim()
-                .parse()
-                .map_err(|e| format!("lookupswitch default: {e}"))?;
+            default = resolve_switch_target(rest.trim(), insn_index, labels)?;
         } else if let Some(colon_pos) = t.find(':') {
             let key: i32 = t[..colon_pos]
                 .trim()
                 .parse()
                 .map_err(|e| format!("lookupswitch key: {e}"))?;
-            let val: i32 = t[colon_pos + 1..]
-                .trim()
-                .parse()
-                .map_err(|e| format!("lookupswitch offset: {e}"))?;
+            let val = resolve_switch_target(t[colon_pos + 1..].trim(), insn_index, labels)?;
             pairs.insert(key, val);
         }
     }
     Ok(Instruction::Lookupswitch(LookupSwitch { default, pairs }))
 }
 
-/// 辅助：操作数解析
+// ── 辅助函数 ──
+
 fn split_opcode(line: &str) -> (String, &str) {
     match line.find(' ') {
         Some(idx) => (line[..idx].to_uppercase(), line[idx + 1..].trim()),

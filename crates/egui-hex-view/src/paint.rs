@@ -72,6 +72,8 @@ pub(crate) fn row(
     hover_row: Option<usize>,
     theme: &HexTheme,
     content_w: f32,
+    highlights: &[(usize, usize)],
+    current_highlight: Option<usize>,
 ) {
     let row_offset = row * BYTES_PER_ROW;
     let row_end = (row_offset + BYTES_PER_ROW).min(data.len());
@@ -95,6 +97,38 @@ pub(crate) fn row(
         font.clone(),
         addr_color,
     );
+    // 搜索匹配高亮
+    for (hi, &(hl_start, hl_end)) in highlights.iter().enumerate() {
+        let match_start = hl_start.max(row_offset);
+        let match_end = hl_end.min(row_end);
+        if match_start >= match_end {
+            continue;
+        }
+        let sc = match_start - row_offset;
+        let ec = match_end - row_offset;
+        let bg = if current_highlight == Some(hi) {
+            theme.search_current_bg
+        } else {
+            theme.search_bg
+        };
+        let hex_left = origin.x + cols.hex_byte_x(sc);
+        let hex_right = origin.x + cols.hex_byte_x(ec - 1) + cols.char_w * 2.0;
+        painter.rect_filled(
+            egui::Rect::from_min_max(egui::pos2(hex_left, y), egui::pos2(hex_right, y + ROW_H)),
+            0.0,
+            bg,
+        );
+        let ascii_left = origin.x + cols.ascii_byte_x(sc);
+        let ascii_right = origin.x + cols.ascii_byte_x(ec - 1) + cols.char_w;
+        painter.rect_filled(
+            egui::Rect::from_min_max(
+                egui::pos2(ascii_left, y),
+                egui::pos2(ascii_right, y + ROW_H),
+            ),
+            0.0,
+            bg,
+        );
+    }
     // 选中范围：计算本行内的选中列区间 [sel_start_col, sel_end_col)
     let sel_range = state.selection.and_then(|(s, e)| {
         let sel_start = s.max(row_offset);

@@ -5,6 +5,7 @@
 pub mod assembler;
 pub mod bytecode;
 pub mod class_structure;
+pub mod classforge;
 pub mod decompiler;
 pub mod jar;
 pub mod save;

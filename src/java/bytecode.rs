@@ -10,8 +10,9 @@ use super::class_structure::{
 };
 use ristretto_classfile::attributes::{Annotation, AnnotationElement, Attribute, Instruction};
 use ristretto_classfile::{ClassFile, Constant, ConstantPool};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write;
+use std::io::Cursor;
 
 /// 将 .class 原始字节反汇编为结构化 class 数据
 pub fn disassemble(bytes: &[u8]) -> Result<ClassStructure, String> {
@@ -20,125 +21,11 @@ pub fn disassemble(bytes: &[u8]) -> Result<ClassStructure, String> {
     let info = extract_class_info(&cf, cp, bytes);
     let fields = cf.fields.iter().map(|f| extract_field(f, cp)).collect();
     let methods = cf.methods.iter().map(|m| extract_method(m, cp)).collect();
-    let cp_entries = extract_cp_entries(cp);
     Ok(ClassStructure {
         info,
         fields,
         methods,
-        cp_entries,
     })
-}
-
-/// 从常量池提取所有条目用于 UI 展示
-fn extract_cp_entries(cp: &ConstantPool) -> Vec<(u16, &'static str, String)> {
-    let mut entries = Vec::new();
-    for idx in 1..=cp.len() {
-        let idx = idx as u16;
-        let constant = match cp.try_get(idx) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        let (tag, value) = format_constant(constant, cp, idx);
-        entries.push((idx, tag, value));
-    }
-    entries
-}
-
-/// 格式化单个常量池条目为 (类型标签, 可读值)
-fn format_constant(c: &Constant, cp: &ConstantPool, idx: u16) -> (&'static str, String) {
-    match c {
-        Constant::Utf8(s) => ("Utf8", s.to_string()),
-        Constant::Integer(v) => ("Integer", v.to_string()),
-        Constant::Float(v) => ("Float", format!("{v}f")),
-        Constant::Long(v) => ("Long", format!("{v}L")),
-        Constant::Double(v) => ("Double", v.to_string()),
-        Constant::Class(_) => {
-            let name = cp
-                .try_get_class(idx)
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            ("Class", name)
-        }
-        Constant::String(_) => {
-            let val = cp
-                .try_get_formatted_string(idx)
-                .unwrap_or_default()
-                .strip_prefix("String ")
-                .unwrap_or("")
-                .to_string();
-            ("String", format!("\"{val}\""))
-        }
-        Constant::FieldRef { .. } => {
-            let val = cp
-                .try_get_formatted_string(idx)
-                .map(|s| strip_cp_prefix(&s))
-                .unwrap_or_default();
-            ("FieldRef", val)
-        }
-        Constant::MethodRef { .. } => {
-            let val = cp
-                .try_get_formatted_string(idx)
-                .map(|s| strip_cp_prefix(&s))
-                .unwrap_or_default();
-            ("MethodRef", val)
-        }
-        Constant::InterfaceMethodRef { .. } => {
-            let val = cp
-                .try_get_formatted_string(idx)
-                .map(|s| strip_cp_prefix(&s))
-                .unwrap_or_default();
-            ("InterfaceMethodRef", val)
-        }
-        Constant::NameAndType { .. } => {
-            let val = cp
-                .try_get_formatted_string(idx)
-                .map(|s| strip_cp_prefix(&s))
-                .unwrap_or_default();
-            ("NameAndType", val)
-        }
-        Constant::MethodHandle { .. } => {
-            let val = cp
-                .try_get_formatted_string(idx)
-                .map(|s| strip_cp_prefix(&s))
-                .unwrap_or_default();
-            ("MethodHandle", val)
-        }
-        Constant::MethodType(_) => {
-            let val = cp
-                .try_get_formatted_string(idx)
-                .map(|s| strip_cp_prefix(&s))
-                .unwrap_or_default();
-            ("MethodType", val)
-        }
-        Constant::Dynamic { .. } => {
-            let val = cp
-                .try_get_formatted_string(idx)
-                .map(|s| strip_cp_prefix(&s))
-                .unwrap_or_default();
-            ("Dynamic", val)
-        }
-        Constant::InvokeDynamic { .. } => {
-            let val = cp
-                .try_get_formatted_string(idx)
-                .map(|s| strip_cp_prefix(&s))
-                .unwrap_or_default();
-            ("InvokeDynamic", val)
-        }
-        Constant::Module(_) => {
-            let val = cp
-                .try_get_formatted_string(idx)
-                .map(|s| strip_cp_prefix(&s))
-                .unwrap_or_default();
-            ("Module", val)
-        }
-        Constant::Package(_) => {
-            let val = cp
-                .try_get_formatted_string(idx)
-                .map(|s| strip_cp_prefix(&s))
-                .unwrap_or_default();
-            ("Package", val)
-        }
-    }
 }
 
 // ── class info ──
@@ -285,6 +172,7 @@ fn extract_field(field: &ristretto_classfile::Field, cp: &ConstantPool) -> Field
 
 fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> MethodInfo {
     let access = method.access_flags.as_code().to_string();
+    let is_static = access.contains("static");
     let name = cp
         .try_get_utf8(method.name_index)
         .map(|s| s.to_string())
@@ -301,6 +189,23 @@ fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> Me
     let mut bytecode = String::new();
     let mut has_code = false;
     let resolve = |idx: u16| -> String {
+        // FieldRef: ristretto 的 try_get_formatted_string 丢弃描述符，需手动拼接 "owner.name descriptor"
+        if let Ok((class_idx, nat_idx)) = cp.try_get_field_ref(idx) {
+            if let (Ok(class_name), Ok((name_idx, desc_idx))) = (
+                cp.try_get_class(*class_idx),
+                cp.try_get_name_and_type(*nat_idx),
+            ) {
+                let fname = cp
+                    .try_get_utf8(*name_idx)
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                let fdesc = cp
+                    .try_get_utf8(*desc_idx)
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                return format!("{class_name}.{fname} {fdesc}");
+            }
+        }
         cp.try_get_formatted_string(idx)
             .map(|s| strip_cp_prefix(&s))
             .unwrap_or_else(|_| format!("#{idx}"))
@@ -314,16 +219,98 @@ fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> Me
                 ..
             } => {
                 has_code = true;
-                // 从 LineNumberTable 构建 instruction_index → line_number 映射
+                // 构建 byte_offset → instruction_index 映射（LVT/LVTT 需要）
+                let byte_to_insn = build_byte_to_insn_map(code);
+                // 从 code 子属性提取元数据
                 let mut line_map: HashMap<usize, u16> = HashMap::new();
+                // LVT/LVTT 存储为 (slot, name_idx, desc/sig_idx, start_insn_idx, end_insn_idx)
+                let mut local_vars: Vec<(u16, u16, u16, usize, usize)> = Vec::new();
+                let mut local_var_types: Vec<(u16, u16, u16, usize, usize)> = Vec::new();
                 for code_attr in code_attrs {
-                    if let Attribute::LineNumberTable { line_numbers, .. } = code_attr {
-                        for ln in line_numbers {
-                            line_map.insert(ln.start_pc as usize, ln.line_number);
+                    match code_attr {
+                        Attribute::LineNumberTable { line_numbers, .. } => {
+                            for ln in line_numbers {
+                                line_map.insert(ln.start_pc as usize, ln.line_number);
+                            }
                         }
+                        Attribute::LocalVariableTable { variables, .. } => {
+                            for v in variables {
+                                // ristretto 不转换 LVT 偏移，start_pc/length 仍是字节偏移
+                                let start_insn =
+                                    lookup_byte_offset(&byte_to_insn, v.start_pc as usize);
+                                let end_insn = lookup_byte_offset(
+                                    &byte_to_insn,
+                                    (v.start_pc + v.length) as usize,
+                                );
+                                local_vars.push((
+                                    v.index,
+                                    v.name_index,
+                                    v.descriptor_index,
+                                    start_insn,
+                                    end_insn,
+                                ));
+                            }
+                        }
+                        Attribute::LocalVariableTypeTable { variable_types, .. } => {
+                            for v in variable_types {
+                                let start_insn =
+                                    lookup_byte_offset(&byte_to_insn, v.start_pc as usize);
+                                let end_insn = lookup_byte_offset(
+                                    &byte_to_insn,
+                                    (v.start_pc + v.length) as usize,
+                                );
+                                local_var_types.push((
+                                    v.index,
+                                    v.name_index,
+                                    v.signature_index,
+                                    start_insn,
+                                    end_insn,
+                                ));
+                            }
+                        }
+                        _ => {}
                     }
                 }
-                // 输出 .catch 指令
+                // 收集所有需要标签的指令索引
+                let mut targets = BTreeSet::new();
+                for (i, insn) in code.iter().enumerate() {
+                    collect_branch_targets(insn, i, &mut targets);
+                }
+                for entry in exception_table {
+                    targets.insert(entry.range_pc.start as usize);
+                    targets.insert(entry.range_pc.end as usize);
+                    targets.insert(entry.handler_pc as usize);
+                }
+                for &(_, _, _, start, end) in &local_vars {
+                    targets.insert(start);
+                    targets.insert(end);
+                }
+                for &(_, _, _, start, end) in &local_var_types {
+                    targets.insert(start);
+                    targets.insert(end);
+                }
+                // 行号位置也需要标签（LINE 指令引用）
+                for &idx in line_map.keys() {
+                    targets.insert(idx);
+                }
+                // 分配标签 A, B, C, ..., Z, AA, AB, ...
+                let labels: HashMap<usize, String> = targets
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &idx)| (idx, index_to_alpha_label(i)))
+                    .collect();
+                // 变量名解析表（用于 LOAD/STORE 指令的变量名替换）
+                let resolved_vars: Vec<(u16, String, usize, usize)> = local_vars
+                    .iter()
+                    .map(|&(slot, name_idx, _, start, end)| {
+                        let vname = cp
+                            .try_get_utf8(name_idx)
+                            .map(|s| s.to_string())
+                            .unwrap_or_default();
+                        (slot, vname, start, end)
+                    })
+                    .collect();
+                // 输出 .catch（使用标签）
                 for entry in exception_table {
                     let catch_type = if entry.catch_type == 0 {
                         "*".to_string()
@@ -332,30 +319,67 @@ fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> Me
                             .map(|s| s.to_string())
                             .unwrap_or_else(|_| format!("#{}", entry.catch_type))
                     };
-                    writeln!(
-                        bytecode,
-                        ".catch {} {} {} {}",
-                        catch_type, entry.range_pc.start, entry.range_pc.end, entry.handler_pc,
-                    )
-                    .unwrap();
+                    let from = label_at(&labels, entry.range_pc.start as usize);
+                    let to = label_at(&labels, entry.range_pc.end as usize);
+                    let handler = label_at(&labels, entry.handler_pc as usize);
+                    writeln!(bytecode, ".catch {catch_type} {from} {to} {handler}").unwrap();
                 }
-                // 输出指令，在对应位置插入 .line，逻辑行之间空一行
-                let mut has_prev_insn = false;
+                // 输出 .var（使用标签）
+                for &(slot, name_idx, desc_idx, start, end) in &local_vars {
+                    let name = cp
+                        .try_get_utf8(name_idx)
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|_| format!("#{name_idx}"));
+                    let desc = cp
+                        .try_get_utf8(desc_idx)
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|_| format!("#{desc_idx}"));
+                    let start_l = label_at(&labels, start);
+                    let end_l = label_at(&labels, end);
+                    writeln!(bytecode, ".var {slot} {name} {desc} {start_l} {end_l}").unwrap();
+                }
+                // 输出 .vartype（使用标签）
+                for &(slot, name_idx, sig_idx, start, end) in &local_var_types {
+                    let name = cp
+                        .try_get_utf8(name_idx)
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|_| format!("#{name_idx}"));
+                    let sig = cp
+                        .try_get_utf8(sig_idx)
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|_| format!("#{sig_idx}"));
+                    let start_l = label_at(&labels, start);
+                    let end_l = label_at(&labels, end);
+                    writeln!(bytecode, ".vartype {slot} {name} {sig} {start_l} {end_l}").unwrap();
+                }
+                // 输出指令（标签 + 行号 + 指令）
+                let has_header = !bytecode.is_empty();
                 for (i, insn) in code.iter().enumerate() {
-                    if let Some(&line) = line_map.get(&i) {
-                        if has_prev_insn {
-                            bytecode.push('\n');
-                        }
-                        if !bytecode.is_empty() && !bytecode.ends_with('\n') {
-                            bytecode.push('\n');
-                        }
-                        writeln!(bytecode, ".line {line}").unwrap();
-                    }
-                    if !bytecode.is_empty() && !bytecode.ends_with('\n') {
+                    let has_label = labels.contains_key(&i);
+                    let has_line = line_map.contains_key(&i);
+                    if (has_label || has_line) && (has_header || i > 0) {
                         bytecode.push('\n');
                     }
-                    write!(bytecode, "{}", format_instruction(insn, &resolve)).unwrap();
-                    has_prev_insn = true;
+                    if let Some(label) = labels.get(&i) {
+                        writeln!(bytecode, "{label}:").unwrap();
+                    }
+                    if let Some(&line) = line_map.get(&i) {
+                        let label_ref = labels.get(&i).cloned().unwrap_or_else(|| i.to_string());
+                        writeln!(bytecode, "LINE {label_ref} {line}").unwrap();
+                    }
+                    let formatted = format_instruction(insn, i, &resolve, &labels);
+                    let with_vars =
+                        resolve_vars_in_instruction(&formatted, i, &resolved_vars, is_static);
+                    writeln!(bytecode, "{}", with_vars).unwrap();
+                }
+                // 尾标签（作用域结束点可能超出指令范围）
+                if let Some(label) = labels.get(&code.len()) {
+                    bytecode.push('\n');
+                    write!(bytecode, "{label}:").unwrap();
+                }
+                // 去除尾部换行
+                while bytecode.ends_with('\n') {
+                    bytecode.pop();
                 }
             }
             Attribute::Exceptions {
@@ -412,8 +436,100 @@ fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> Me
 
 // ── instruction formatting (Recaf style) ──
 
-fn format_instruction(insn: &Instruction, resolve: &dyn Fn(u16) -> String) -> String {
+/// 收集指令中的分支目标索引（绝对指令索引）
+fn collect_branch_targets(insn: &Instruction, insn_index: usize, targets: &mut BTreeSet<usize>) {
     match insn {
+        Instruction::Ifeq(t)
+        | Instruction::Ifne(t)
+        | Instruction::Iflt(t)
+        | Instruction::Ifge(t)
+        | Instruction::Ifgt(t)
+        | Instruction::Ifle(t)
+        | Instruction::If_icmpeq(t)
+        | Instruction::If_icmpne(t)
+        | Instruction::If_icmplt(t)
+        | Instruction::If_icmpge(t)
+        | Instruction::If_icmpgt(t)
+        | Instruction::If_icmple(t)
+        | Instruction::If_acmpeq(t)
+        | Instruction::If_acmpne(t)
+        | Instruction::Goto(t)
+        | Instruction::Jsr(t)
+        | Instruction::Ifnull(t)
+        | Instruction::Ifnonnull(t) => {
+            targets.insert(*t as usize);
+        }
+        Instruction::Goto_w(t) | Instruction::Jsr_w(t) => {
+            targets.insert(*t as usize);
+        }
+        Instruction::Tableswitch(ts) => {
+            targets.insert((insn_index as i64 + ts.default as i64) as usize);
+            for offset in &ts.offsets {
+                targets.insert((insn_index as i64 + *offset as i64) as usize);
+            }
+        }
+        Instruction::Lookupswitch(ls) => {
+            targets.insert((insn_index as i64 + ls.default as i64) as usize);
+            for (_, offset) in &ls.pairs {
+                targets.insert((insn_index as i64 + *offset as i64) as usize);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// 查找标签名，回退为数字
+fn label_at(labels: &HashMap<usize, String>, idx: usize) -> String {
+    labels.get(&idx).cloned().unwrap_or_else(|| idx.to_string())
+}
+
+/// 从指令列表构建 byte_offset → instruction_index 映射
+///
+/// ristretto 不转换 LVT/LVTT 的偏移量（仅转换 LineNumberTable/StackMapTable/ExceptionTable），
+/// 所以 LVT 中的 start_pc 和 length 仍是字节偏移。需要手动转换为指令索引。
+fn build_byte_to_insn_map(code: &[Instruction]) -> BTreeMap<usize, usize> {
+    let mut map = BTreeMap::new();
+    let mut cursor = Cursor::new(Vec::new());
+    for (insn_idx, insn) in code.iter().enumerate() {
+        let pos = cursor.position() as usize;
+        map.insert(pos, insn_idx);
+        let _ = insn.to_bytes(&mut cursor);
+    }
+    // 尾部哨兵：指向指令列表末尾（用于 start_pc + length 的结束位置）
+    map.insert(cursor.position() as usize, code.len());
+    map
+}
+
+/// 从指令列表构建 instruction_index → byte_offset 映射
+pub fn build_insn_to_byte_map(code: &[Instruction]) -> BTreeMap<usize, usize> {
+    let mut map = BTreeMap::new();
+    let mut cursor = Cursor::new(Vec::new());
+    for (insn_idx, insn) in code.iter().enumerate() {
+        let pos = cursor.position() as usize;
+        map.insert(insn_idx, pos);
+        let _ = insn.to_bytes(&mut cursor);
+    }
+    // 尾部哨兵
+    map.insert(code.len(), cursor.position() as usize);
+    map
+}
+
+/// 在 byte→insn 映射中查找最近的指令索引（<= byte_offset）
+fn lookup_byte_offset(map: &BTreeMap<usize, usize>, byte_offset: usize) -> usize {
+    map.get(&byte_offset)
+        .copied()
+        .or_else(|| map.range(..=byte_offset).next_back().map(|(_, &v)| v))
+        .unwrap_or(0)
+}
+
+fn format_instruction(
+    insn: &Instruction,
+    insn_index: usize,
+    resolve: &dyn Fn(u16) -> String,
+    labels: &HashMap<usize, String>,
+) -> String {
+    match insn {
+        // CP 引用指令
         Instruction::Ldc(idx) => format!("LDC {}", resolve(u16::from(*idx))),
         Instruction::Ldc_w(idx) => format!("LDC_W {}", resolve(*idx)),
         Instruction::Ldc2_w(idx) => format!("LDC2_W {}", resolve(*idx)),
@@ -433,21 +549,57 @@ fn format_instruction(insn: &Instruction, resolve: &dyn Fn(u16) -> String) -> St
         Instruction::Multianewarray(idx, dims) => {
             format!("MULTIANEWARRAY {} {dims}", resolve(*idx))
         }
+        // Branch 指令（绝对指令索引 → 标签）
+        Instruction::Ifeq(t) => format!("IFEQ {}", label_at(labels, *t as usize)),
+        Instruction::Ifne(t) => format!("IFNE {}", label_at(labels, *t as usize)),
+        Instruction::Iflt(t) => format!("IFLT {}", label_at(labels, *t as usize)),
+        Instruction::Ifge(t) => format!("IFGE {}", label_at(labels, *t as usize)),
+        Instruction::Ifgt(t) => format!("IFGT {}", label_at(labels, *t as usize)),
+        Instruction::Ifle(t) => format!("IFLE {}", label_at(labels, *t as usize)),
+        Instruction::If_icmpeq(t) => format!("IF_ICMPEQ {}", label_at(labels, *t as usize)),
+        Instruction::If_icmpne(t) => format!("IF_ICMPNE {}", label_at(labels, *t as usize)),
+        Instruction::If_icmplt(t) => format!("IF_ICMPLT {}", label_at(labels, *t as usize)),
+        Instruction::If_icmpge(t) => format!("IF_ICMPGE {}", label_at(labels, *t as usize)),
+        Instruction::If_icmpgt(t) => format!("IF_ICMPGT {}", label_at(labels, *t as usize)),
+        Instruction::If_icmple(t) => format!("IF_ICMPLE {}", label_at(labels, *t as usize)),
+        Instruction::If_acmpeq(t) => format!("IF_ACMPEQ {}", label_at(labels, *t as usize)),
+        Instruction::If_acmpne(t) => format!("IF_ACMPNE {}", label_at(labels, *t as usize)),
+        Instruction::Goto(t) => format!("GOTO {}", label_at(labels, *t as usize)),
+        Instruction::Jsr(t) => format!("JSR {}", label_at(labels, *t as usize)),
+        Instruction::Ifnull(t) => format!("IFNULL {}", label_at(labels, *t as usize)),
+        Instruction::Ifnonnull(t) => format!("IFNONNULL {}", label_at(labels, *t as usize)),
+        Instruction::Goto_w(t) => format!("GOTO_W {}", label_at(labels, *t as usize)),
+        Instruction::Jsr_w(t) => format!("JSR_W {}", label_at(labels, *t as usize)),
+        // Switch 指令（相对指令偏移 → 标签）
         Instruction::Tableswitch(ts) => {
             let mut s = format!("TABLESWITCH {{ // {} to {}\n", ts.low, ts.high);
             for (i, offset) in ts.offsets.iter().enumerate() {
-                s.push_str(&format!("    {}: {offset}\n", ts.low + i as i32));
+                let target = (insn_index as i64 + *offset as i64) as usize;
+                s.push_str(&format!(
+                    "    {}: {}\n",
+                    ts.low + i as i32,
+                    label_at(labels, target)
+                ));
             }
-            s.push_str(&format!("    default: {}\n", ts.default));
+            let default_target = (insn_index as i64 + ts.default as i64) as usize;
+            s.push_str(&format!(
+                "    default: {}\n",
+                label_at(labels, default_target)
+            ));
             s.push('}');
             s
         }
         Instruction::Lookupswitch(ls) => {
             let mut s = String::from("LOOKUPSWITCH {\n");
             for (key, offset) in &ls.pairs {
-                s.push_str(&format!("    {key}: {offset}\n"));
+                let target = (insn_index as i64 + *offset as i64) as usize;
+                s.push_str(&format!("    {key}: {}\n", label_at(labels, target)));
             }
-            s.push_str(&format!("    default: {}\n", ls.default));
+            let default_target = (insn_index as i64 + ls.default as i64) as usize;
+            s.push_str(&format!(
+                "    default: {}\n",
+                label_at(labels, default_target)
+            ));
             s.push('}');
             s
         }
@@ -711,4 +863,85 @@ pub fn resolve_from_lookup(table: &[(u16, String)], text: &str) -> Result<u16, S
         }
     }
     Err(format!("CP entry not found: {text}"))
+}
+
+// ── Recaf 风格格式化辅助 ──
+
+/// 将索引转为字母标签（0→A, 1→B, ..., 25→Z, 26→AA, 27→AB, ...）
+fn index_to_alpha_label(idx: usize) -> String {
+    let mut s = String::new();
+    let mut n = idx;
+    loop {
+        s.insert(0, (b'A' + (n % 26) as u8) as char);
+        if n < 26 {
+            break;
+        }
+        n = n / 26 - 1;
+    }
+    s
+}
+
+/// 解析指令中的变量槽位为名称（ALOAD 0 → ALOAD this）
+fn resolve_vars_in_instruction(
+    formatted: &str,
+    insn_idx: usize,
+    resolved_vars: &[(u16, String, usize, usize)],
+    is_static: bool,
+) -> String {
+    // 紧凑 LOAD/STORE: ALOAD_0 → ALOAD this
+    let compact_prefixes = [
+        "ALOAD_", "ILOAD_", "LLOAD_", "FLOAD_", "DLOAD_", "ASTORE_", "ISTORE_", "LSTORE_",
+        "FSTORE_", "DSTORE_",
+    ];
+    for prefix in compact_prefixes {
+        if formatted.starts_with(prefix) {
+            if let Ok(digit) = formatted[prefix.len()..].parse::<u16>() {
+                let op = &prefix[..prefix.len() - 1];
+                let vname = resolve_slot(insn_idx, digit, resolved_vars, is_static);
+                return format!("{op} {vname}");
+            }
+        }
+    }
+    // 参数化 LOAD/STORE: ALOAD 0 → ALOAD this
+    let var_ops = [
+        "ALOAD ", "ILOAD ", "LLOAD ", "FLOAD ", "DLOAD ", "ASTORE ", "ISTORE ", "LSTORE ",
+        "FSTORE ", "DSTORE ", "RET ",
+    ];
+    for prefix in var_ops {
+        if formatted.starts_with(prefix) {
+            if let Ok(slot) = formatted[prefix.len()..].trim().parse::<u16>() {
+                let vname = resolve_slot(insn_idx, slot, resolved_vars, is_static);
+                return format!("{prefix}{vname}");
+            }
+        }
+    }
+    // IINC: "IINC 0, 1" → "IINC name, 1"
+    if formatted.starts_with("IINC ") {
+        let rest = &formatted[5..];
+        if let Some(comma_pos) = rest.find(',') {
+            if let Ok(slot) = rest[..comma_pos].trim().parse::<u16>() {
+                let vname = resolve_slot(insn_idx, slot, resolved_vars, is_static);
+                return format!("IINC {vname}{}", &rest[comma_pos..]);
+            }
+        }
+    }
+    formatted.to_string()
+}
+
+/// 解析槽位号为变量名
+fn resolve_slot(
+    insn_idx: usize,
+    slot: u16,
+    resolved_vars: &[(u16, String, usize, usize)],
+    is_static: bool,
+) -> String {
+    if !is_static && slot == 0 {
+        return "this".to_string();
+    }
+    for (vslot, vname, start, end) in resolved_vars {
+        if *vslot == slot && insn_idx >= *start && insn_idx < *end {
+            return vname.clone();
+        }
+    }
+    slot.to_string()
 }

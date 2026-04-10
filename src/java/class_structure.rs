@@ -12,8 +12,6 @@ pub struct ClassStructure {
     pub fields: Vec<FieldInfo>,
     /// 方法列表
     pub methods: Vec<MethodInfo>,
-    /// 常量池条目 (index, type_tag, formatted_value)
-    pub cp_entries: Vec<(u16, &'static str, String)>,
 }
 
 /// class 级别元数据

@@ -29,6 +29,8 @@ pub fn hex_theme() -> egui_hex_view::HexTheme {
         inspector_bg: theme::BG_DARKEST,
         header_color: theme::TEXT_MUTED,
         header_bg: theme::BG_DARKEST,
+        search_bg: theme::verdigris_alpha(25),
+        search_current_bg: theme::verdigris_alpha(60),
         labels: egui_hex_view::HexLabels {
             empty: t!("hex.empty").to_string(),
             copy_hex: t!("hex.copy_hex").to_string(),

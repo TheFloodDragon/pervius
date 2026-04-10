@@ -94,7 +94,7 @@ impl FilePanel {
         let mut body_ui = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(body_rect)
-                .id_salt("explorer_body"),
+                .id(egui::Id::new("explorer_body")),
         );
         self.render_tree(&mut body_ui, tab_modified, jar_modified, decompiled_classes);
         // 过滤条浮层

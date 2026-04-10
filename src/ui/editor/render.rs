@@ -79,6 +79,8 @@ fn render_code_view(
         };
     // TextEdit（read-only &str buffer）
     let mut galley_y = 0.0f32;
+    let mut edge_scroll_delta = 0.0f32;
+    let mut wheel_delta = 0.0f32;
     ui.horizontal_top(|ui| {
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
         let mut buf: &str = text;
@@ -89,7 +91,52 @@ fn render_code_view(
             .layouter(&mut layouter)
             .show(ui);
         galley_y = output.galley_pos.y;
+        // egui ScrollArea 在 dragged_id().is_some() 时跳过滚轮处理，
+        // 导致拖拽选择期间无法滚动。
+        // 在闭包内收集滚动量，闭包外通过父 ui 转发给 ScrollArea。
+        if output.response.dragged() {
+            let clip = ui.clip_rect();
+            let dt = ui.input(|i| i.stable_dt).min(0.1);
+            let edge_zone = 30.0;
+            let max_speed = 800.0;
+            // 鼠标靠近或超出视口边缘时自动滚动
+            if let Some(pos) = output.response.interact_pointer_pos() {
+                let speed = if pos.y < clip.top() {
+                    let dist = clip.top() - pos.y + edge_zone;
+                    (dist / edge_zone).min(3.0) * max_speed
+                } else if pos.y > clip.bottom() {
+                    let dist = pos.y - clip.bottom() + edge_zone;
+                    -((dist / edge_zone).min(3.0) * max_speed)
+                } else if pos.y < clip.top() + edge_zone {
+                    let factor = (clip.top() + edge_zone - pos.y) / edge_zone;
+                    factor * max_speed * 0.3
+                } else if pos.y > clip.bottom() - edge_zone {
+                    let factor = (pos.y - clip.bottom() + edge_zone) / edge_zone;
+                    -(factor * max_speed * 0.3)
+                } else {
+                    0.0
+                };
+                edge_scroll_delta = speed * dt;
+            }
+            // 滚轮事件
+            wheel_delta = ui.input(|i| i.smooth_scroll_delta.y);
+        }
     });
+    // 在父 ui 上应用滚动（确保 scroll_with_delta 被正确的 ScrollArea 消费）
+    if edge_scroll_delta != 0.0 {
+        ui.scroll_with_delta_animation(
+            egui::vec2(0.0, edge_scroll_delta),
+            egui::style::ScrollAnimation::none(),
+        );
+        ui.ctx().request_repaint();
+    }
+    if wheel_delta != 0.0 {
+        ui.scroll_with_delta_animation(
+            egui::vec2(0.0, wheel_delta),
+            egui::style::ScrollAnimation::none(),
+        );
+        ui.input_mut(|i| i.smooth_scroll_delta.y = 0.0);
+    }
     // 行号 overlay（固定在视口左侧，不随水平滚动移动）
     let clip = ui.clip_rect();
     let painter = ui.painter();
@@ -146,7 +193,20 @@ pub fn render_decompiled(
 }
 
 /// Hex 视图
-pub fn render_hex(ui: &mut egui::Ui, tab: &mut EditorTab) {
+pub fn render_hex(
+    ui: &mut egui::Ui,
+    tab: &mut EditorTab,
+    matches: &[FindMatch],
+    current: Option<usize>,
+) {
     let theme = super::style::hex::hex_theme();
-    egui_hex_view::show(ui, &tab.raw_bytes, &mut tab.hex_state, &theme);
+    let highlights: Vec<(usize, usize)> = matches.iter().map(|m| (m.start, m.end)).collect();
+    egui_hex_view::show(
+        ui,
+        &tab.raw_bytes,
+        &mut tab.hex_state,
+        &theme,
+        &highlights,
+        current,
+    );
 }

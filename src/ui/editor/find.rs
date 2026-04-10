@@ -32,6 +32,8 @@ pub struct FindBar {
     matches: Vec<FindMatch>,
     current: usize,
     focus_input: bool,
+    /// 导航匹配项时请求视图滚动
+    scroll_requested: bool,
     /// 缓存指纹，避免重复搜索
     last_key: u64,
 }
@@ -47,6 +49,7 @@ impl FindBar {
             matches: Vec::new(),
             current: 0,
             focus_input: false,
+            scroll_requested: false,
             last_key: 0,
         }
     }
@@ -68,13 +71,24 @@ impl FindBar {
         self.open = false;
         self.matches.clear();
         self.current = 0;
+        self.scroll_requested = false;
         self.last_key = 0;
     }
 
     /// 更新搜索结果（在渲染内容前调用，提供高亮数据）
     pub fn update(&mut self, tab: &EditorTab) {
-        let text = text_for_view(tab);
-        self.update_search(text);
+        match tab.active_view {
+            ActiveView::Hex => self.update_hex(&tab.raw_bytes),
+            _ => {
+                let text = text_for_view(tab);
+                self.update_search(text);
+            }
+        }
+    }
+
+    /// 消费滚动请求（调用后自动清除）
+    pub fn take_scroll_request(&mut self) -> bool {
+        std::mem::take(&mut self.scroll_requested)
     }
 
     /// 返回当前匹配列表（克隆，避免借用冲突）
@@ -251,6 +265,7 @@ impl FindBar {
     fn next_match(&mut self) {
         if !self.matches.is_empty() {
             self.current = (self.current + 1) % self.matches.len();
+            self.scroll_requested = true;
         }
     }
 
@@ -261,6 +276,7 @@ impl FindBar {
             } else {
                 self.current - 1
             };
+            self.scroll_requested = true;
         }
     }
 
@@ -282,6 +298,26 @@ impl FindBar {
         }
         self.last_key = key;
         self.matches = find_all(text, &self.query, self.case_sensitive, self.whole_word);
+        if self.matches.is_empty() {
+            self.current = 0;
+        } else if self.current >= self.matches.len() {
+            self.current = 0;
+        }
+    }
+
+    fn update_hex(&mut self, data: &[u8]) {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.query.hash(&mut h);
+        self.case_sensitive.hash(&mut h);
+        (data.as_ptr() as usize).hash(&mut h);
+        data.len().hash(&mut h);
+        0xBEEFu32.hash(&mut h);
+        let key = h.finish();
+        if key == self.last_key {
+            return;
+        }
+        self.last_key = key;
+        self.matches = find_bytes(data, &self.query, self.case_sensitive);
         if self.matches.is_empty() {
             self.current = 0;
         } else if self.current >= self.matches.len() {
@@ -319,6 +355,74 @@ fn text_for_view(tab: &EditorTab) -> &str {
         ActiveView::Bytecode => tab.selected_bytecode_text(),
         ActiveView::Hex => "",
     }
+}
+
+/// 在字节数据中搜索 ASCII 文本
+fn find_bytes(data: &[u8], query: &str, case_sensitive: bool) -> Vec<FindMatch> {
+    if query.is_empty() || data.is_empty() {
+        return Vec::new();
+    }
+    // 尝试解析为 hex 模式（如 "CA FE BA BE"）
+    if let Some(hex_bytes) = parse_hex_query(query) {
+        return find_bytes_raw(data, &hex_bytes);
+    }
+    let query_bytes = query.as_bytes();
+    if data.len() < query_bytes.len() {
+        return Vec::new();
+    }
+    let mut results = Vec::new();
+    let end = data.len() - query_bytes.len() + 1;
+    for i in 0..end {
+        let matches = if case_sensitive {
+            data[i..i + query_bytes.len()] == *query_bytes
+        } else {
+            data[i..i + query_bytes.len()]
+                .iter()
+                .zip(query_bytes)
+                .all(|(a, b)| a.to_ascii_lowercase() == b.to_ascii_lowercase())
+        };
+        if matches {
+            results.push(FindMatch {
+                start: i,
+                end: i + query_bytes.len(),
+            });
+        }
+    }
+    results
+}
+
+/// 在字节数据中搜索原始字节序列（hex 模式，忽略大小写选项）
+fn find_bytes_raw(data: &[u8], pattern: &[u8]) -> Vec<FindMatch> {
+    if pattern.is_empty() || data.len() < pattern.len() {
+        return Vec::new();
+    }
+    let mut results = Vec::new();
+    let end = data.len() - pattern.len() + 1;
+    for i in 0..end {
+        if data[i..i + pattern.len()] == *pattern {
+            results.push(FindMatch {
+                start: i,
+                end: i + pattern.len(),
+            });
+        }
+    }
+    results
+}
+
+/// 尝试将查询解析为 hex 字节序列（如 "CAFEBABE" 或 "CA FE BA BE"）
+fn parse_hex_query(query: &str) -> Option<Vec<u8>> {
+    let cleaned: String = query.chars().filter(|c| !c.is_whitespace()).collect();
+    if cleaned.is_empty() || cleaned.len() % 2 != 0 {
+        return None;
+    }
+    if !cleaned.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let bytes: Result<Vec<u8>, _> = (0..cleaned.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&cleaned[i..i + 2], 16))
+        .collect();
+    bytes.ok()
 }
 
 // -- 搜索引擎 --

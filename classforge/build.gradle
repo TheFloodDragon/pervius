@@ -1,0 +1,31 @@
+plugins {
+    id 'java'
+}
+
+group = 'pervius'
+version = '1.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.ow2.asm:asm:9.7.1'
+    implementation 'org.ow2.asm:asm-tree:9.7.1'
+}
+
+jar {
+    archiveFileName = 'classforge.jar'
+    manifest {
+        attributes 'Main-Class': 'pervius.asm.ClassForge'
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}

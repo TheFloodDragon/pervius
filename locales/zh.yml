@@ -100,6 +100,7 @@ status.version: "Pervius v0.1.0"
 status.decompiled: "反编译"
 status.bytecode: "字节码"
 status.hex: "Hex"
+status.decompiling_single: "正在反编译 %{name}"
 status.decompiling_init: "正在分析 %{name}（%{count} 个类）"
 status.decompiling_progress: "正在反编译 %{name}（%{current}/%{total}）"
 

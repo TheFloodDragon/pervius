@@ -100,6 +100,7 @@ status.version: "Pervius v0.1.0"
 status.decompiled: "Decompiled"
 status.bytecode: "Bytecode"
 status.hex: "Hex"
+status.decompiling_single: "Decompiling %{name}"
 status.decompiling_init: "Analyzing %{name} (%{count} classes)"
 status.decompiling_progress: "Decompiling %{name} (%{current}/%{total})"
 

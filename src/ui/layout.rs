@@ -114,9 +114,14 @@ impl Layout {
         self.check_single_decompile();
         // keybind 录制中跳过快捷键分发，避免录制按键同时触发动作
         if !egui_window_settings::is_recording_keybind(ui.ctx()) {
+            let view_before = self.editor.focused_view();
             let mut keys = std::mem::take(&mut self.keys);
             keys.dispatch(ui.ctx(), self);
             self.keys = keys;
+            // Tab 切换视图后清除焦点，防止 begin_pass 焦点导航产生的闪烁
+            if self.editor.focused_view() != view_before {
+                ui.ctx().memory_mut(|m| m.stop_text_input());
+            }
         }
         let t = self.explorer_anim_t(ui);
         let rects = Self::compute_rects(ui.max_rect(), self.explorer_width * t, t > 0.0);
@@ -243,16 +248,16 @@ impl Layout {
             class_info.as_deref(),
         );
         // 同步反编译进度
-        let decompile_info = if let Some((ref name, _)) = self.pending_re_decompile {
+        if let Some((ref name, _)) = self.pending_re_decompile {
             // 重反编译启动中（后台清缓存）
-            Some((name.clone(), 0u32, 0u32))
+            self.status_bar.sync_decompile_single(name);
         } else if !self.pending_decompiles.is_empty() {
-            // 单文件反编译中（取最后一个的名字）
+            // 单文件反编译中（取最后一个的短名）
             let name = &self.pending_decompiles.last().unwrap().0;
             let short = name.rsplit('/').next().unwrap_or(name);
-            Some((short.to_string(), 0u32, 0u32))
+            self.status_bar.sync_decompile_single(short);
         } else {
-            self.decompiling.as_ref().map(|task| {
+            let decompile_info = self.decompiling.as_ref().map(|task| {
                 let current = task
                     .progress
                     .current
@@ -262,21 +267,26 @@ impl Layout {
                     .total
                     .load(std::sync::atomic::Ordering::Relaxed);
                 (task.jar_name.clone(), current, total)
-            })
-        };
-        self.status_bar.sync_decompile(
-            decompile_info
-                .as_ref()
-                .map(|(n, c, t)| (n.as_str(), *c, *t)),
-        );
+            });
+            self.status_bar.sync_decompile(
+                decompile_info
+                    .as_ref()
+                    .map(|(n, c, t)| (n.as_str(), *c, *t)),
+            );
+        }
         if self.decompiling.is_some()
             || !self.pending_decompiles.is_empty()
             || self.pending_re_decompile.is_some()
         {
             ui.ctx().request_repaint();
         }
-        self.status_bar
-            .render(&mut ui.new_child(egui::UiBuilder::new().max_rect(rect)));
+        self.status_bar.render(
+            &mut ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(rect)
+                    .id(egui::Id::new("status_bar")),
+            ),
+        );
         if let Some(v) = self.status_bar.take_view_change() {
             self.editor.set_focused_view(v);
         }

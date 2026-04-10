@@ -82,7 +82,14 @@ impl StatusBar {
         self.item_mut::<ViewToggleItem>()?.take_changed()
     }
 
-    /// 同步反编译进度，None 表示无任务
+    /// 同步单文件反编译状态
+    pub fn sync_decompile_single(&mut self, name: &str) {
+        if let Some(item) = self.item_mut::<DecompileProgressItem>() {
+            item.set_single(name);
+        }
+    }
+
+    /// 同步批量反编译进度，None 表示无任务
     pub fn sync_decompile(&mut self, info: Option<(&str, u32, u32)>) {
         if let Some(item) = self.item_mut::<DecompileProgressItem>() {
             item.set_progress(info);

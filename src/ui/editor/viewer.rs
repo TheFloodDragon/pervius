@@ -77,11 +77,19 @@ impl TabViewer for EditorTabViewer<'_> {
         } else {
             (vec![], None)
         };
+        // hex 视图滚动到当前匹配项
+        if tab.active_view == ActiveView::Hex && self.find_bar.take_scroll_request() {
+            if let Some(idx) = current {
+                if let Some(m) = matches.get(idx) {
+                    tab.hex_state.scroll_to_byte = Some(m.start);
+                }
+            }
+        }
         // 渲染内容
         match tab.active_view {
             ActiveView::Decompiled => render::render_decompiled(ui, tab, &matches, current),
             ActiveView::Bytecode => bytecode_panel::render_bytecode_panel(ui, tab),
-            ActiveView::Hex => render::render_hex(ui, tab),
+            ActiveView::Hex => render::render_hex(ui, tab, &matches, current),
         }
         // 浮动查找栏（overlay）
         if self.find_bar.open {

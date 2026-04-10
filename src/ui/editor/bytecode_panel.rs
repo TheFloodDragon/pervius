@@ -311,11 +311,6 @@ fn render_class_info_editable(ui: &mut egui::Ui, cs: &mut ClassStructure) -> boo
                     render_kv(ui, "Deprecated", "true");
                 }
             }
-            // 常量池
-            if !cs.cp_entries.is_empty() {
-                ui.add_space(16.0);
-                render_constant_pool(ui, &cs.cp_entries);
-            }
             ui.add_space(CONTENT_PAD);
         });
     changed
@@ -571,75 +566,6 @@ fn render_annotations(ui: &mut egui::Ui, annotations: &mut Vec<EditableAnnotatio
         }
     });
     changed
-}
-
-// ── 常量池 ──
-
-/// 常量池行高
-const CP_ROW_HEIGHT: f32 = 20.0;
-/// 索引列宽
-const CP_IDX_WIDTH: f32 = 40.0;
-/// 类型列宽
-const CP_TAG_WIDTH: f32 = 130.0;
-
-/// 渲染常量池条目表
-fn render_constant_pool(ui: &mut egui::Ui, entries: &[(u16, &str, String)]) {
-    ui.horizontal(|ui| {
-        ui.add_space(CONTENT_PAD);
-        ui.label(
-            egui::RichText::new(format!("CONSTANT POOL ({})", entries.len()))
-                .color(theme::TEXT_MUTED)
-                .font(egui::FontId::proportional(10.0)),
-        );
-    });
-    ui.add_space(4.0);
-    for &(idx, tag, ref value) in entries {
-        let tag_color = cp_tag_color(tag);
-        ui.horizontal(|ui| {
-            ui.add_space(CONTENT_PAD);
-            // index
-            ui.add_sized(
-                egui::vec2(CP_IDX_WIDTH, CP_ROW_HEIGHT),
-                egui::Label::new(
-                    egui::RichText::new(format!("#{idx}"))
-                        .color(theme::TEXT_MUTED)
-                        .font(egui::FontId::monospace(11.0)),
-                ),
-            );
-            // type tag
-            ui.add_sized(
-                egui::vec2(CP_TAG_WIDTH, CP_ROW_HEIGHT),
-                egui::Label::new(
-                    egui::RichText::new(tag)
-                        .color(tag_color)
-                        .font(egui::FontId::monospace(11.0)),
-                ),
-            );
-            // value
-            ui.add(
-                egui::Label::new(
-                    egui::RichText::new(value)
-                        .color(theme::TEXT_PRIMARY)
-                        .font(egui::FontId::monospace(11.0)),
-                )
-                .truncate(),
-            );
-        });
-    }
-}
-
-/// 根据常量类型返回颜色
-fn cp_tag_color(tag: &str) -> egui::Color32 {
-    match tag {
-        "Utf8" => theme::TEXT_MUTED,
-        "Integer" | "Float" | "Long" | "Double" => theme::SYN_NUMBER,
-        "String" => theme::SYN_STRING,
-        "Class" => theme::SYN_TYPE,
-        "MethodRef" | "InterfaceMethodRef" => theme::SYN_KEYWORD,
-        "FieldRef" => theme::VERDIGRIS,
-        "NameAndType" => theme::TEXT_SECONDARY,
-        _ => theme::TEXT_MUTED,
-    }
 }
 
 // ── 通用 widget ──

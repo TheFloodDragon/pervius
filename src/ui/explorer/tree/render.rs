@@ -200,7 +200,7 @@ fn render_row(
     let indent_px = 8.0 + depth as f32 * 16.0;
     let avail_w = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(egui::vec2(avail_w, ROW_H), egui::Sense::click());
-    let painter = ui.painter();
+    let painter = ui.painter().with_clip_rect(rect);
     // 选中 / hover 背景动画
     let anim = Anim::new(ui, 0.1).with(&node.path);
     let target_bg = if selected {

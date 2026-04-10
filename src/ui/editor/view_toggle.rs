@@ -11,11 +11,11 @@ pub enum ActiveView {
 }
 
 impl ActiveView {
-    /// 循环切换到下一个视图
+    /// 在 Decompiled 和 Bytecode 之间切换（不含 Hex）
     pub fn next(self) -> Self {
         match self {
             Self::Decompiled => Self::Bytecode,
-            Self::Bytecode => Self::Hex,
+            Self::Bytecode => Self::Decompiled,
             Self::Hex => Self::Decompiled,
         }
     }

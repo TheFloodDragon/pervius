@@ -253,7 +253,11 @@ impl Layout {
             Some(cs) => cs,
             None => return,
         };
-        match crate::java::save::apply_structure(&tab.raw_bytes, cs) {
+        match crate::java::save::apply_structure(
+            &tab.raw_bytes,
+            cs,
+            self.jar.as_ref().map(|j| j.path.as_path()),
+        ) {
             Ok(new_bytes) => {
                 tab.raw_bytes = new_bytes.clone();
                 tab.is_modified = false;

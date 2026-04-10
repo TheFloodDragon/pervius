@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/egui-animation", "crates/egui-hex-view", "crates/egui-keybind", "crates/egui-shell", "crates/egui-window", "crates/egui-window-settings"]
+members = [".", "crates/egui-animation", "crates/egui-hex-view", "crates/egui-keybind", "crates/egui-notify", "crates/egui-shell", "crates/egui-window", "crates/egui-window-settings"]
 
 [package]
 name = "pervius"
@@ -11,7 +11,7 @@ log = "0.4"
 env_logger = "0.11"
 eframe = { version = "0.34.1", default-features = false, features = ["glow", "default_fonts"] }
 egui_dock = "0.19"
-egui-notify = "0.22"
+egui-notify = { path = "crates/egui-notify" }
 egui-animation = { path = "crates/egui-animation" }
 egui-hex-view = { path = "crates/egui-hex-view" }
 egui-keybind = { path = "crates/egui-keybind", features = ["serde"] }
