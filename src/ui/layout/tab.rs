@@ -39,20 +39,64 @@ impl Layout {
         self.editor.open_tab(tab);
         if entry_path.ends_with(".class") {
             if is_modified && mem_cached.is_none() {
-                // 已修改但无内存缓存（首次保存后 tab 未关闭过），重新反编译
-                self.start_single_decompile(&entry_path, false);
+                self.start_single_decompile(&entry_path, bytes, false);
             } else if !is_modified && !has_cache {
-                self.start_single_decompile(&entry_path, true);
+                self.start_single_decompile(&entry_path, bytes, true);
             }
         }
     }
 
-    /// 保存当前聚焦 tab 的修改到 JAR 内存，并触发单文件反编译
+    /// 保存当前聚焦 tab 的修改
+    ///
+    /// 独立文件直接写回磁盘；JAR 条目写入 JAR 内存并触发重反编译。
     pub fn save_active_tab(&mut self) {
         let Some(tab) = self.editor.focused_tab_mut() else {
             return;
         };
         if !tab.is_modified {
+            return;
+        }
+        // 独立文件：直接写回磁盘，不参与 JAR modified 管理
+        if let Some(disk_path) = tab.standalone_path.clone() {
+            let new_bytes = if tab.is_text {
+                tab.decompiled.as_bytes().to_vec()
+            } else if tab.is_class {
+                let Some(cs) = &tab.class_structure else {
+                    return;
+                };
+                match pervius_java_bridge::save::apply_structure(&tab.raw_bytes, cs, None) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        log::error!("Save failed: {}: {e}", disk_path.display());
+                        self.toasts.error(t!("editor.save_failed", error = e));
+                        return;
+                    }
+                }
+            } else {
+                tab.raw_bytes.clone()
+            };
+            if let Err(e) = std::fs::write(&disk_path, &new_bytes) {
+                log::error!("Write failed: {}: {e}", disk_path.display());
+                self.toasts.error(t!("layout.write_file_failed", error = e));
+                return;
+            }
+            tab.raw_bytes = new_bytes.clone();
+            tab.is_modified = false;
+            // 独立 class 文件也需要重建 class structure
+            if tab.is_class {
+                if let Ok(new_cs) = pervius_java_bridge::bytecode::disassemble(&new_bytes) {
+                    tab.class_structure = Some(new_cs);
+                }
+            }
+            let is_class = tab.is_class;
+            let entry_path = tab.entry_path.clone();
+            log::info!("Saved standalone: {}", disk_path.display());
+            // class 文件保存后重新反编译刷新视图（tab 借用在此之前结束）
+            if is_class {
+                if let Some(ep) = entry_path {
+                    self.start_single_decompile(&ep, new_bytes, false);
+                }
+            }
             return;
         }
         let Some(entry_path) = tab.entry_path.clone() else {
@@ -85,29 +129,51 @@ impl Layout {
             Ok(new_bytes) => {
                 tab.raw_bytes = new_bytes.clone();
                 tab.is_modified = false;
-                // 就地翻转 modified → saved，不重建 class structure
+                // 收集 saved 成员（modified 或已 saved 的）
                 let mut saved_set: HashSet<SavedMember> = HashSet::new();
-                if let Some(cs) = &mut tab.class_structure {
+                if let Some(cs) = &tab.class_structure {
                     if cs.info.modified || cs.info.saved {
-                        cs.info.saved = true;
                         saved_set.insert(SavedMember::ClassInfo);
                     }
-                    cs.info.modified = false;
-                    for f in &mut cs.fields {
+                    for f in &cs.fields {
                         if f.modified || f.saved {
-                            f.saved = true;
                             saved_set
                                 .insert(SavedMember::Field(f.name.clone(), f.descriptor.clone()));
                         }
-                        f.modified = false;
                     }
-                    for m in &mut cs.methods {
+                    for m in &cs.methods {
                         if m.modified || m.saved {
-                            m.saved = true;
                             saved_set
                                 .insert(SavedMember::Method(m.name.clone(), m.descriptor.clone()));
                         }
-                        m.modified = false;
+                    }
+                }
+                // 从新字节重建 class structure，保持与 raw_bytes 同步
+                // （不重建会导致二次保存时所有方法被误判为 CHANGED）
+                match pervius_java_bridge::bytecode::disassemble(&new_bytes) {
+                    Ok(mut new_cs) => {
+                        if saved_set.contains(&SavedMember::ClassInfo) {
+                            new_cs.info.saved = true;
+                        }
+                        for f in &mut new_cs.fields {
+                            if saved_set
+                                .contains(&SavedMember::Field(f.name.clone(), f.descriptor.clone()))
+                            {
+                                f.saved = true;
+                            }
+                        }
+                        for m in &mut new_cs.methods {
+                            if saved_set.contains(&SavedMember::Method(
+                                m.name.clone(),
+                                m.descriptor.clone(),
+                            )) {
+                                m.saved = true;
+                            }
+                        }
+                        tab.class_structure = Some(new_cs);
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to rebuild class structure after save: {e}");
                     }
                 }
                 // 持久化 saved 成员（跨 tab 关闭/重开保留）
@@ -115,10 +181,10 @@ impl Layout {
                     .saved_members
                     .insert(entry_path.clone(), saved_set);
                 if let Some(jar) = &mut self.jar {
-                    jar.put(&entry_path, new_bytes);
+                    jar.put(&entry_path, new_bytes.clone());
                 }
                 log::info!("Saved: {entry_path}");
-                self.start_single_decompile(&entry_path, false);
+                self.start_single_decompile(&entry_path, new_bytes, false);
             }
             Err(e) => {
                 log::error!("Save failed: {entry_path}: {e}");
@@ -127,10 +193,10 @@ impl Layout {
         }
     }
 
-    /// 从 JAR 条目创建编辑器 tab
+    /// 从条目路径和字节创建编辑器 tab
     ///
     /// `mem_cached` 为已修改条目的内存反编译缓存，优先于磁盘缓存。
-    fn create_tab(
+    pub(super) fn create_tab(
         entry_path: &str,
         bytes: &[u8],
         jar_hash: Option<&str>,

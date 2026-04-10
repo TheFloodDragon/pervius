@@ -118,6 +118,8 @@ layout.export_no_jar: "未打开 JAR 文件"
 layout.export_not_decompiled: "反编译尚未完成"
 layout.export_complete: "已导出 %{count} 个文件到 %{path}"
 layout.export_failed: "导出失败：%{error}"
+layout.open_file_failed: "打开文件失败：%{error}"
+layout.write_file_failed: "写入文件失败：%{error}"
 
 # 反编译器
 decompiler.java_home_not_set: "JAVA_HOME 环境变量未设置"

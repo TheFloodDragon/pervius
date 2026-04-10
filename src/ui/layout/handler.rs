@@ -1,4 +1,4 @@
-//! JAR 文件打开、后台加载、拖拽处理
+//! JAR 文件打开、后台加载、拖拽处理、独立文件打开
 //!
 //! @author sky
 
@@ -42,7 +42,7 @@ impl Layout {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 match ext.to_ascii_lowercase().as_str() {
                     "jar" | "zip" | "war" | "ear" => self.request_open_jar(path),
-                    _ => {}
+                    _ => self.open_standalone_file(path),
                 }
             }
         }
@@ -103,7 +103,7 @@ impl Layout {
         });
     }
 
-    /// 打开文件对话框选择 JAR
+    /// 打开文件对话框选择 JAR 或独立文件
     pub fn open_jar_dialog(&mut self) {
         let jar_label = t!("layout.java_archive");
         let class_label = t!("layout.class_file");
@@ -112,7 +112,35 @@ impl Layout {
             .add_filter(&*class_label, &["class"])
             .pick_file();
         if let Some(path) = file {
-            self.open_jar(&path);
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            match ext.to_ascii_lowercase().as_str() {
+                "jar" | "zip" | "war" | "ear" => self.open_jar(&path),
+                _ => self.open_standalone_file(&path),
+            }
+        }
+    }
+
+    /// 打开独立文件（非 JAR 条目）为 tab，保存时直接写回磁盘
+    pub fn open_standalone_file(&mut self, path: &Path) {
+        let path_str = path.to_string_lossy().to_string();
+        // 已打开则聚焦
+        if self.editor.focus_tab(&path_str) {
+            return;
+        }
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) => {
+                log::error!("Failed to read file: {path_str}: {e}");
+                self.toasts.error(t!("layout.open_file_failed", error = e));
+                return;
+            }
+        };
+        let mut tab = Self::create_tab(&path_str, &bytes, None, None);
+        tab.standalone_path = Some(path.to_path_buf());
+        self.editor.open_tab(tab);
+        // 独立 .class 文件触发反编译（无 JAR 上下文）
+        if path_str.ends_with(".class") {
+            self.start_single_decompile(&path_str, bytes, false);
         }
     }
 }

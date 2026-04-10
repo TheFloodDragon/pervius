@@ -98,25 +98,30 @@ impl Layout {
 
     /// 后台反编译单个 .class 文件
     ///
-    /// `write_cache` 为 true 时输出写入缓存目录（首次预览），为 false 时仅返回内存结果（保存后重编译）。
-    pub(super) fn start_single_decompile(&mut self, entry_path: &str, write_cache: bool) {
-        let Some(jar) = &self.jar else { return };
-        let jar_path = jar.path.clone();
+    /// `write_cache` 为 true 时输出写入缓存目录（首次预览），为 false 时仅返回内存结果。
+    /// 有 JAR 上下文时自动传入 `-e` 依赖解析；独立文件无上下文也能反编译。
+    pub(super) fn start_single_decompile(
+        &mut self,
+        entry_path: &str,
+        bytes: Vec<u8>,
+        write_cache: bool,
+    ) {
+        let jar_path = self.jar.as_ref().map(|j| j.path.clone());
         let hash = if write_cache {
-            Some(jar.hash.clone())
+            self.jar.as_ref().map(|j| j.hash.clone())
         } else {
             None
         };
-        let Some(raw) = jar.get(entry_path) else {
-            return;
-        };
-        let bytes = raw.to_vec();
         let class_path = entry_path.to_string();
         let (tx, rx) = mpsc::channel();
         let cp = class_path.clone();
         std::thread::spawn(move || {
-            let result =
-                decompiler::decompile_single_class(&bytes, &cp, &jar_path, hash.as_deref());
+            let result = decompiler::decompile_single_class(
+                &bytes,
+                &cp,
+                jar_path.as_deref(),
+                hash.as_deref(),
+            );
             let _ = tx.send(result);
         });
         self.pending_decompiles.push((class_path, rx));

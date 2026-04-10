@@ -7,6 +7,7 @@ use egui_editor::highlight::{self, Language, Span};
 use egui_hex_view::HexViewState;
 use pervius_java_bridge::class_structure::ClassStructure;
 use rust_i18n::t;
+use std::path::PathBuf;
 
 /// 预处理后的代码视图数据（虚拟滚动用）
 pub struct CodeData {
@@ -40,6 +41,8 @@ pub struct EditorTab {
     pub title: String,
     /// JAR 内条目路径（用于 tab 去重 + widget ID）
     pub entry_path: Option<String>,
+    /// 独立文件的磁盘路径（非 JAR 内条目，保存时直接写回磁盘，不参与 JAR modified 管理）
+    pub standalone_path: Option<PathBuf>,
     /// 反编译源码（只读）
     pub decompiled: String,
     /// 原始字节（只读，用于 hex 视图）
@@ -92,6 +95,7 @@ impl EditorTab {
         Self {
             title: title.into(),
             entry_path: Some(entry_path.into()),
+            standalone_path: None,
             decompiled,
             raw_bytes,
             language,
@@ -121,6 +125,7 @@ impl EditorTab {
         Self {
             title: title.into(),
             entry_path: Some(entry_path.into()),
+            standalone_path: None,
             decompiled: text,
             raw_bytes,
             language,
@@ -147,6 +152,7 @@ impl EditorTab {
         Self {
             title: title.into(),
             entry_path: Some(entry_path.into()),
+            standalone_path: None,
             decompiled: String::new(),
             raw_bytes,
             language: Language::Plain,

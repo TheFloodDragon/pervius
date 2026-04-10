@@ -47,6 +47,7 @@ pub fn paint_editor_bg(ui: &egui::Ui, full_rect: egui::Rect, gutter_w: f32, them
 /// 非空时显示原始源码行号，无映射行不显示行号。
 pub fn code_view(
     ui: &mut egui::Ui,
+    id: egui::Id,
     text: &str,
     spans: &[Span],
     line_mapping: &[Option<u32>],
@@ -82,6 +83,7 @@ pub fn code_view(
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
         let mut buf: &str = text;
         let output = egui::TextEdit::multiline(&mut buf)
+            .id(id)
             .desired_width(f32::INFINITY)
             .font(code_font.clone())
             .frame(egui::Frame::NONE)
@@ -111,6 +113,7 @@ pub fn code_view(
 /// 返回 `true` 表示文本已被修改，调用方负责刷新高亮数据和标记 tab 状态。
 pub fn code_view_editable(
     ui: &mut egui::Ui,
+    id: egui::Id,
     text: &mut String,
     lang: Language,
     matches: &[FindMatch],
@@ -138,6 +141,7 @@ pub fn code_view_editable(
     ui.horizontal_top(|ui| {
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
         let output = egui::TextEdit::multiline(text)
+            .id(id)
             .desired_width(f32::INFINITY)
             .font(code_font.clone())
             .frame(egui::Frame::NONE)

@@ -3,7 +3,7 @@
 //! @author sky
 
 mod area;
-mod bytecode_panel;
+mod bytecode;
 mod render;
 pub mod style;
 mod tab;

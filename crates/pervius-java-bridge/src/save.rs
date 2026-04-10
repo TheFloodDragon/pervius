@@ -8,10 +8,10 @@
 use crate::error::BridgeError;
 use std::path::Path;
 
-use crate::bytecode;
-use crate::class_structure::ClassStructure;
 use crate::assembler;
 use crate::assembler::MethodEdit;
+use crate::bytecode;
+use crate::class_structure::ClassStructure;
 use ristretto_classfile::attributes::{AnnotationElement, AnnotationValuePair, Attribute};
 use ristretto_classfile::{
     ClassAccessFlags, ClassFile, ConstantPool, FieldAccessFlags, MethodAccessFlags,
@@ -84,7 +84,15 @@ pub fn apply_structure(
 }
 
 fn apply_class_info(cf: &mut ClassFile, cs: &ClassStructure) {
-    cf.access_flags = parse_class_flags(&cs.info.access);
+    let mut flags = parse_class_flags(&cs.info.access);
+    // SUPER 是所有现代类（非 interface/annotation/module）的隐式标记，
+    // as_code() 不输出它，需要在保存时加回
+    if !flags.intersects(
+        ClassAccessFlags::INTERFACE | ClassAccessFlags::ANNOTATION | ClassAccessFlags::MODULE,
+    ) {
+        flags |= ClassAccessFlags::SUPER;
+    }
+    cf.access_flags = flags;
     let cp = &mut cf.constant_pool;
     // 类名
     let name_idx = find_or_add_utf8(cp, &cs.info.name);

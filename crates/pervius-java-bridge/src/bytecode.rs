@@ -6,13 +6,14 @@
 //! @author sky
 
 mod annotation;
+pub mod descriptor;
 mod format;
 
 use crate::class_structure::{
     ClassInfo, ClassStructure, EditableAnnotation, FieldInfo, MethodInfo,
 };
 use ristretto_classfile::attributes::{Attribute, Instruction};
-use ristretto_classfile::{ClassFile, ConstantPool};
+use ristretto_classfile::{ClassFile, ConstantPool, MethodAccessFlags};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write;
 use std::io::Cursor;
@@ -200,8 +201,53 @@ fn extract_field(field: &ristretto_classfile::Field, cp: &ConstantPool) -> Field
     }
 }
 
+/// 方法 access flags → 字符串（保留所有标记）
+///
+/// ristretto 的 `as_code()` 会丢弃 BRIDGE / VARARGS / STRICT / SYNTHETIC，
+/// 导致保存时这些标记被静默剥离。此函数输出完整标记，确保 round-trip 无损。
+fn method_access_to_string(flags: MethodAccessFlags) -> String {
+    let mut parts = Vec::new();
+    if flags.contains(MethodAccessFlags::PUBLIC) {
+        parts.push("public");
+    }
+    if flags.contains(MethodAccessFlags::PRIVATE) {
+        parts.push("private");
+    }
+    if flags.contains(MethodAccessFlags::PROTECTED) {
+        parts.push("protected");
+    }
+    if flags.contains(MethodAccessFlags::STATIC) {
+        parts.push("static");
+    }
+    if flags.contains(MethodAccessFlags::FINAL) {
+        parts.push("final");
+    }
+    if flags.contains(MethodAccessFlags::SYNCHRONIZED) {
+        parts.push("synchronized");
+    }
+    if flags.contains(MethodAccessFlags::BRIDGE) {
+        parts.push("bridge");
+    }
+    if flags.contains(MethodAccessFlags::VARARGS) {
+        parts.push("varargs");
+    }
+    if flags.contains(MethodAccessFlags::NATIVE) {
+        parts.push("native");
+    }
+    if flags.contains(MethodAccessFlags::ABSTRACT) {
+        parts.push("abstract");
+    }
+    if flags.contains(MethodAccessFlags::STRICT) {
+        parts.push("strictfp");
+    }
+    if flags.contains(MethodAccessFlags::SYNTHETIC) {
+        parts.push("synthetic");
+    }
+    parts.join(" ")
+}
+
 fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> MethodInfo {
-    let access = method.access_flags.as_code().to_string();
+    let access = method_access_to_string(method.access_flags);
     let is_static = access.contains("static");
     let name = resolve_utf8(cp, method.name_index);
     let descriptor = resolve_utf8(cp, method.descriptor_index);

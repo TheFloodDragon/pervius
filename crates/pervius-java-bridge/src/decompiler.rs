@@ -365,12 +365,12 @@ impl Drop for TempDirGuard {
 /// 单文件反编译：将 class 字节写入临时目录，跑 Vineflower
 ///
 /// `class_path` 形如 `com/example/Foo.class`，用于构建临时目录结构。
-/// `jar_path` 用作 Vineflower 的 context library（-e 参数），提供依赖解析。
+/// `jar_path` 用作 Vineflower 的 context library（-e 参数），提供依赖解析；独立文件传 `None` 跳过。
 /// `cache_hash` 传入 `Some(hash)` 时输出写入缓存目录（首次预览），传入 `None` 时输出写入临时目录（保存后重编译）。
 pub fn decompile_single_class(
     bytes: &[u8],
     class_path: &str,
-    jar_path: &Path,
+    jar_path: Option<&Path>,
     cache_hash: Option<&str>,
 ) -> Result<CachedSource, BridgeError> {
     let vineflower = find_vineflower()?;
@@ -400,9 +400,11 @@ pub fn decompile_single_class(
     std::fs::write(&class_file, bytes)?;
     let mut cmd = process::JavaCommand::new(&vineflower)?;
     cmd.arg("--bytecode-source-mapping=1")
-        .arg("--__dump_original_lines__=1")
-        .arg(format!("-e={}", jar_path.display()))
-        .arg(tmp_input.path.as_os_str())
+        .arg("--__dump_original_lines__=1");
+    if let Some(jp) = jar_path {
+        cmd.arg(format!("-e={}", jp.display()));
+    }
+    cmd.arg(tmp_input.path.as_os_str())
         .arg(output_guard.path.as_os_str());
     let output = cmd.output().map_err(BridgeError::SpawnFailed)?;
     if !output.status.success() {

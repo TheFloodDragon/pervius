@@ -118,6 +118,8 @@ layout.export_no_jar: "No JAR file is open"
 layout.export_not_decompiled: "Decompilation not complete"
 layout.export_complete: "Exported %{count} files to %{path}"
 layout.export_failed: "Export failed: %{error}"
+layout.open_file_failed: "Failed to open file: %{error}"
+layout.write_file_failed: "Failed to write file: %{error}"
 
 # Decompiler
 decompiler.java_home_not_set: "JAVA_HOME environment variable is not set"

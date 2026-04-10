@@ -2,7 +2,7 @@
 //!
 //! @author sky
 
-use super::bytecode_panel;
+use super::bytecode;
 use super::render;
 use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
@@ -97,9 +97,7 @@ impl TabViewer for EditorTabViewer<'_> {
                 render::render_editable(ui, tab, &matches, current)
             }
             ActiveView::Decompiled => render::render_decompiled(ui, tab, &matches, current),
-            ActiveView::Bytecode => {
-                bytecode_panel::render_bytecode_panel(ui, tab, &matches, current)
-            }
+            ActiveView::Bytecode => bytecode::render_bytecode_panel(ui, tab, &matches, current),
             ActiveView::Hex => render::render_hex(ui, tab, &matches, current),
         }
         // 浮动查找栏（overlay）

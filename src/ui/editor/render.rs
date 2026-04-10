@@ -27,6 +27,7 @@ pub fn render_decompiled(
     let t = theme::editor_theme();
     egui_editor::code_view::code_view(
         ui,
+        egui::Id::new(&tab.entry_path).with("decompiled"),
         &tab.decompiled,
         &tab.decompiled_data.spans,
         &tab.decompiled_line_mapping,
@@ -48,6 +49,7 @@ pub fn render_editable(
     let t = theme::editor_theme();
     let changed = egui_editor::code_view::code_view_editable(
         ui,
+        egui::Id::new(&tab.entry_path).with("editable"),
         &mut tab.decompiled,
         tab.language,
         matches,
