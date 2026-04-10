@@ -38,8 +38,6 @@ pub use tab_iter::TabIter;
 
 use crate::{Error, Result, SurfaceIndex};
 
-// ----------------------------------------------------------------------------
-
 /// Direction in which a new node is created relatively to the parent node at which the split occurs.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[allow(missing_docs)]
