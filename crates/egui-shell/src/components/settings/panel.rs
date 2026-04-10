@@ -3,8 +3,8 @@
 //! @author sky
 
 use super::SettingsTheme;
+use crate::app::ShellTheme;
 use crate::components::window::FloatingWindow;
-use crate::components::WindowTheme;
 use eframe::egui;
 
 /// 侧栏宽度
@@ -61,13 +61,13 @@ impl SettingsPanel {
     pub fn show(
         &mut self,
         ctx: &egui::Context,
-        wt: &WindowTheme,
-        theme: &SettingsTheme,
+        theme: &ShellTheme,
+        st: &SettingsTheme,
         body: impl FnOnce(&mut egui::Ui, &mut egui::Ui),
     ) {
         self.window.show(
             ctx,
-            wt,
+            theme,
             |_ui| {},
             |ui| {
                 let total = ui.available_rect_before_wrap();
@@ -75,8 +75,7 @@ impl SettingsPanel {
                 // 侧栏背景
                 let sidebar_rect =
                     egui::Rect::from_min_size(total.left_top(), egui::vec2(sw, total.height()));
-                ui.painter()
-                    .rect_filled(sidebar_rect, 0.0, theme.bg_sidebar);
+                ui.painter().rect_filled(sidebar_rect, 0.0, st.bg_sidebar);
                 // 侧栏 Ui
                 let mut sidebar_ui = ui.new_child(
                     egui::UiBuilder::new()
@@ -90,7 +89,7 @@ impl SettingsPanel {
                         egui::pos2(sidebar_rect.right(), total.top()),
                         egui::pos2(sidebar_rect.right(), total.bottom()),
                     ],
-                    egui::Stroke::new(1.0, theme.border),
+                    egui::Stroke::new(1.0, st.border),
                 );
                 // 右侧内容区
                 let content_left = (sidebar_rect.right() + 1.0).min(total.right());

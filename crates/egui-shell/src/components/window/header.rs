@@ -3,16 +3,16 @@
 //! @author sky
 
 use super::FloatingWindow;
-use crate::components::WindowTheme;
+use crate::app::ShellTheme;
 use eframe::egui;
 
-/// 将窗口内 Ui 的 visuals 设置为匹配 WindowTheme 的风格
-pub(super) fn apply_style(ui: &mut egui::Ui, theme: &WindowTheme) {
+/// 将窗口内 Ui 的 visuals 设置为匹配 ShellTheme 的风格
+pub(super) fn apply_style(ui: &mut egui::Ui, theme: &ShellTheme) {
     let style = ui.style_mut();
     style.visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, theme.text_primary);
     style.visuals.widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
     style.visuals.widgets.hovered.bg_fill = theme.bg_hover;
-    style.visuals.widgets.active.bg_fill = theme.bg_pressed;
+    style.visuals.widgets.active.bg_fill = theme.bg_active;
     style.visuals.widgets.hovered.bg_stroke = egui::Stroke::NONE;
     style.visuals.widgets.active.bg_stroke = egui::Stroke::NONE;
     ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
@@ -23,11 +23,11 @@ impl FloatingWindow {
     pub(super) fn render_header(
         &mut self,
         ui: &mut egui::Ui,
-        theme: &WindowTheme,
+        theme: &ShellTheme,
         header_right: impl FnOnce(&mut egui::Ui),
     ) {
         ui.horizontal(|ui| {
-            ui.set_height(theme.header_height);
+            ui.set_height(theme.window.header_height);
             ui.add_space(10.0);
             if let Some(icon) = self.icon {
                 ui.label(
@@ -55,7 +55,7 @@ impl FloatingWindow {
     }
 
     /// Pin/Unpin 切换按钮
-    fn render_pin_button(&mut self, ui: &mut egui::Ui, theme: &WindowTheme) {
+    fn render_pin_button(&mut self, ui: &mut egui::Ui, theme: &ShellTheme) {
         let is_pinned = self.pinned;
         let color = if is_pinned {
             theme.accent
@@ -72,10 +72,10 @@ impl FloatingWindow {
                 let wv = &mut ui.style_mut().visuals.widgets;
                 wv.inactive.weak_bg_fill = base_fill;
                 wv.hovered.weak_bg_fill = theme.bg_hover;
-                wv.active.weak_bg_fill = theme.bg_pressed;
+                wv.active.weak_bg_fill = theme.bg_active;
                 ui.add(
                     egui::Button::new(
-                        egui::RichText::new(theme.pin_icon)
+                        egui::RichText::new(theme.window.pin_icon)
                             .font(egui::FontId::new(14.0, theme.icon_font.clone()))
                             .color(color),
                     )
@@ -86,9 +86,9 @@ impl FloatingWindow {
             .inner;
         if resp
             .on_hover_text(if is_pinned {
-                &theme.unpin_tooltip
+                &theme.window.unpin_tooltip
             } else {
-                &theme.pin_tooltip
+                &theme.window.pin_tooltip
             })
             .clicked()
         {

@@ -5,7 +5,7 @@
 mod header;
 mod resize;
 
-use super::WindowTheme;
+use crate::app::ShellTheme;
 use eframe::egui;
 
 /// 边缘 resize 抓取宽度
@@ -115,7 +115,7 @@ impl FloatingWindow {
     pub fn show(
         &mut self,
         ctx: &egui::Context,
-        theme: &WindowTheme,
+        theme: &ShellTheme,
         header_right: impl FnOnce(&mut egui::Ui),
         content: impl FnOnce(&mut egui::Ui),
     ) {
@@ -144,7 +144,7 @@ impl FloatingWindow {
             .constrain(true)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                let frame_resp = theme.frame.show(ui, |ui| {
+                let frame_resp = theme.window.frame.show(ui, |ui| {
                     let origin = ui.available_rect_before_wrap().min;
                     let rect = egui::Rect::from_min_size(origin, size);
                     let mut child = ui.new_child(
@@ -181,10 +181,12 @@ impl FloatingWindow {
     }
 
     /// header 拖拽移动（排除右侧按钮区域）
-    fn handle_move(&mut self, ui: &mut egui::Ui, frame_rect: egui::Rect, theme: &WindowTheme) {
+    fn handle_move(&mut self, ui: &mut egui::Ui, frame_rect: egui::Rect, theme: &ShellTheme) {
         let drag_width = (self.header_right_x - frame_rect.left()).max(0.0);
-        let header_rect =
-            egui::Rect::from_min_size(frame_rect.min, egui::vec2(drag_width, theme.header_height));
+        let header_rect = egui::Rect::from_min_size(
+            frame_rect.min,
+            egui::vec2(drag_width, theme.window.header_height),
+        );
         let resp = ui.interact(
             header_rect,
             self.id.with("header_drag"),

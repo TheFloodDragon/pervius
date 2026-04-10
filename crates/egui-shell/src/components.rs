@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+pub mod flat_button;
 pub mod menu;
 pub mod settings;
 pub mod status_bar;
@@ -9,6 +10,7 @@ pub mod window;
 
 use eframe::egui;
 
+pub use flat_button::{FlatButton, FlatButtonTheme};
 pub use menu::{menu_item, menu_item_raw, menu_submenu, MenuTheme};
 pub use settings::{
     dropdown, is_recording_keybind, keybind_row, keybind_row_with, path_picker, path_picker_with,
@@ -17,29 +19,13 @@ pub use settings::{
 pub use status_bar::{Alignment, ItemResponse, StatusBarTheme, StatusBarWidget, StatusItem};
 pub use window::FloatingWindow;
 
-/// 浮动窗口主题配色
+/// 浮动窗口专属配置（ShellTheme.window）
 #[derive(Clone)]
-pub struct WindowTheme {
+pub struct WindowConfig {
     /// 窗口外框样式（fill / stroke / corner_radius / shadow）
     pub frame: egui::Frame,
     /// header 区域高度
     pub header_height: f32,
-    /// 强调色（图标、active pin）
-    pub accent: egui::Color32,
-    /// 主文字色（标题）
-    pub text_primary: egui::Color32,
-    /// 暗淡文字色（inactive pin）
-    pub text_muted: egui::Color32,
-    /// 按钮 active 底色（pin 激活时）
-    pub bg_active: egui::Color32,
-    /// widget hover 底色
-    pub bg_hover: egui::Color32,
-    /// widget pressed 底色
-    pub bg_pressed: egui::Color32,
-    /// 分隔线颜色
-    pub separator: egui::Color32,
-    /// 图标字体族（header icon + pin icon）
-    pub icon_font: egui::FontFamily,
     /// Pin 图标字符
     pub pin_icon: &'static str,
     /// Pin 按钮 tooltip（已固定时）

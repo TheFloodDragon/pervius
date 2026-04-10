@@ -2,13 +2,13 @@
 //!
 //! @author sky
 
-use super::{fonts, platform, titlebar};
+use super::{components::WindowConfig, fonts, platform, titlebar};
 use eframe::egui;
 
 /// 业务层只需实现这个 trait
 pub trait AppContent {
     /// 在 CentralPanel 内绘制业务 UI
-    fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context);
+    fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, theme: &ShellTheme);
     /// 标题栏菜单内容（注入到标题栏左侧）
     fn menu_bar(&mut self, _ui: &mut egui::Ui) {}
 }
@@ -18,20 +18,30 @@ pub trait AppContent {
 pub struct ShellTheme {
     /// 窗口 / 标题栏 / 状态栏背景
     pub bg: egui::Color32,
-    /// 悬停背景（菜单按钮 hover）
+    /// 悬停背景（菜单按钮 hover、widget hover）
     pub bg_hover: egui::Color32,
+    /// 激活/按下背景（pin 激活、widget pressed）
+    pub bg_active: egui::Color32,
     /// 主要文字
     pub text_primary: egui::Color32,
     /// 次要文字（caption button 图标、菜单 idle）
     pub text_secondary: egui::Color32,
-    /// 强调色（标题文字）
+    /// 暗淡文字（inactive pin、行号等）
+    pub text_muted: egui::Color32,
+    /// 强调色（标题文字、图标高亮）
     pub accent: egui::Color32,
+    /// 分隔线颜色
+    pub separator: egui::Color32,
+    /// 图标字体族（codicon 等）
+    pub icon_font: egui::FontFamily,
     /// 标题栏按钮 hover 背景
     pub caption_hover: egui::Color32,
     /// 关闭按钮 hover 背景
     pub close_hover: egui::Color32,
     /// 标题栏高度
     pub title_bar_height: f32,
+    /// 浮动窗口专属配置
+    pub window: WindowConfig,
 }
 
 /// 窗口启动配置
@@ -49,12 +59,23 @@ impl Default for ShellOptions {
             theme: ShellTheme {
                 bg: egui::Color32::from_rgb(21, 21, 22),
                 bg_hover: egui::Color32::from_rgb(46, 46, 49),
+                bg_active: egui::Color32::from_rgb(37, 37, 39),
                 text_primary: egui::Color32::from_rgb(236, 236, 239),
                 text_secondary: egui::Color32::from_rgb(160, 160, 171),
+                text_muted: egui::Color32::from_rgb(92, 92, 106),
                 accent: egui::Color32::from_rgb(67, 179, 174),
+                separator: egui::Color32::from_rgb(46, 46, 48),
+                icon_font: egui::FontFamily::Name("codicon".into()),
                 caption_hover: egui::Color32::from_rgb(42, 42, 47),
                 close_hover: egui::Color32::from_rgb(196, 43, 28),
                 title_bar_height: 36.0,
+                window: WindowConfig {
+                    frame: egui::Frame::NONE,
+                    header_height: 32.0,
+                    pin_icon: "\u{eb76}",
+                    pin_tooltip: "Pin".to_owned(),
+                    unpin_tooltip: "Unpin".to_owned(),
+                },
             },
         }
     }
@@ -117,7 +138,7 @@ impl eframe::App for ShellApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(self.theme.bg))
             .show_inside(ui, |ui| {
-                self.content.ui(ui, &ctx);
+                self.content.ui(ui, &ctx, &self.theme);
             });
     }
 }

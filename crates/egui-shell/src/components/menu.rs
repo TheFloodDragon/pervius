@@ -155,7 +155,7 @@ pub fn menu_submenu(
         let still_hovering = ui.ctx().input(|i| {
             i.pointer
                 .hover_pos()
-                .is_some_and(|p| rect.expand(4.0).contains(p) || popup_rect.expand(4.0).contains(p))
+                .is_some_and(|p| [rect, popup_rect].iter().any(|r| r.expand(4.0).contains(p)))
         });
         ui.data_mut(|d| d.insert_temp(sub_id, still_hovering));
     } else {

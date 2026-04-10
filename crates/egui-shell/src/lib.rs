@@ -16,3 +16,4 @@ mod titlebar;
 
 pub use app::{run, AppContent, ShellOptions, ShellTheme};
 pub use codicon::family as codicon_family;
+pub use components::WindowConfig;

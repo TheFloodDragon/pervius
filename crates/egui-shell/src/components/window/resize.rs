@@ -6,7 +6,7 @@
 //! @author sky
 
 use super::{FloatingWindow, GRAB};
-use crate::components::WindowTheme;
+use crate::app::ShellTheme;
 use eframe::egui;
 
 /// resize zone 描述：抓取区域 + 参与变化的边 + 光标图标
@@ -122,7 +122,7 @@ impl FloatingWindow {
         &mut self,
         ui: &mut egui::Ui,
         rect: egui::Rect,
-        _theme: &WindowTheme,
+        _theme: &ShellTheme,
     ) {
         let size = self.size.unwrap_or(self.default_size);
         let min = self.min_size;
