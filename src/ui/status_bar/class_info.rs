@@ -2,9 +2,9 @@
 //!
 //! @author sky
 
-use super::item::{Alignment, ItemResponse, StatusItem};
 use crate::shell::theme;
 use eframe::egui;
+use egui_shell::components::status_bar::{Alignment, ItemResponse, StatusItem};
 
 /// 动态显示当前聚焦 .class 文件的版本信息
 pub struct ClassInfoItem {

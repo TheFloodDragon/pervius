@@ -2,9 +2,9 @@
 //!
 //! @author sky
 
-use super::item::{Alignment, ItemResponse, StatusItem};
 use crate::shell::theme;
 use eframe::egui;
+use egui_shell::components::status_bar::{Alignment, ItemResponse, StatusItem};
 use rust_i18n::t;
 
 /// 反编译进度 item（左侧显示，反编译期间可见）

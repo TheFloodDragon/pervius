@@ -2,8 +2,8 @@
 //!
 //! @author sky
 
-use super::item::{Alignment, ItemResponse, StatusItem};
 use eframe::egui;
+use egui_shell::components::status_bar::{Alignment, ItemResponse, StatusItem};
 
 /// 纯文本 item（无交互）
 pub struct TextItem {

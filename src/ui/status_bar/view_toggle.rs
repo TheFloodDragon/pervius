@@ -2,11 +2,11 @@
 //!
 //! @author sky
 
-use super::item::{Alignment, ItemResponse, StatusItem};
 use crate::shell::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
 use egui_animation::Anim;
+use egui_shell::components::status_bar::{Alignment, ItemResponse, StatusItem};
 use rust_i18n::t;
 
 /// 三视图切换 item

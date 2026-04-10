@@ -143,3 +143,20 @@ pub fn settings_theme() -> egui_shell::components::SettingsTheme {
         chevron_icon: codicon::CHEVRON_DOWN,
     }
 }
+
+/// 菜单项主题
+pub fn menu_theme() -> egui_shell::components::MenuTheme {
+    egui_shell::components::MenuTheme {
+        text_primary: TEXT_PRIMARY,
+        text_muted: TEXT_MUTED,
+        bg_hover: BG_HOVER,
+    }
+}
+
+/// 状态栏主题
+pub fn status_bar_theme() -> egui_shell::components::StatusBarTheme {
+    egui_shell::components::StatusBarTheme {
+        bg: BG_DARK,
+        separator: BORDER,
+    }
+}

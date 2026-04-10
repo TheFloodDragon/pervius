@@ -2,15 +2,19 @@
 //!
 //! @author sky
 
+pub mod menu;
 pub mod settings;
+pub mod status_bar;
 pub mod window;
 
 use eframe::egui;
 
+pub use menu::{menu_item, menu_item_raw, menu_submenu, MenuTheme};
 pub use settings::{
     dropdown, is_recording_keybind, keybind_row, keybind_row_with, path_picker, path_picker_with,
     section_header, sidebar_item, slider, toggle, SettingsFile, SettingsPanel, SettingsTheme,
 };
+pub use status_bar::{Alignment, ItemResponse, StatusBarTheme, StatusBarWidget, StatusItem};
 pub use window::FloatingWindow;
 
 /// 浮动窗口主题配色
