@@ -6,6 +6,7 @@ use egui::{
     Response, ScrollArea, Sense, Shape, Stroke, StrokeKind, TextStyle, Ui, UiBuilder, Vec2,
     WidgetText,
 };
+use egui_animation::Anim;
 
 use crate::dock_area::tab_removal::{ForcedRemoval, TabRemoval};
 use crate::node::LeafNode;
@@ -993,8 +994,11 @@ impl<Tab> DockArea<'_, Tab> {
             pos - galley.size() / 2.0
         };
 
+        let target_text = modified.unwrap_or(tab_style.text_color);
+        let anim = Anim::new(ui, 0.35).with(id);
+        let text_color = anim.color("tab_text", target_text);
         ui.painter()
-            .add(TextShape::new(text_pos, galley, tab_style.text_color));
+            .add(TextShape::new(text_pos, galley, text_color));
 
         let close_response = show_close_button.then(|| {
             let mut close_button_rect = tab_rect;
@@ -1026,11 +1030,13 @@ impl<Tab> DockArea<'_, Tab> {
 
             let mut x_rect = close_button_rect;
             rect_set_size_centered(&mut x_rect, Vec2::splat(Style::TAB_CLOSE_X_SIZE));
+            let dot_anim = Anim::new(ui, 0.35).with(id);
             if let Some(dot_color) = modified {
                 // 已修改：用实心圆替代 X，颜色由调用方决定
                 let center = x_rect.center();
                 let radius = Style::TAB_CLOSE_X_SIZE * 0.35;
-                ui.painter().circle_filled(center, radius, dot_color);
+                let animated_dot = dot_anim.color("dot", dot_color);
+                ui.painter().circle_filled(center, radius, animated_dot);
             } else {
                 ui.painter().line_segment(
                     [x_rect.left_top(), x_rect.right_bottom()],
