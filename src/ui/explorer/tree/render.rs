@@ -174,6 +174,7 @@ fn render_range(
             let (single, double) = render_row(
                 ui,
                 node,
+                idx,
                 depth,
                 is_selected,
                 mod_color,
@@ -263,6 +264,7 @@ fn is_node_decompiled(node: &TreeNode, decompiled_classes: Option<&HashSet<Strin
 fn render_row(
     ui: &mut egui::Ui,
     node: &TreeNode,
+    row_idx: usize,
     depth: u8,
     selected: bool,
     mod_color: Option<egui::Color32>,
@@ -273,11 +275,11 @@ fn render_row(
 ) -> (bool, bool) {
     let indent_px = 8.0 + depth as f32 * 16.0;
     let avail_w = ui.available_width();
-    // 使用节点路径作为稳定 ID，避免虚拟滚动多 pass 时自动 ID 漂移
+    // 使用行索引作为位置稳定 ID，避免过滤切换内容时同一 rect 的 ID 在帧间漂移
     let (_, rect) = ui.allocate_space(egui::vec2(avail_w, ROW_H));
     let response = ui.interact(
         rect,
-        egui::Id::new("tree_row").with(&node.path),
+        egui::Id::new("tree_row").with(row_idx),
         egui::Sense::click(),
     );
     let painter = ui.painter().with_clip_rect(rect);

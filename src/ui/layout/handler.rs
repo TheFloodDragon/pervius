@@ -4,14 +4,15 @@
 
 use super::Layout;
 use crate::appearance::theme;
-use crate::java::class_structure::SavedMember;
-use crate::java::decompiler;
-use crate::java::jar::{JarArchive, LoadProgress};
-use crate::ui::editor::highlight::Language;
+use pervius_java_bridge::class_structure::SavedMember;
+use pervius_java_bridge::decompiler;
+use pervius_java_bridge::error::BridgeError;
+use pervius_java_bridge::jar::{JarArchive, LoadProgress};
 use crate::ui::editor::view_toggle::ActiveView;
 use crate::ui::editor::{EditorArea, EditorTab};
 use crate::ui::explorer::tree;
 use eframe::egui;
+use egui_editor::highlight::Language;
 use egui_shell::components::SettingsFile;
 use rust_i18n::t;
 use std::collections::HashSet;
@@ -23,7 +24,7 @@ use std::sync::{mpsc, Arc};
 pub(super) struct LoadingState {
     pub name: String,
     pub progress: Arc<LoadProgress>,
-    pub receiver: mpsc::Receiver<Result<JarArchive, String>>,
+    pub receiver: mpsc::Receiver<Result<JarArchive, BridgeError>>,
 }
 
 impl Layout {
@@ -275,7 +276,7 @@ impl Layout {
             Some(cs) => cs,
             None => return,
         };
-        match crate::java::save::apply_structure(
+        match pervius_java_bridge::save::apply_structure(
             &tab.raw_bytes,
             cs,
             self.jar.as_ref().map(|j| j.path.as_path()),
@@ -347,7 +348,7 @@ impl Layout {
         let (tx, rx) = mpsc::channel();
         let cp = class_path.clone();
         std::thread::spawn(move || {
-            let result = crate::java::decompiler::decompile_single_class(
+            let result = pervius_java_bridge::decompiler::decompile_single_class(
                 &bytes,
                 &cp,
                 &jar_path,
@@ -564,9 +565,9 @@ impl Layout {
             return s.to_string();
         }
         // 非 UTF-8: 用 chardetng 检测编码后转换
-        let mut detector = chardetng::EncodingDetector::new();
+        let mut detector = chardetng::EncodingDetector::new(chardetng::Iso2022JpDetection::Deny);
         detector.feed(bytes, true);
-        let encoding = detector.guess(None, true);
+        let encoding = detector.guess(None, chardetng::Utf8Detection::Allow);
         let (text, _, _) = encoding.decode(bytes);
         text.into_owned()
     }

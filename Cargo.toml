@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/egui-animation", "crates/egui-hex-view", "crates/egui-keybind", "crates/egui-notify", "crates/egui-shell"]
+members = [".", "crates/egui-animation", "crates/egui-editor", "crates/egui-hex-view", "crates/egui-keybind", "crates/egui-notify", "crates/egui-shell", "crates/pervius-java-bridge"]
 
 [package]
 name = "pervius"
@@ -13,24 +13,18 @@ eframe = { version = "0.34.1", default-features = false, features = ["glow", "de
 egui_dock = "0.19"
 egui-notify = { path = "crates/egui-notify" }
 egui-animation = { path = "crates/egui-animation" }
+egui-editor = { path = "crates/egui-editor" }
 egui-hex-view = { path = "crates/egui-hex-view" }
 egui-keybind = { path = "crates/egui-keybind", features = ["serde"] }
 egui-shell = { path = "crates/egui-shell" }
+pervius-java-bridge = { path = "crates/pervius-java-bridge" }
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
+toml = "1"
 zip = "2"
 rfd = "0.15"
 encoding_rs = "0.8"
-chardetng = "0.1"
-tree-sitter = "0.24"
-tree-sitter-java = "0.23"
-tree-sitter-xml = "0.7"
-tree-sitter-yaml = "0.7"
-tree-sitter-json = "0.24"
-tree-sitter-html = "0.23"
-tree-sitter-sequel = "0.3"
-tree-sitter-kotlin-sg = "0.4.0"
-sha2 = "0.10"
+chardetng = "1"
+sha2 = "0.11"
 dirs = "6"
 ristretto_classfile = "0.30"
 indexmap = "2"

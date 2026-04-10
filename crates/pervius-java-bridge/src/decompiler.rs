@@ -2,15 +2,14 @@
 //!
 //! @author sky
 
+use crate::error::BridgeError;
 use std::collections::HashSet;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 
-use rust_i18n::t;
-
-use super::process;
+use crate::process;
 
 /// 反编译进度（跨线程共享）
 pub struct DecompileProgress {
@@ -28,7 +27,7 @@ pub struct DecompileProgress {
 pub struct DecompileTask {
     pub jar_name: String,
     pub progress: Arc<DecompileProgress>,
-    pub receiver: mpsc::Receiver<Result<(), String>>,
+    pub receiver: mpsc::Receiver<Result<(), BridgeError>>,
     /// 正在运行的子进程 PID（0 表示未运行或已结束）
     child_pid: Arc<AtomicU32>,
 }
@@ -45,25 +44,27 @@ impl Drop for DecompileTask {
 }
 
 /// 获取 Vineflower 版本号（从 JAR 文件名解析）
+///
+/// 返回版本字符串（如 `"1.11.1"`），未找到时返回 `None`。
+/// 调用方负责 i18n 格式化。
 pub fn vineflower_version() -> Option<String> {
     let path = find_vineflower().ok()?;
-    let version = super::jar_version("vineflower", &path)?;
-    Some(t!("decompiler.vineflower_version", version = version).to_string())
+    crate::jar_version("vineflower", &path)
 }
 
 /// 定位 vineflower JAR（exe 同目录，匹配 vineflower-*.jar，排除 -slim）
-pub fn find_vineflower() -> Result<PathBuf, String> {
-    super::find_jar("vineflower", |name| !name.contains("-slim"))
+pub fn find_vineflower() -> Result<PathBuf, BridgeError> {
+    crate::find_jar("vineflower", |name| !name.contains("-slim"))
 }
 
 /// 获取缓存根目录
-fn cache_root() -> Result<PathBuf, String> {
-    let base = dirs::cache_dir().ok_or_else(|| t!("decompiler.no_cache_dir").to_string())?;
+fn cache_root() -> Result<PathBuf, BridgeError> {
+    let base = dirs::cache_dir().ok_or(BridgeError::NoCacheDir)?;
     Ok(base.join("pervius").join("decompiled"))
 }
 
 /// 获取指定 JAR 哈希的缓存目录
-pub fn cache_dir(hash: &str) -> Result<PathBuf, String> {
+pub fn cache_dir(hash: &str) -> Result<PathBuf, BridgeError> {
     let prefix = &hash[..16.min(hash.len())];
     Ok(cache_root()?.join(prefix))
 }
@@ -197,11 +198,11 @@ pub fn start(
     jar_name: &str,
     hash: &str,
     _class_count: u32,
-) -> Result<DecompileTask, String> {
+) -> Result<DecompileTask, BridgeError> {
     process::find_java()?;
     let vineflower = find_vineflower()?;
     let output_dir = cache_dir(hash)?;
-    std::fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&output_dir)?;
     let progress = Arc::new(DecompileProgress {
         current: AtomicU32::new(0),
         total: AtomicU32::new(0),
@@ -231,7 +232,7 @@ fn run_vineflower(
     output_dir: &Path,
     progress: &DecompileProgress,
     child_pid: &AtomicU32,
-) -> Result<(), String> {
+) -> Result<(), BridgeError> {
     let thr = std::thread::available_parallelism()
         .map(|n| n.get().max(2) / 2)
         .unwrap_or(2);
@@ -241,9 +242,7 @@ fn run_vineflower(
         .arg(format!("-thr={thr}"))
         .arg(jar_path)
         .arg(output_dir);
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| t!("decompiler.spawn_failed", error = e).to_string())?;
+    let mut child = cmd.spawn().map_err(BridgeError::SpawnFailed)?;
     child_pid.store(child.id(), Ordering::Relaxed);
     // stdout 和 stderr 各起一个线程读取，汇入同一 channel 统一解析
     // Vineflower 可能把进度日志写到任一流，合并后不遗漏且避免管道满死锁
@@ -301,16 +300,10 @@ fn run_vineflower(
     if let Some(t) = stderr_thread {
         let _ = t.join();
     }
-    let status = child
-        .wait()
-        .map_err(|e| t!("decompiler.process_error", error = e).to_string())?;
+    let status = child.wait()?;
     child_pid.store(0, Ordering::Relaxed);
     if !status.success() {
-        return Err(t!(
-            "decompiler.exit_code",
-            code = format!("{:?}", status.code())
-        )
-        .to_string());
+        return Err(BridgeError::ExitCode(status.code()));
     }
     // 写入完成标记
     let _ = std::fs::write(output_dir.join(".complete"), "");
@@ -354,7 +347,7 @@ pub fn decompile_single_class(
     class_path: &str,
     jar_path: &Path,
     cache_hash: Option<&str>,
-) -> Result<CachedSource, String> {
+) -> Result<CachedSource, BridgeError> {
     let vineflower = find_vineflower()?;
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let id = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -370,24 +363,24 @@ pub fn decompile_single_class(
     // 写入临时 .class 文件（保持包目录结构）
     let class_file = tmp_input.join(class_path);
     if let Some(parent) = class_file.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("{e}"))?;
+        std::fs::create_dir_all(parent)?;
     }
-    std::fs::create_dir_all(&output_dir).map_err(|e| format!("{e}"))?;
-    std::fs::write(&class_file, bytes).map_err(|e| format!("{e}"))?;
+    std::fs::create_dir_all(&output_dir)?;
+    std::fs::write(&class_file, bytes)?;
     let mut cmd = process::JavaCommand::new(&vineflower)?;
     cmd.arg("--bytecode-source-mapping=1")
         .arg("--__dump_original_lines__=1")
         .arg(format!("-e={}", jar_path.display()))
         .arg(tmp_input.as_os_str())
         .arg(output_dir.as_os_str());
-    let output = cmd.output().map_err(|e| format!("spawn failed: {e}"))?;
+    let output = cmd.output().map_err(BridgeError::SpawnFailed)?;
     let _ = std::fs::remove_dir_all(&tmp_input);
     if !output.status.success() {
         if is_tmp_output {
             let _ = std::fs::remove_dir_all(&output_dir);
         }
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("vineflower failed: {stderr}"));
+        return Err(BridgeError::ProcessFailed(stderr.into_owned()));
     }
     let base = class_to_base_path(class_path);
     for (ext, is_kt) in &[(".java", false), (".kt", true)] {
@@ -407,5 +400,5 @@ pub fn decompile_single_class(
     if is_tmp_output {
         let _ = std::fs::remove_dir_all(&output_dir);
     }
-    Err("Vineflower produced no output".to_string())
+    Err(BridgeError::NoOutput)
 }

@@ -6,19 +6,19 @@
 //!
 //! @author sky
 
-use rust_i18n::t;
+use crate::error::BridgeError;
 use std::io::Write;
 use std::path::Path;
 
-use super::process;
+use crate::process;
 
-/// 获取 ClassForge 显示文本（有版本号则带版本，否则只显示名称）
+/// 获取 ClassForge 版本号（从 JAR 文件名解析）
+///
+/// 返回版本字符串（如 `"1.0.0"`），未找到时返回 `None`。
+/// 调用方负责 i18n 格式化。
 pub fn classforge_version() -> Option<String> {
-    let path = super::find_jar("classforge", |_| true).ok()?;
-    match super::jar_version("classforge", &path) {
-        Some(version) => Some(t!("status.classforge_version", version = version).to_string()),
-        None => Some("ClassForge".to_string()),
-    }
+    let path = crate::find_jar("classforge", |_| true).ok()?;
+    crate::jar_version("classforge", &path)
 }
 
 /// 方法字节码编辑
@@ -44,43 +44,33 @@ pub fn patch_methods(
     class_bytes: &[u8],
     edits: &[MethodEdit],
     jar_path: Option<&Path>,
-) -> Result<Vec<u8>, String> {
-    let classforge = super::find_jar("classforge", |_| true)?;
+) -> Result<Vec<u8>, BridgeError> {
+    let classforge = crate::find_jar("classforge", |_| true)?;
     let mut cmd = process::JavaCommand::new(&classforge)?;
     cmd.arg("--patch");
     if let Some(path) = jar_path {
         cmd.arg("--classpath").arg(path);
     }
-    let mut child = cmd
-        .spawn_with_stdin()
-        .map_err(|e| format!("classforge spawn failed: {e}"))?;
+    let mut child = cmd.spawn_with_stdin().map_err(BridgeError::SpawnFailed)?;
     if let Some(mut stdin) = child.stdin.take() {
         // class 数据
-        stdin
-            .write_all(&(class_bytes.len() as u32).to_be_bytes())
-            .map_err(|e| format!("stdin write failed: {e}"))?;
-        stdin
-            .write_all(class_bytes)
-            .map_err(|e| format!("stdin write failed: {e}"))?;
+        stdin.write_all(&(class_bytes.len() as u32).to_be_bytes())?;
+        stdin.write_all(class_bytes)?;
         // 编辑数
-        stdin
-            .write_all(&(edits.len() as u32).to_be_bytes())
-            .map_err(|e| format!("stdin write failed: {e}"))?;
+        stdin.write_all(&(edits.len() as u32).to_be_bytes())?;
         for edit in edits {
             write_prefixed_string(&mut stdin, &edit.name)?;
             write_prefixed_string(&mut stdin, &edit.descriptor)?;
             write_prefixed_string_u32(&mut stdin, &edit.bytecode)?;
         }
     }
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("classforge wait failed: {e}"))?;
+    let output = child.wait_with_output()?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("classforge failed: {stderr}"));
+        return Err(BridgeError::ClassForge(stderr.into_owned()));
     }
     if output.stdout.is_empty() {
-        return Err("classforge produced no output".to_string());
+        return Err(BridgeError::ClassForge("produced no output".to_string()));
     }
     log::debug!(
         "classforge patch: {} -> {} bytes ({} methods patched)",
@@ -92,19 +82,17 @@ pub fn patch_methods(
 }
 
 /// 写入 u16 长度前缀的 UTF-8 字符串
-fn write_prefixed_string(w: &mut dyn Write, s: &str) -> Result<(), String> {
+fn write_prefixed_string(w: &mut dyn Write, s: &str) -> Result<(), BridgeError> {
     let bytes = s.as_bytes();
-    w.write_all(&(bytes.len() as u16).to_be_bytes())
-        .map_err(|e| format!("stdin write failed: {e}"))?;
-    w.write_all(bytes)
-        .map_err(|e| format!("stdin write failed: {e}"))
+    w.write_all(&(bytes.len() as u16).to_be_bytes())?;
+    w.write_all(bytes)?;
+    Ok(())
 }
 
 /// 写入 u32 长度前缀的 UTF-8 字符串（用于较长的字节码文本）
-fn write_prefixed_string_u32(w: &mut dyn Write, s: &str) -> Result<(), String> {
+fn write_prefixed_string_u32(w: &mut dyn Write, s: &str) -> Result<(), BridgeError> {
     let bytes = s.as_bytes();
-    w.write_all(&(bytes.len() as u32).to_be_bytes())
-        .map_err(|e| format!("stdin write failed: {e}"))?;
-    w.write_all(bytes)
-        .map_err(|e| format!("stdin write failed: {e}"))
+    w.write_all(&(bytes.len() as u32).to_be_bytes())?;
+    w.write_all(bytes)?;
+    Ok(())
 }

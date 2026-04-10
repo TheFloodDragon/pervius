@@ -74,14 +74,17 @@ impl SettingsDialog {
     }
 
     /// 每帧渲染，返回 `Some(settings)` 表示有变更需要应用
-    pub fn render(&mut self, ctx: &egui::Context) -> Option<Settings> {
-        let wt = theme::window_theme();
+    pub fn render(
+        &mut self,
+        ctx: &egui::Context,
+        shell_theme: &egui_shell::ShellTheme,
+    ) -> Option<Settings> {
         let st = theme::settings_theme();
         let mut panel = std::mem::take(&mut self.panel);
         let mut changed = false;
         let section = &mut self.section;
         let draft = &mut self.draft;
-        panel.show(ctx, &wt, &st, |sidebar_ui, content_ui| {
+        panel.show(ctx, shell_theme, &st, |sidebar_ui, content_ui| {
             sidebar_ui.add_space(6.0);
             for &sec in Section::ALL {
                 if sidebar_item(sidebar_ui, &st, sec.icon(), &sec.label(), *section == sec) {

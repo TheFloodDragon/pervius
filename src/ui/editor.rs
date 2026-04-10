@@ -4,8 +4,6 @@
 
 mod area;
 mod bytecode_panel;
-mod find;
-pub mod highlight;
 mod render;
 pub mod style;
 mod tab;

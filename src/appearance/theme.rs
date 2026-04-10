@@ -96,9 +96,9 @@ pub fn verdigris_alpha(alpha: u8) -> egui::Color32 {
     )
 }
 
-/// 浮动窗口（Search / Settings 等）的统一主题
-pub fn window_theme() -> egui_shell::components::WindowTheme {
-    egui_shell::components::WindowTheme {
+/// 浮动窗口（Search / Settings 等）的 WindowConfig
+pub fn window_config() -> egui_shell::WindowConfig {
+    egui_shell::WindowConfig {
         frame: egui::Frame {
             fill: BG_GUTTER,
             corner_radius: egui::CornerRadius::same(8),
@@ -113,14 +113,6 @@ pub fn window_theme() -> egui_shell::components::WindowTheme {
             ..Default::default()
         },
         header_height: 32.0,
-        accent: VERDIGRIS,
-        text_primary: TEXT_PRIMARY,
-        text_muted: TEXT_MUTED,
-        bg_active: BG_LIGHT,
-        bg_hover: BG_HOVER,
-        bg_pressed: BG_LIGHT,
-        separator: BORDER,
-        icon_font: egui::FontFamily::Name("codicon".into()),
         pin_icon: codicon::PIN,
         pin_tooltip: t!("window.pin").to_string(),
         unpin_tooltip: t!("window.unpin").to_string(),
@@ -158,5 +150,71 @@ pub fn status_bar_theme() -> egui_shell::components::StatusBarTheme {
     egui_shell::components::StatusBarTheme {
         bg: BG_DARK,
         separator: BORDER,
+    }
+}
+
+/// 编辑器代码视图主题
+pub fn editor_theme() -> egui_editor::CodeViewTheme {
+    egui_editor::CodeViewTheme {
+        syntax: egui_editor::SyntaxTheme {
+            text: SYN_TEXT,
+            keyword: SYN_KEYWORD,
+            string: SYN_STRING,
+            type_name: SYN_TYPE,
+            number: SYN_NUMBER,
+            comment: SYN_COMMENT,
+            annotation: SYN_ANNOTATION,
+            muted: TEXT_MUTED,
+            constant: SYN_CONSTANT,
+            method_call: SYN_METHOD,
+            method_decl: SYN_METHOD_DECL,
+        },
+        bg: BG_DARKEST,
+        gutter_bg: BG_GUTTER,
+        line_number_color: TEXT_MUTED,
+        search_bg: verdigris_alpha(25),
+        search_current_bg: verdigris_alpha(60),
+        code_font_size: 13.0,
+    }
+}
+
+/// 编辑器查找栏主题
+pub fn find_bar_theme() -> egui_editor::FindBarTheme {
+    egui_editor::FindBarTheme {
+        bg: BG_DARK,
+        border: BORDER,
+        text_primary: TEXT_PRIMARY,
+        text_muted: TEXT_MUTED,
+        error_color: ACCENT_RED,
+        icons: egui_editor::theme::FindBarIcons {
+            close: codicon::CLOSE,
+            next: codicon::CHEVRON_DOWN,
+            prev: codicon::CHEVRON_UP,
+            regex: codicon::REGEX,
+            whole_word: codicon::WHOLE_WORD,
+            case_sensitive: codicon::CASE_SENSITIVE,
+            search: codicon::SEARCH,
+            font: codicon::family(),
+        },
+        labels: egui_editor::theme::FindBarLabels {
+            close: t!("find.close").to_string(),
+            next: t!("find.next").to_string(),
+            prev: t!("find.prev").to_string(),
+            use_regex: t!("find.use_regex").to_string(),
+            match_word: t!("find.match_word").to_string(),
+            match_case: t!("find.match_case").to_string(),
+            no_results: t!("find.no_results").to_string(),
+            result_fmt: |current, total| {
+                t!("find.result_count", current = current, total = total).to_string()
+            },
+            hint: t!("find.hint").to_string(),
+        },
+        button: egui_shell::components::FlatButtonTheme {
+            text_primary: TEXT_PRIMARY,
+            text_active: VERDIGRIS,
+            text_inactive: TEXT_MUTED,
+            bg_hover: BG_HOVER,
+            bg_pressed: BG_LIGHT,
+        },
     }
 }

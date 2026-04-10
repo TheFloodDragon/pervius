@@ -2,14 +2,13 @@
 //!
 //! @author sky
 
-use super::highlight;
 use super::tab::{BytecodeSelection, EditorTab};
 use crate::appearance::{codicon, theme};
-use crate::java::class_structure::{ClassStructure, EditableAnnotation, FieldInfo, MethodInfo};
-use crate::ui::widget::FlatButton;
+use pervius_java_bridge::class_structure::{ClassStructure, EditableAnnotation, FieldInfo, MethodInfo};
+use crate::ui::widget::{flat_button_theme, FlatButton};
 use eframe::egui;
 use egui_animation::Anim;
-use std::sync::Arc;
+use egui_editor::search::FindMatch;
 
 /// 导航栏最小宽度
 const MIN_NAV_WIDTH: f32 = 120.0;
@@ -25,11 +24,14 @@ const SECTION_LABEL_HEIGHT: f32 = 28.0;
 const CONTENT_PAD: f32 = 16.0;
 /// 元数据 key-value 间距
 const KV_KEY_WIDTH: f32 = 100.0;
-/// 代码字体大小
-const CODE_FONT_SIZE: f32 = 13.0;
 
 /// 渲染字节码结构化面板
-pub fn render_bytecode_panel(ui: &mut egui::Ui, tab: &mut EditorTab) {
+pub fn render_bytecode_panel(
+    ui: &mut egui::Ui,
+    tab: &mut EditorTab,
+    matches: &[FindMatch],
+    current: Option<usize>,
+) {
     if tab.class_structure.is_none() {
         ui.centered_and_justified(|ui| {
             ui.label(
@@ -111,7 +113,7 @@ pub fn render_bytecode_panel(ui: &mut egui::Ui, tab: &mut EditorTab) {
         BytecodeSelection::Method(idx) => {
             let cs = tab.class_structure.as_mut().unwrap();
             cs.methods.get_mut(idx).map_or(false, |method| {
-                let c = render_method_editable(&mut content_ui, method, idx);
+                let c = render_method_editable(&mut content_ui, method, idx, matches, current);
                 if c {
                     method.modified = true;
                 }
@@ -385,7 +387,13 @@ fn render_field_editable(ui: &mut egui::Ui, field: &mut FieldInfo, idx: usize) -
     changed
 }
 
-fn render_method_editable(ui: &mut egui::Ui, method: &mut MethodInfo, idx: usize) -> bool {
+fn render_method_editable(
+    ui: &mut egui::Ui,
+    method: &mut MethodInfo,
+    idx: usize,
+    matches: &[FindMatch],
+    current: Option<usize>,
+) -> bool {
     let mut changed = false;
     egui::ScrollArea::both()
         .id_salt(("bc_method", idx))
@@ -415,33 +423,18 @@ fn render_method_editable(ui: &mut egui::Ui, method: &mut MethodInfo, idx: usize
             // 注解
             ui.add_space(8.0);
             changed |= render_annotations(ui, &mut method.annotations);
-            // 字节码（多行可编辑 + 语法高亮）
+            // 字节码（语法高亮 + 搜索匹配 + 行号，委托给 egui-editor）
             if method.has_code {
                 ui.add_space(12.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(CONTENT_PAD);
-                    let line_count = method.bytecode.lines().count().max(1);
-                    let mut layouter = |ui: &egui::Ui,
-                                        text: &dyn egui::TextBuffer,
-                                        _wrap_width: f32|
-                     -> Arc<egui::Galley> {
-                        let s = text.as_str();
-                        let spans = highlight::compute_bytecode_spans(s);
-                        let job = highlight::build_layout_job(s, &spans);
-                        ui.fonts_mut(|f| f.layout_job(job))
-                    };
-                    changed |= ui
-                        .add(
-                            egui::TextEdit::multiline(&mut method.bytecode)
-                                .id(ui.id().with(("bc_code", idx)))
-                                .font(egui::FontId::monospace(CODE_FONT_SIZE))
-                                .desired_width(f32::INFINITY)
-                                .desired_rows(line_count)
-                                .frame(egui::Frame::NONE)
-                                .layouter(&mut layouter),
-                        )
-                        .changed();
-                });
+                let t = theme::editor_theme();
+                changed |= egui_editor::code_view::code_view_editable(
+                    ui,
+                    &mut method.bytecode,
+                    egui_editor::Language::Bytecode,
+                    matches,
+                    current,
+                    &t,
+                );
             } else {
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
@@ -560,9 +553,10 @@ fn render_annotations(ui: &mut egui::Ui, annotations: &mut Vec<EditableAnnotatio
             }
             // 删除按钮（只读注解不显示）
             if !readonly {
+                let fbt = flat_button_theme();
                 if ui
                     .add(
-                        FlatButton::new(codicon::CLOSE)
+                        FlatButton::new(codicon::CLOSE, &fbt)
                             .font_size(10.0)
                             .font_family(codicon::family())
                             .inactive_color(theme::TEXT_MUTED)
@@ -583,9 +577,10 @@ fn render_annotations(ui: &mut egui::Ui, annotations: &mut Vec<EditableAnnotatio
     // 添加按钮
     ui.horizontal(|ui| {
         ui.add_space(CONTENT_PAD);
+        let fbt = flat_button_theme();
         if ui
             .add(
-                FlatButton::new("+ annotation")
+                FlatButton::new("+ annotation", &fbt)
                     .font_size(11.0)
                     .inactive_color(theme::TEXT_MUTED)
                     .min_size(egui::vec2(0.0, 20.0)),

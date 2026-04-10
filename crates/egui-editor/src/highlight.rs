@@ -16,7 +16,7 @@ mod sql;
 mod xml;
 mod yaml;
 
-use crate::appearance::theme;
+use crate::theme::{CodeViewTheme, SyntaxTheme};
 use eframe::egui;
 use eframe::egui::text::LayoutJob;
 
@@ -43,19 +43,19 @@ pub enum TokenKind {
 
 impl TokenKind {
     /// 映射到 egui 颜色
-    pub fn color(self) -> egui::Color32 {
+    pub fn color(self, theme: &SyntaxTheme) -> egui::Color32 {
         match self {
-            Self::Plain => theme::SYN_TEXT,
-            Self::Keyword => theme::SYN_KEYWORD,
-            Self::String => theme::SYN_STRING,
-            Self::Type => theme::SYN_TYPE,
-            Self::Number => theme::SYN_NUMBER,
-            Self::Comment => theme::SYN_COMMENT,
-            Self::Annotation => theme::SYN_ANNOTATION,
-            Self::Muted => theme::TEXT_MUTED,
-            Self::Constant => theme::SYN_CONSTANT,
-            Self::MethodCall => theme::SYN_METHOD,
-            Self::MethodDecl => theme::SYN_METHOD_DECL,
+            Self::Plain => theme.text,
+            Self::Keyword => theme.keyword,
+            Self::String => theme.string,
+            Self::Type => theme.type_name,
+            Self::Number => theme.number,
+            Self::Comment => theme.comment,
+            Self::Annotation => theme.annotation,
+            Self::Muted => theme.muted,
+            Self::Constant => theme.constant,
+            Self::MethodCall => theme.method_call,
+            Self::MethodDecl => theme.method_decl,
         }
     }
 }
@@ -72,6 +72,8 @@ pub enum Language {
     Html,
     Sql,
     Properties,
+    /// JVM 字节码（自定义 tokenizer，非 tree-sitter）
+    Bytecode,
     Plain,
 }
 
@@ -107,17 +109,12 @@ impl Language {
     }
 }
 
-/// 代码字体
-const CODE_FONT: egui::FontId = egui::FontId::monospace(13.0);
+/// 一个 span = (byte_start, byte_end, kind)
+pub type Span = (usize, usize, TokenKind);
 
 /// 预计算源码的语法 span（供虚拟滚动逐行渲染使用）
 pub fn compute_spans(source: &str, lang: Language) -> Vec<Span> {
     collect_spans(source, lang)
-}
-
-/// 预计算字节码的语法 span
-pub fn compute_bytecode_spans(source: &str) -> Vec<Span> {
-    bytecode::collect_spans(source)
 }
 
 /// 计算每行在源码中的字节偏移 + 最大行长（字节数）
@@ -134,13 +131,11 @@ pub fn compute_line_starts(source: &str) -> Vec<usize> {
     starts
 }
 
-/// 一个 span = (byte_start, byte_end, kind)
-pub type Span = (usize, usize, TokenKind);
-
 /// 收集所有着色 span（字节偏移）
 fn collect_spans(source: &str, lang: Language) -> Vec<Span> {
     match lang {
         Language::Properties => properties::collect_spans(source),
+        Language::Bytecode => bytecode::collect_spans(source),
         Language::Plain => vec![(0, source.len(), TokenKind::Plain)],
         _ => collect_treesitter_spans(source, lang),
     }
@@ -160,7 +155,7 @@ fn collect_treesitter_spans_checked(source: &str, lang: Language) -> (Vec<Span>,
         Language::Json => tree_sitter_json::LANGUAGE.into(),
         Language::Html => tree_sitter_html::LANGUAGE.into(),
         Language::Sql => tree_sitter_sequel::LANGUAGE.into(),
-        Language::Properties | Language::Plain => {
+        Language::Properties | Language::Bytecode | Language::Plain => {
             return (vec![(0, source.len(), TokenKind::Plain)], false);
         }
     };
@@ -180,7 +175,7 @@ fn collect_treesitter_spans_checked(source: &str, lang: Language) -> (Vec<Span>,
         Language::Json => json::classify,
         Language::Html => html::classify,
         Language::Sql => sql::classify,
-        Language::Properties | Language::Plain => {
+        Language::Properties | Language::Bytecode | Language::Plain => {
             return (vec![(0, source.len(), TokenKind::Plain)], false);
         }
     };
@@ -260,7 +255,12 @@ fn snap_char(source: &str, pos: usize) -> usize {
 /// 从排序好的 span 列表构建 LayoutJob，自动填充 gap
 ///
 /// span 偏移可能来自旧版本文本（编辑延迟刷新），会自动对齐到 char boundary。
-pub fn build_layout_job(source: &str, spans: &[Span]) -> LayoutJob {
+pub fn build_layout_job(
+    source: &str,
+    spans: &[Span],
+    font: &egui::FontId,
+    syntax: &SyntaxTheme,
+) -> LayoutJob {
     let mut job = LayoutJob::default();
     let mut pos = 0usize;
     for &(start, end, kind) in spans {
@@ -268,17 +268,23 @@ pub fn build_layout_job(source: &str, spans: &[Span]) -> LayoutJob {
         let end = snap_char(source, end);
         // gap 填充（未着色区域用 Plain）
         if start > pos {
-            append_section(&mut job, &source[pos..start], TokenKind::Plain);
+            append_section(
+                &mut job,
+                &source[pos..start],
+                TokenKind::Plain,
+                font,
+                syntax,
+            );
         }
         let actual_start = start.max(pos);
         if end > actual_start {
-            append_section(&mut job, &source[actual_start..end], kind);
+            append_section(&mut job, &source[actual_start..end], kind, font, syntax);
             pos = end;
         }
     }
     // 尾部剩余
     if pos < source.len() {
-        append_section(&mut job, &source[pos..], TokenKind::Plain);
+        append_section(&mut job, &source[pos..], TokenKind::Plain, font, syntax);
     }
     job
 }
@@ -292,9 +298,11 @@ pub fn build_layout_job_with_matches(
     spans: &[Span],
     match_ranges: &[(usize, usize)],
     current_match: Option<usize>,
+    theme: &CodeViewTheme,
 ) -> LayoutJob {
+    let font = egui::FontId::monospace(theme.code_font_size);
     if match_ranges.is_empty() {
-        return build_layout_job(source, spans);
+        return build_layout_job(source, spans, &font, &theme.syntax);
     }
     let mut breaks = std::collections::BTreeSet::new();
     breaks.insert(0);
@@ -318,34 +326,40 @@ pub fn build_layout_job_with_matches(
         let color = spans
             .iter()
             .find(|&&(s, e, _)| s <= start && end <= e)
-            .map(|&(_, _, k)| k.color())
-            .unwrap_or(TokenKind::Plain.color());
+            .map(|&(_, _, k)| k.color(&theme.syntax))
+            .unwrap_or(TokenKind::Plain.color(&theme.syntax));
         let match_idx = match_ranges
             .iter()
             .position(|&(s, e)| start >= s && end <= e);
         let is_current = matches!((match_idx, current_match), (Some(mi), Some(cm)) if mi == cm);
         let mut format = egui::TextFormat {
-            font_id: CODE_FONT,
+            font_id: font.clone(),
             color,
             ..Default::default()
         };
         if is_current {
-            format.background = theme::verdigris_alpha(60);
+            format.background = theme.search_current_bg;
         } else if match_idx.is_some() {
-            format.background = theme::verdigris_alpha(25);
+            format.background = theme.search_bg;
         }
         job.append(&source[start..end], 0.0, format);
     }
     job
 }
 
-fn append_section(job: &mut LayoutJob, text: &str, kind: TokenKind) {
+fn append_section(
+    job: &mut LayoutJob,
+    text: &str,
+    kind: TokenKind,
+    font: &egui::FontId,
+    syntax: &SyntaxTheme,
+) {
     job.append(
         text,
         0.0,
         egui::TextFormat {
-            font_id: CODE_FONT,
-            color: kind.color(),
+            font_id: font.clone(),
+            color: kind.color(syntax),
             ..Default::default()
         },
     );
@@ -357,18 +371,15 @@ fn append_section(job: &mut LayoutJob, text: &str, kind: TokenKind) {
 /// 使匹配文本在语法着色之上仍能辨识。
 pub fn highlight_per_line(
     lines: &[String],
-    bytecode_mode: bool,
+    lang: Language,
     font: egui::FontId,
     match_line: usize,
     match_ranges: &[(usize, usize)],
     match_bg: egui::Color32,
+    syntax: &SyntaxTheme,
 ) -> Vec<LayoutJob> {
     let source = lines.join("\n");
-    let spans = if bytecode_mode {
-        bytecode::collect_spans(&source)
-    } else {
-        collect_spans(&source, Language::Java)
-    };
+    let spans = collect_spans(&source, lang);
     // 每行在 source 中的起始字节偏移
     let mut line_starts = Vec::with_capacity(lines.len());
     let mut off = 0usize;
@@ -387,7 +398,14 @@ pub fn highlight_per_line(
             .map(|&(s, e, k)| (s.max(ls) - ls, e.min(le) - ls, k))
             .collect();
         let mr = if i == match_line { match_ranges } else { &[] };
-        jobs.push(build_line_layout(line, &line_spans, &font, mr, match_bg));
+        jobs.push(build_line_layout(
+            line,
+            &line_spans,
+            &font,
+            mr,
+            match_bg,
+            syntax,
+        ));
     }
     jobs
 }
@@ -399,6 +417,7 @@ fn build_line_layout(
     font: &egui::FontId,
     match_ranges: &[(usize, usize)],
     match_bg: egui::Color32,
+    syntax: &SyntaxTheme,
 ) -> LayoutJob {
     let mut breaks = std::collections::BTreeSet::new();
     breaks.insert(0);
@@ -422,8 +441,8 @@ fn build_line_layout(
         let color = spans
             .iter()
             .find(|&&(s, e, _)| s <= start && end <= e)
-            .map(|&(_, _, k)| k.color())
-            .unwrap_or(TokenKind::Plain.color());
+            .map(|&(_, _, k)| k.color(syntax))
+            .unwrap_or(TokenKind::Plain.color(syntax));
         let in_match = match_ranges.iter().any(|&(s, e)| start >= s && end <= e);
         let mut format = egui::TextFormat {
             font_id: font.clone(),

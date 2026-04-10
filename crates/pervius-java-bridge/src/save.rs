@@ -5,12 +5,13 @@
 //!
 //! @author sky
 
+use crate::error::BridgeError;
 use std::path::Path;
 
-use super::bytecode;
-use super::class_structure::ClassStructure;
-use super::classforge;
-use super::classforge::MethodEdit;
+use crate::bytecode;
+use crate::class_structure::ClassStructure;
+use crate::classforge;
+use crate::classforge::MethodEdit;
 use ristretto_classfile::attributes::{AnnotationElement, AnnotationValuePair, Attribute};
 use ristretto_classfile::{
     ClassAccessFlags, ClassFile, ConstantPool, FieldAccessFlags, MethodAccessFlags,
@@ -25,8 +26,9 @@ pub fn apply_structure(
     raw_bytes: &[u8],
     cs: &ClassStructure,
     jar_path: Option<&Path>,
-) -> Result<Vec<u8>, String> {
-    let mut cf = ClassFile::from_bytes(raw_bytes).map_err(|e| format!("parse error: {e}"))?;
+) -> Result<Vec<u8>, BridgeError> {
+    let mut cf =
+        ClassFile::from_bytes(raw_bytes).map_err(|e| BridgeError::Parse(format!("{e}")))?;
     let original = bytecode::disassemble(raw_bytes).ok();
     if let Some(ref orig) = original {
         log::debug!(
@@ -56,7 +58,7 @@ pub fn apply_structure(
     );
     let mut buf = Vec::new();
     cf.to_bytes(&mut buf)
-        .map_err(|e| format!("serialize error: {e}"))?;
+        .map_err(|e| BridgeError::Parse(format!("serialize error: {e}")))?;
     // 有字节码变动时，classforge (ASM) 接管指令编码和帧生成
     if !edits.is_empty() {
         match classforge::patch_methods(&buf, &edits, jar_path) {
@@ -70,7 +72,7 @@ pub fn apply_structure(
                 buf = patched;
             }
             Err(e) => {
-                return Err(format!("classforge failed: {e}"));
+                return Err(e);
             }
         }
     }
@@ -161,7 +163,7 @@ fn apply_methods(
 fn apply_annotations(
     attrs: &mut Vec<Attribute>,
     cp: &mut ConstantPool,
-    editable: &[super::class_structure::EditableAnnotation],
+    editable: &[crate::class_structure::EditableAnnotation],
 ) {
     // 只更新 RuntimeVisibleAnnotations，跳过 Kotlin 内部注解
     for attr in attrs.iter_mut() {

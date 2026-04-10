@@ -3,7 +3,6 @@
 //! @author sky
 
 use super::bytecode_panel;
-use super::find::FindBar;
 use super::render;
 use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
@@ -12,6 +11,7 @@ use crate::ui::keybindings;
 use crate::ui::menu::item::menu_item;
 use eframe::egui;
 use egui_dock::{tab_viewer::OnCloseResponse, NodePath, TabViewer};
+use egui_editor::find_bar::FindBar;
 use rust_i18n::t;
 
 use std::collections::HashSet;
@@ -72,7 +72,11 @@ impl TabViewer for EditorTabViewer<'_> {
         let content_rect = ui.max_rect();
         // 更新搜索（先于内容渲染，提供高亮数据）
         if self.find_bar.open {
-            self.find_bar.update(tab);
+            match tab.active_view {
+                ActiveView::Hex => self.find_bar.update_bytes(&tab.raw_bytes),
+                ActiveView::Decompiled => self.find_bar.update_text(&tab.decompiled),
+                ActiveView::Bytecode => self.find_bar.update_text(tab.selected_bytecode_text()),
+            }
         }
         let (matches, current) = if self.find_bar.open {
             self.find_bar.highlight_info()
@@ -93,12 +97,15 @@ impl TabViewer for EditorTabViewer<'_> {
                 render::render_editable(ui, tab, &matches, current)
             }
             ActiveView::Decompiled => render::render_decompiled(ui, tab, &matches, current),
-            ActiveView::Bytecode => bytecode_panel::render_bytecode_panel(ui, tab),
+            ActiveView::Bytecode => {
+                bytecode_panel::render_bytecode_panel(ui, tab, &matches, current)
+            }
             ActiveView::Hex => render::render_hex(ui, tab, &matches, current),
         }
         // 浮动查找栏（overlay）
         if self.find_bar.open {
-            self.find_bar.render_overlay(ui, content_rect);
+            let fbt = theme::find_bar_theme();
+            self.find_bar.render_overlay(ui, content_rect, &fbt);
         }
     }
 

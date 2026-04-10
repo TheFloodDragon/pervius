@@ -9,9 +9,9 @@ use super::demo;
 use super::result::SearchResultGroup;
 use super::widget::{self, render_group_header, render_match_row, separator, SearchMode};
 use crate::appearance::{codicon, theme};
-use crate::ui::editor::highlight;
-use crate::ui::widget::FlatButton;
+use crate::ui::widget::{flat_button_theme, FlatButton};
 use eframe::egui;
+use egui_editor::highlight;
 use egui_shell::components::FloatingWindow;
 use rust_i18n::t;
 
@@ -81,8 +81,7 @@ impl SearchDialog {
         self.selected = None;
     }
 
-    pub fn render(&mut self, ctx: &egui::Context) {
-        let wt = theme::window_theme();
+    pub fn render(&mut self, ctx: &egui::Context, shell_theme: &egui_shell::ShellTheme) {
         // 临时取出 window 避免 &mut self 借用冲突
         let mut window = std::mem::take(&mut self.window);
         // header_right 需要的状态提取到局部变量，避免两个闭包同时借用 self
@@ -90,10 +89,11 @@ impl SearchDialog {
         let mut mode_changed = false;
         window.show(
             ctx,
-            &wt,
+            shell_theme,
             |ui| {
+                let fbt = flat_button_theme();
                 let flat = |label, active| {
-                    FlatButton::new(label)
+                    FlatButton::new(label, &fbt)
                         .font_size(11.0)
                         .active(active)
                         .inactive_color(theme::TEXT_MUTED)
@@ -138,6 +138,7 @@ impl SearchDialog {
     }
 
     fn render_toolbar(&mut self, ui: &mut egui::Ui) {
+        let fbt = flat_button_theme();
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.add_space(8.0);
@@ -163,7 +164,7 @@ impl SearchDialog {
             ui.add_space(4.0);
             if ui
                 .add(
-                    FlatButton::new(codicon::CASE_SENSITIVE)
+                    FlatButton::new(codicon::CASE_SENSITIVE, &fbt)
                         .font_family(codicon::family())
                         .font_size(15.0)
                         .active(self.case_sensitive)
@@ -178,7 +179,7 @@ impl SearchDialog {
             ui.add_space(2.0);
             if ui
                 .add(
-                    FlatButton::new(codicon::REGEX)
+                    FlatButton::new(codicon::REGEX, &fbt)
                         .font_family(codicon::family())
                         .font_size(15.0)
                         .active(self.use_regex)
@@ -196,6 +197,7 @@ impl SearchDialog {
     }
 
     fn render_categories(&mut self, ui: &mut egui::Ui) {
+        let fbt = flat_button_theme();
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.add_space(6.0);
@@ -203,7 +205,7 @@ impl SearchDialog {
                 let label = cat.label();
                 if ui
                     .add(
-                        FlatButton::new(&label)
+                        FlatButton::new(&label, &fbt)
                             .font_size(11.0)
                             .active(self.category == cat)
                             .min_size(egui::vec2(0.0, 22.0)),
@@ -319,13 +321,19 @@ impl SearchDialog {
             } else {
                 Vec::new()
             };
+            let lang = if bytecode {
+                highlight::Language::Bytecode
+            } else {
+                highlight::Language::Java
+            };
             let jobs = highlight::highlight_per_line(
                 &sp.source_lines,
-                bytecode,
+                lang,
                 egui::FontId::monospace(11.0),
                 sp.match_line,
                 &line_ranges,
                 MATCH_TEXT_BG,
+                &theme::editor_theme().syntax,
             );
             self.preview_cache = Some(PreviewCache {
                 key: cache_key,

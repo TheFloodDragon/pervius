@@ -2,17 +2,17 @@
 //!
 //! @author sky
 
-use super::find::FindBar;
 use super::render::{self, line_number_width};
 use super::style::dock;
 use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
 use super::viewer::{EditorTabViewer, TabAction};
 use crate::appearance::theme;
-use crate::java::class_structure::SavedMember;
-use crate::java::decompiler;
+use pervius_java_bridge::class_structure::SavedMember;
+use pervius_java_bridge::decompiler;
 use eframe::egui;
 use egui_dock::{DockArea, DockState, SurfaceIndex};
+use egui_editor::find_bar::FindBar;
 use rust_i18n::t;
 use std::collections::{HashMap, HashSet};
 
@@ -280,9 +280,9 @@ impl EditorArea {
             };
             if let Some(cached) = decompiler::cached_source(hash, &entry) {
                 let lang = if cached.is_kotlin {
-                    super::highlight::Language::Kotlin
+                    egui_editor::Language::Kotlin
                 } else {
-                    super::highlight::Language::Java
+                    egui_editor::Language::Java
                 };
                 tab.set_decompiled(cached.source, lang, cached.line_mapping);
                 if tab.active_view == ActiveView::Hex {

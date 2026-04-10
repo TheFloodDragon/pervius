@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+use crate::error::BridgeError;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
@@ -39,20 +40,26 @@ pub struct JarArchive {
 
 impl JarArchive {
     /// 带进度回报的打开方法（供后台线程调用）
-    pub fn open_with_progress(path: &Path, progress: &LoadProgress) -> Result<Self, String> {
-        let data = std::fs::read(path).map_err(|e| e.to_string())?;
-        let hash = format!("{:x}", Sha256::digest(&data));
+    pub fn open_with_progress(path: &Path, progress: &LoadProgress) -> Result<Self, BridgeError> {
+        let data = std::fs::read(path)?;
+        let hash: String = Sha256::digest(&data)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
         let cursor = std::io::Cursor::new(data);
-        let mut zip = zip::ZipArchive::new(cursor).map_err(|e| e.to_string())?;
+        let mut zip =
+            zip::ZipArchive::new(cursor).map_err(|e| BridgeError::Parse(e.to_string()))?;
         let total = zip.len();
         progress.total.store(total as u32, Ordering::Relaxed);
         let mut entries = HashMap::new();
         for i in 0..total {
-            let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
+            let mut entry = zip
+                .by_index(i)
+                .map_err(|e| BridgeError::Parse(e.to_string()))?;
             if !entry.is_dir() {
                 let name = entry.name().to_owned();
                 let mut buf = Vec::with_capacity(entry.size() as usize);
-                entry.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+                entry.read_to_end(&mut buf)?;
                 entries.insert(name, buf);
             }
             progress.current.store((i + 1) as u32, Ordering::Relaxed);

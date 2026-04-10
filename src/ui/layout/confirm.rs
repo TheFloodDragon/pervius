@@ -157,15 +157,17 @@ impl Layout {
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
                             ui.add_space(20.0);
+                            let fbt = crate::ui::widget::flat_button_theme();
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     ui.add_space(20.0);
                                     if ui
                                         .add(
-                                            crate::ui::widget::FlatButton::new(&t!(
-                                                "confirm.cancel"
-                                            ))
+                                            crate::ui::widget::FlatButton::new(
+                                                &t!("confirm.cancel"),
+                                                &fbt,
+                                            )
                                             .min_size(egui::vec2(72.0, 28.0)),
                                         )
                                         .clicked()
@@ -175,9 +177,10 @@ impl Layout {
                                     ui.add_space(6.0);
                                     if ui
                                         .add(
-                                            crate::ui::widget::FlatButton::new(&t!(
-                                                "confirm.discard"
-                                            ))
+                                            crate::ui::widget::FlatButton::new(
+                                                &t!("confirm.discard"),
+                                                &fbt,
+                                            )
                                             .inactive_color(theme::ACCENT_RED)
                                             .min_size(egui::vec2(88.0, 28.0)),
                                         )

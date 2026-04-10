@@ -1,0 +1,67 @@
+//! 统一错误类型
+//!
+//! @author sky
+
+use std::path::PathBuf;
+
+/// Java bridge 统一错误类型
+#[derive(Debug)]
+pub enum BridgeError {
+    /// JAVA_HOME 环境变量未设置
+    JavaHomeNotSet,
+    /// java 可执行文件不存在
+    JavaNotFound(PathBuf),
+    /// 指定前缀的 JAR 未在 exe 同目录找到
+    JarNotFound {
+        /// 搜索的文件名前缀
+        prefix: String,
+        /// 搜索的目录
+        dir: PathBuf,
+    },
+    /// 无法确定系统缓存目录
+    NoCacheDir,
+    /// 子进程启动失败
+    SpawnFailed(std::io::Error),
+    /// 外部工具执行失败（stderr 内容）
+    ProcessFailed(String),
+    /// 外部工具非零退出码
+    ExitCode(Option<i32>),
+    /// IO 错误
+    Io(std::io::Error),
+    /// class 文件解析错误
+    Parse(String),
+    /// ClassForge 工具错误
+    ClassForge(String),
+    /// Vineflower 未产出结果
+    NoOutput,
+}
+
+impl std::fmt::Display for BridgeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::JavaHomeNotSet => write!(f, "JAVA_HOME environment variable is not set"),
+            Self::JavaNotFound(path) => {
+                write!(f, "Java executable not found at {}", path.display())
+            }
+            Self::JarNotFound { prefix, dir } => {
+                write!(f, "{prefix}*.jar not found in {}", dir.display())
+            }
+            Self::NoCacheDir => write!(f, "Cannot determine cache directory"),
+            Self::SpawnFailed(e) => write!(f, "Failed to spawn process: {e}"),
+            Self::ProcessFailed(stderr) => write!(f, "{stderr}"),
+            Self::ExitCode(code) => write!(f, "Process exited with code {code:?}"),
+            Self::Io(e) => write!(f, "{e}"),
+            Self::Parse(msg) => write!(f, "Parse error: {msg}"),
+            Self::ClassForge(msg) => write!(f, "ClassForge: {msg}"),
+            Self::NoOutput => write!(f, "Decompiler produced no output"),
+        }
+    }
+}
+
+impl std::error::Error for BridgeError {}
+
+impl From<std::io::Error> for BridgeError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}

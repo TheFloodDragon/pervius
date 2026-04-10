@@ -8,7 +8,7 @@ use super::modified_count::ModifiedCountItem;
 use super::text_item::TextItem;
 use super::view_toggle::ViewToggleItem;
 use crate::appearance::theme;
-use crate::java::{classforge, decompiler};
+use pervius_java_bridge::{classforge, decompiler};
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
 use egui_shell::components::status_bar::{Alignment, StatusBarWidget, StatusItem};
@@ -32,10 +32,18 @@ impl Default for StatusBar {
         ));
         widget.add(ClassInfoItem::new());
         if let Some(ver) = decompiler::vineflower_version() {
-            widget.add(TextItem::new(ver, theme::ACCENT_GREEN, Alignment::Right));
+            widget.add(TextItem::new(
+                t!("decompiler.vineflower_version", version = ver),
+                theme::ACCENT_GREEN,
+                Alignment::Right,
+            ));
         }
         if let Some(ver) = classforge::classforge_version() {
-            widget.add(TextItem::new(ver, theme::ACCENT_GREEN, Alignment::Right));
+            widget.add(TextItem::new(
+                t!("status.classforge_version", version = ver),
+                theme::ACCENT_GREEN,
+                Alignment::Right,
+            ));
         }
         widget.add(ModifiedCountItem::new());
         widget.add(ViewToggleItem::new());

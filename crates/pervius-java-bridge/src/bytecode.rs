@@ -5,7 +5,7 @@
 //!
 //! @author sky
 
-use super::class_structure::{
+use crate::class_structure::{
     AnnotationPair, ClassInfo, ClassStructure, EditableAnnotation, FieldInfo, MethodInfo,
 };
 use ristretto_classfile::attributes::{Annotation, AnnotationElement, Attribute, Instruction};

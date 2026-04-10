@@ -10,12 +10,13 @@ mod view;
 
 use super::layout::Layout;
 use crate::appearance::theme;
-use crate::ui::widget::FlatButton;
+use crate::ui::widget::{flat_button_theme, FlatButton};
 use eframe::egui;
 use rust_i18n::t;
 
 /// 渲染菜单栏（注入到标题栏）
 pub fn menu_bar(ui: &mut egui::Ui, layout: &mut Layout) {
+    let fbt = flat_button_theme();
     let menus: &[(&str, fn(&mut egui::Ui, &mut Layout))] = &[
         (&t!("menu.file"), file::render),
         (&t!("menu.edit"), edit::render),
@@ -23,7 +24,7 @@ pub fn menu_bar(ui: &mut egui::Ui, layout: &mut Layout) {
         (&t!("menu.help"), help::render),
     ];
     for (name, render) in menus {
-        let btn = ui.add(FlatButton::new(*name).min_size(egui::vec2(40.0, 24.0)));
+        let btn = ui.add(FlatButton::new(*name, &fbt).min_size(egui::vec2(40.0, 24.0)));
         egui::Popup::menu(&btn)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
             .show(|ui| {

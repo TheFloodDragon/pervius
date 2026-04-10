@@ -13,8 +13,9 @@ use super::search::SearchDialog;
 use super::settings::SettingsDialog;
 use super::status_bar::StatusBar;
 use crate::appearance::theme;
-use crate::java::decompiler::{CachedSource, DecompileTask};
-use crate::java::jar::JarArchive;
+use pervius_java_bridge::decompiler::{CachedSource, DecompileTask};
+use pervius_java_bridge::error::BridgeError;
+use pervius_java_bridge::jar::JarArchive;
 use crate::settings::Settings;
 use confirm::ConfirmAction;
 use eframe::egui;
@@ -59,9 +60,9 @@ pub struct Layout {
     /// 待确认的破坏性动作
     pub pending_confirm: Option<ConfirmAction>,
     /// 单文件反编译结果接收队列（支持并发多个）
-    pending_decompiles: Vec<(String, mpsc::Receiver<Result<CachedSource, String>>)>,
+    pending_decompiles: Vec<(String, mpsc::Receiver<Result<CachedSource, BridgeError>>)>,
     /// 后台重反编译启动中（清缓存 + start 在子线程）
-    pending_re_decompile: Option<(String, mpsc::Receiver<Result<DecompileTask, String>>)>,
+    pending_re_decompile: Option<(String, mpsc::Receiver<Result<DecompileTask, BridgeError>>)>,
 }
 
 struct LayoutRects {
@@ -97,7 +98,7 @@ impl Layout {
     }
 
     /// 在 CentralPanel 内绘制完整布局
-    pub fn render(&mut self, ui: &mut egui::Ui) {
+    pub fn render(&mut self, ui: &mut egui::Ui, shell_theme: &egui_shell::ShellTheme) {
         // 拦截窗口关闭请求
         if ui.ctx().input(|i| i.viewport().close_requested()) && self.has_unsaved_changes() {
             ui.ctx()
@@ -142,8 +143,8 @@ impl Layout {
         }
         self.sync_explorer_selection();
         self.render_status_bar(ui, rects.status);
-        self.search.render(ui.ctx());
-        if let Some(new_settings) = self.settings_dialog.render(ui.ctx()) {
+        self.search.render(ui.ctx(), shell_theme);
+        if let Some(new_settings) = self.settings_dialog.render(ui.ctx(), shell_theme) {
             // keybind 配置变更时重建 KeyMap
             self.keys = super::keybindings::build_keymap(&new_settings.keymap);
             // 语言变更时更新 locale

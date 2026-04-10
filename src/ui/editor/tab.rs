@@ -2,9 +2,9 @@
 //!
 //! @author sky
 
-use super::highlight::{self, Language, Span};
 use super::view_toggle::ActiveView;
-use crate::java::class_structure::ClassStructure;
+use pervius_java_bridge::class_structure::ClassStructure;
+use egui_editor::highlight::{self, Language, Span};
 use egui_hex_view::HexViewState;
 use rust_i18n::t;
 
@@ -75,7 +75,7 @@ impl EditorTab {
         raw_bytes: Vec<u8>,
         language: Language,
     ) -> Self {
-        let cs = crate::java::bytecode::disassemble(&raw_bytes).ok();
+        let cs = pervius_java_bridge::bytecode::disassemble(&raw_bytes).ok();
         let class_info = cs.as_ref().map(|c| c.info.version.clone());
         let bc_selection = cs
             .as_ref()

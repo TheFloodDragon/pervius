@@ -5,7 +5,6 @@
 rust_i18n::i18n!("locales", fallback = "en");
 
 mod appearance;
-mod java;
 mod settings;
 mod ui;
 
@@ -25,12 +24,17 @@ fn main() -> eframe::Result {
         theme: appearance::ShellTheme {
             bg: appearance::theme::BG_DARK,
             bg_hover: appearance::theme::BG_HOVER,
+            bg_active: appearance::theme::BG_LIGHT,
             text_primary: appearance::theme::TEXT_PRIMARY,
             text_secondary: appearance::theme::TEXT_SECONDARY,
+            text_muted: appearance::theme::TEXT_MUTED,
             accent: appearance::theme::VERDIGRIS,
+            separator: appearance::theme::BORDER,
+            icon_font: eframe::egui::FontFamily::Name("codicon".into()),
             caption_hover: appearance::theme::CAPTION_HOVER,
             close_hover: appearance::theme::CLOSE_HOVER,
             title_bar_height: appearance::theme::TITLE_BAR_HEIGHT,
+            window: appearance::theme::window_config(),
         },
     };
     appearance::run(options, |_cc| {
@@ -45,8 +49,8 @@ struct PervApp {
 }
 
 impl appearance::AppContent for PervApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
-        self.layout.render(ui);
+    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context, theme: &appearance::ShellTheme) {
+        self.layout.render(ui, theme);
     }
     fn menu_bar(&mut self, ui: &mut egui::Ui) {
         ui::menu::menu_bar(ui, &mut self.layout);

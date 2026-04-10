@@ -1,4 +1,6 @@
-//! Java 相关：JAR 归档读取、Vineflower 反编译、字节码反汇编
+//! Java bridge：JAR 归档读取、Vineflower 反编译、字节码反汇编、class 编辑写回
+//!
+//! 提供与 Java 工具链交互的全部逻辑，无 UI 依赖。
 //!
 //! @author sky
 
@@ -8,6 +10,7 @@ pub mod bytecode;
 pub mod class_structure;
 pub mod classforge;
 pub mod decompiler;
+pub mod error;
 pub mod jar;
 pub mod process;
 pub mod save;
@@ -16,12 +19,18 @@ pub mod save;
 ///
 /// `prefix` — 文件名前缀（如 `"vineflower"`）
 /// `filter` — 额外过滤条件（如排除 `-slim`），无需额外过滤时传 `|_| true`
-pub fn find_jar(prefix: &str, filter: impl Fn(&str) -> bool) -> Result<PathBuf, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+pub fn find_jar(
+    prefix: &str,
+    filter: impl Fn(&str) -> bool,
+) -> Result<PathBuf, error::BridgeError> {
+    let exe = std::env::current_exe()?;
     let exe_dir = exe
         .parent()
-        .ok_or_else(|| "cannot determine exe directory".to_string())?;
-    let entries = std::fs::read_dir(exe_dir).map_err(|e| e.to_string())?;
+        .ok_or_else(|| error::BridgeError::JarNotFound {
+            prefix: prefix.to_string(),
+            dir: PathBuf::new(),
+        })?;
+    let entries = std::fs::read_dir(exe_dir)?;
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -29,7 +38,10 @@ pub fn find_jar(prefix: &str, filter: impl Fn(&str) -> bool) -> Result<PathBuf, 
             return Ok(entry.path());
         }
     }
-    Err(format!("{prefix}*.jar not found in {}", exe_dir.display()))
+    Err(error::BridgeError::JarNotFound {
+        prefix: prefix.to_string(),
+        dir: exe_dir.to_path_buf(),
+    })
 }
 
 /// 从 JAR 文件名解析版本号（去掉前缀和 `.jar` 后缀）

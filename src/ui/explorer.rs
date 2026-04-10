@@ -5,7 +5,7 @@
 pub mod tree;
 
 use crate::appearance::{codicon, theme};
-use crate::ui::widget::FlatButton;
+use crate::ui::widget::{flat_button_theme, FlatButton};
 use eframe::egui;
 use rust_i18n::t;
 use std::collections::HashSet;
@@ -268,6 +268,7 @@ impl FilePanel {
         if self.roots.is_empty() {
             return;
         }
+        let fbt = flat_button_theme();
         let btn_size = egui::vec2(22.0, 22.0);
         let mid_y = title_rect.center().y;
         let icon_family = codicon::family();
@@ -281,7 +282,7 @@ impl FilePanel {
         );
         if collapse_ui
             .add(
-                FlatButton::new(codicon::COLLAPSE_ALL)
+                FlatButton::new(codicon::COLLAPSE_ALL, &fbt)
                     .font_size(14.0)
                     .font_family(icon_family.clone())
                     .inactive_color(theme::TEXT_SECONDARY)
@@ -302,7 +303,7 @@ impl FilePanel {
         );
         if expand_ui
             .add(
-                FlatButton::new(codicon::EXPAND_ALL)
+                FlatButton::new(codicon::EXPAND_ALL, &fbt)
                     .font_size(14.0)
                     .font_family(icon_family)
                     .inactive_color(theme::TEXT_SECONDARY)

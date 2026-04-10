@@ -5,17 +5,15 @@
 //!
 //! @author sky
 
+use crate::error::BridgeError;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 
-use rust_i18n::t;
-
 /// 从 JAVA_HOME 环境变量定位 java 可执行文件
-pub fn find_java() -> Result<PathBuf, String> {
-    let java_home =
-        std::env::var("JAVA_HOME").map_err(|_| t!("decompiler.java_home_not_set").to_string())?;
+pub fn find_java() -> Result<PathBuf, BridgeError> {
+    let java_home = std::env::var("JAVA_HOME").map_err(|_| BridgeError::JavaHomeNotSet)?;
     let java_home = PathBuf::from(java_home);
     let java = if cfg!(windows) {
         java_home.join("bin").join("java.exe")
@@ -23,7 +21,7 @@ pub fn find_java() -> Result<PathBuf, String> {
         java_home.join("bin").join("java")
     };
     if !java.exists() {
-        return Err(t!("decompiler.java_not_found", path = java.display()).to_string());
+        return Err(BridgeError::JavaNotFound(java));
     }
     Ok(java)
 }
@@ -37,7 +35,7 @@ pub struct JavaCommand {
 
 impl JavaCommand {
     /// 创建 `java -jar <jar>` 命令
-    pub fn new(jar: &Path) -> Result<Self, String> {
+    pub fn new(jar: &Path) -> Result<Self, BridgeError> {
         let java = find_java()?;
         let mut cmd = Command::new(java);
         cmd.arg("-jar").arg(jar);
