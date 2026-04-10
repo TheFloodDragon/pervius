@@ -1098,6 +1098,7 @@ dependencies = [
  "log",
  "resvg",
  "serde",
+ "tabookit",
  "toml 0.8.23",
 ]
 

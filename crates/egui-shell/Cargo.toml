@@ -11,6 +11,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 resvg = "0.47"
 egui-animation = { path = "../egui-animation" }
 egui-keybind = { path = "../egui-keybind" }
+tabookit = { path = "../tabookit" }
 serde = "1"
 toml = "0.8"
 dirs = "6"
