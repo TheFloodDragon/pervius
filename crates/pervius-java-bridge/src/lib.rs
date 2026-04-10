@@ -6,14 +6,23 @@
 
 use std::path::PathBuf;
 
+#[macro_use]
+mod macros;
+
 pub mod bytecode;
 pub mod class_structure;
-pub mod classforge;
+pub mod assembler;
 pub mod decompiler;
 pub mod error;
 pub mod jar;
 pub mod process;
 pub mod save;
+
+/// Kotlin 编译器生成的内部注解，不可编辑，读写时均跳过
+pub const KOTLIN_INTERNAL_ANNOTATIONS: &[&str] = &[
+    "Lkotlin/Metadata;",
+    "Lkotlin/jvm/internal/SourceDebugExtension;",
+];
 
 /// 在 exe 同目录查找匹配的 JAR 文件
 ///

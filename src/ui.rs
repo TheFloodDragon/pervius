@@ -8,6 +8,5 @@ pub mod keybindings;
 pub mod layout;
 pub mod menu;
 pub mod search;
-pub mod settings;
 pub mod status_bar;
 pub mod widget;

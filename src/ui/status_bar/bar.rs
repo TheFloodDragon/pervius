@@ -5,13 +5,12 @@
 use super::class_info::ClassInfoItem;
 use super::decompile_progress::DecompileProgressItem;
 use super::modified_count::ModifiedCountItem;
-use super::text_item::TextItem;
 use super::view_toggle::ViewToggleItem;
 use crate::appearance::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
-use egui_shell::components::status_bar::{Alignment, StatusBarWidget, StatusItem};
-use pervius_java_bridge::{classforge, decompiler};
+use egui_shell::components::status_bar::{Alignment, StatusBarWidget, StatusItem, TextItem};
+use pervius_java_bridge::{assembler, decompiler};
 use rust_i18n::t;
 
 /// 状态栏服务
@@ -44,7 +43,7 @@ impl Default for StatusBar {
                 Alignment::Right,
             ));
         }
-        if let Some(ver) = classforge::classforge_version() {
+        if let Some(ver) = assembler::classforge_version() {
             widget.add(TextItem::new(
                 t!("status.classforge_version", version = ver),
                 theme::ACCENT_GREEN,

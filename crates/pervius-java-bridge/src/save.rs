@@ -10,8 +10,8 @@ use std::path::Path;
 
 use crate::bytecode;
 use crate::class_structure::ClassStructure;
-use crate::classforge;
-use crate::classforge::MethodEdit;
+use crate::assembler;
+use crate::assembler::MethodEdit;
 use ristretto_classfile::attributes::{AnnotationElement, AnnotationValuePair, Attribute};
 use ristretto_classfile::{
     ClassAccessFlags, ClassFile, ConstantPool, FieldAccessFlags, MethodAccessFlags,
@@ -27,8 +27,7 @@ pub fn apply_structure(
     cs: &ClassStructure,
     jar_path: Option<&Path>,
 ) -> Result<Vec<u8>, BridgeError> {
-    let mut cf =
-        ClassFile::from_bytes(raw_bytes).map_err(|e| BridgeError::Parse(format!("{e}")))?;
+    let mut cf = ClassFile::from_bytes(raw_bytes).map_err(BridgeError::parse)?;
     let original = bytecode::disassemble(raw_bytes).ok();
     if let Some(ref orig) = original {
         log::debug!(
@@ -61,7 +60,7 @@ pub fn apply_structure(
         .map_err(|e| BridgeError::Parse(format!("serialize error: {e}")))?;
     // 有字节码变动时，classforge (ASM) 接管指令编码和帧生成
     if !edits.is_empty() {
-        match classforge::patch_methods(&buf, &edits, jar_path) {
+        match assembler::patch_methods(&buf, &edits, jar_path) {
             Ok(patched) => {
                 log::info!(
                     "classforge: patched {} methods ({} -> {} bytes)",
@@ -179,9 +178,7 @@ fn apply_annotations(
                 .map(|s| s.to_string())
                 .unwrap_or_default();
             // 跳过 Kotlin 内部注解（不可编辑，不消耗 editable 迭代器）
-            if type_str == "Lkotlin/Metadata;"
-                || type_str == "Lkotlin/jvm/internal/SourceDebugExtension;"
-            {
+            if crate::KOTLIN_INTERNAL_ANNOTATIONS.contains(&type_str.as_str()) {
                 continue;
             }
             if let Some(ea) = editable_iter.next() {
@@ -282,63 +279,42 @@ fn find_or_add_class(cp: &mut ConstantPool, name_index: u16) -> u16 {
     cp.add(Constant::Class(name_index)).unwrap_or(0)
 }
 
-fn parse_class_flags(s: &str) -> ClassAccessFlags {
-    let mut flags = ClassAccessFlags::empty();
-    for word in s.split_whitespace() {
-        flags |= match word {
-            "public" => ClassAccessFlags::PUBLIC,
-            "final" => ClassAccessFlags::FINAL,
-            "super" => ClassAccessFlags::SUPER,
-            "interface" => ClassAccessFlags::INTERFACE,
-            "abstract" => ClassAccessFlags::ABSTRACT,
-            "synthetic" => ClassAccessFlags::SYNTHETIC,
-            "annotation" => ClassAccessFlags::ANNOTATION,
-            "enum" => ClassAccessFlags::ENUM,
-            "module" => ClassAccessFlags::MODULE,
-            // as_code() 输出 "class" 但 ClassAccessFlags 没有对应 bit
-            _ => ClassAccessFlags::empty(),
-        };
-    }
-    flags
-}
+parse_flags!(parse_class_flags, ClassAccessFlags, {
+    "public" => ClassAccessFlags::PUBLIC,
+    "final" => ClassAccessFlags::FINAL,
+    "super" => ClassAccessFlags::SUPER,
+    "interface" => ClassAccessFlags::INTERFACE,
+    "abstract" => ClassAccessFlags::ABSTRACT,
+    "synthetic" => ClassAccessFlags::SYNTHETIC,
+    "annotation" => ClassAccessFlags::ANNOTATION,
+    "enum" => ClassAccessFlags::ENUM,
+    "module" => ClassAccessFlags::MODULE,
+});
 
-fn parse_field_flags(s: &str) -> FieldAccessFlags {
-    let mut flags = FieldAccessFlags::empty();
-    for word in s.split_whitespace() {
-        flags |= match word {
-            "public" => FieldAccessFlags::PUBLIC,
-            "private" => FieldAccessFlags::PRIVATE,
-            "protected" => FieldAccessFlags::PROTECTED,
-            "static" => FieldAccessFlags::STATIC,
-            "final" => FieldAccessFlags::FINAL,
-            "volatile" => FieldAccessFlags::VOLATILE,
-            "transient" => FieldAccessFlags::TRANSIENT,
-            "synthetic" => FieldAccessFlags::SYNTHETIC,
-            "enum" => FieldAccessFlags::ENUM,
-            _ => FieldAccessFlags::empty(),
-        };
-    }
-    flags
-}
+parse_flags!(parse_field_flags, FieldAccessFlags, {
+    "public" => FieldAccessFlags::PUBLIC,
+    "private" => FieldAccessFlags::PRIVATE,
+    "protected" => FieldAccessFlags::PROTECTED,
+    "static" => FieldAccessFlags::STATIC,
+    "final" => FieldAccessFlags::FINAL,
+    "volatile" => FieldAccessFlags::VOLATILE,
+    "transient" => FieldAccessFlags::TRANSIENT,
+    "synthetic" => FieldAccessFlags::SYNTHETIC,
+    "enum" => FieldAccessFlags::ENUM,
+});
 
-fn parse_method_flags(s: &str) -> MethodAccessFlags {
-    let mut flags = MethodAccessFlags::empty();
-    for word in s.split_whitespace() {
-        flags |= match word {
-            "public" => MethodAccessFlags::PUBLIC,
-            "private" => MethodAccessFlags::PRIVATE,
-            "protected" => MethodAccessFlags::PROTECTED,
-            "static" => MethodAccessFlags::STATIC,
-            "final" => MethodAccessFlags::FINAL,
-            "synchronized" => MethodAccessFlags::SYNCHRONIZED,
-            "bridge" => MethodAccessFlags::BRIDGE,
-            "varargs" => MethodAccessFlags::VARARGS,
-            "native" => MethodAccessFlags::NATIVE,
-            "abstract" => MethodAccessFlags::ABSTRACT,
-            "strict" | "strictfp" => MethodAccessFlags::STRICT,
-            "synthetic" => MethodAccessFlags::SYNTHETIC,
-            _ => MethodAccessFlags::empty(),
-        };
-    }
-    flags
-}
+parse_flags!(parse_method_flags, MethodAccessFlags, {
+    "public" => MethodAccessFlags::PUBLIC,
+    "private" => MethodAccessFlags::PRIVATE,
+    "protected" => MethodAccessFlags::PROTECTED,
+    "static" => MethodAccessFlags::STATIC,
+    "final" => MethodAccessFlags::FINAL,
+    "synchronized" => MethodAccessFlags::SYNCHRONIZED,
+    "bridge" => MethodAccessFlags::BRIDGE,
+    "varargs" => MethodAccessFlags::VARARGS,
+    "native" => MethodAccessFlags::NATIVE,
+    "abstract" => MethodAccessFlags::ABSTRACT,
+    "strict" => MethodAccessFlags::STRICT,
+    "strictfp" => MethodAccessFlags::STRICT,
+    "synthetic" => MethodAccessFlags::SYNTHETIC,
+});

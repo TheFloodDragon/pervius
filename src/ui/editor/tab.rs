@@ -3,9 +3,9 @@
 //! @author sky
 
 use super::view_toggle::ActiveView;
-use pervius_java_bridge::class_structure::ClassStructure;
 use egui_editor::highlight::{self, Language, Span};
 use egui_hex_view::HexViewState;
+use pervius_java_bridge::class_structure::ClassStructure;
 use rust_i18n::t;
 
 /// 预处理后的代码视图数据（虚拟滚动用）

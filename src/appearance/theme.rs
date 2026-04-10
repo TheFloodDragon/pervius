@@ -136,11 +136,49 @@ pub fn settings_theme() -> egui_shell::components::SettingsTheme {
     }
 }
 
+/// 菜单项主题
+pub fn menu_theme() -> egui_shell::components::MenuTheme {
+    egui_shell::components::MenuTheme {
+        text_primary: TEXT_PRIMARY,
+        text_muted: TEXT_MUTED,
+        bg_hover: BG_HOVER,
+    }
+}
+
 /// 状态栏主题
 pub fn status_bar_theme() -> egui_shell::components::StatusBarTheme {
     egui_shell::components::StatusBarTheme {
         bg: BG_DARK,
         separator: BORDER,
+    }
+}
+
+/// 确认弹窗主题
+pub fn confirm_theme() -> egui_shell::components::ConfirmTheme {
+    egui_shell::components::ConfirmTheme {
+        frame: egui::Frame {
+            fill: BG_LIGHT,
+            stroke: egui::Stroke::new(1.0, BORDER_LIGHT),
+            corner_radius: egui::CornerRadius::same(8),
+            shadow: egui::Shadow {
+                spread: 2,
+                blur: 24,
+                offset: [0, 8],
+                color: egui::Color32::from_black_alpha(100),
+            },
+            ..Default::default()
+        },
+        title_color: TEXT_PRIMARY,
+        message_color: TEXT_SECONDARY,
+        separator: BORDER,
+        backdrop: egui::Color32::from_black_alpha(80),
+        button: egui_shell::components::FlatButtonTheme {
+            text_primary: TEXT_PRIMARY,
+            text_active: VERDIGRIS,
+            text_inactive: TEXT_SECONDARY,
+            bg_hover: BG_HOVER,
+            bg_pressed: BG_LIGHT,
+        },
     }
 }
 
@@ -158,13 +196,13 @@ pub fn editor_theme() -> egui_editor::CodeViewTheme {
             muted: TEXT_MUTED,
             constant: SYN_CONSTANT,
             method_call: SYN_METHOD,
-            method_decl: SYN_METHOD_DECL,
+            method_declaration: SYN_METHOD_DECL,
         },
         bg: BG_DARKEST,
         gutter_bg: BG_GUTTER,
         line_number_color: TEXT_MUTED,
-        search_bg: verdigris_alpha(25),
-        search_current_bg: verdigris_alpha(60),
+        search_bg: verdigris_alpha(40),
+        search_current_bg: verdigris_alpha(100),
         code_font_size: 13.0,
     }
 }

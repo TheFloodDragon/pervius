@@ -8,9 +8,9 @@
 
 use super::node::TreeNode;
 use crate::appearance::{codicon, theme};
-use crate::ui::menu::item::menu_item_raw;
 use eframe::egui;
 use egui_animation::Anim;
+use egui_shell::components::menu_item_raw;
 use rust_i18n::t;
 use std::collections::HashSet;
 use std::ops::Range;
@@ -354,7 +354,7 @@ fn render_row(
     if !node.is_folder {
         response.context_menu(|ui| {
             ui.style_mut().visuals.widgets.hovered.bg_fill = theme::BG_HOVER;
-            if menu_item_raw(ui, &t!("explorer.reveal"), "") {
+            if menu_item_raw(ui, &theme::menu_theme(), &t!("explorer.reveal"), "") {
                 *reveal = Some(node.path.clone());
                 ui.close();
             }

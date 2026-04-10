@@ -5,7 +5,6 @@
 mod edit;
 mod file;
 mod help;
-pub mod item;
 mod view;
 
 use super::layout::Layout;

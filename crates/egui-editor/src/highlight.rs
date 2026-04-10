@@ -6,6 +6,8 @@
 //!
 //! @author sky
 
+#[macro_use]
+mod macros;
 mod bytecode;
 mod html;
 mod java;
@@ -38,7 +40,7 @@ pub enum TokenKind {
     /// 方法调用
     MethodCall,
     /// 方法声明
-    MethodDecl,
+    MethodDeclaration,
 }
 
 impl TokenKind {
@@ -55,44 +57,30 @@ impl TokenKind {
             Self::Muted => theme.muted,
             Self::Constant => theme.constant,
             Self::MethodCall => theme.method_call,
-            Self::MethodDecl => theme.method_decl,
+            Self::MethodDeclaration => theme.method_declaration,
         }
     }
 }
 
-/// 支持高亮的语言（限 JAR 内可能出现的类型）
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Language {
-    Java,
-    /// Kotlin（tree-sitter-kotlin）
-    Kotlin,
-    Xml,
-    Yaml,
-    Json,
-    Html,
-    Sql,
-    Properties,
-    /// JVM 字节码（自定义 tokenizer，非 tree-sitter）
-    Bytecode,
-    Plain,
+define_languages! {
+    ts {
+        Java(java) = tree_sitter_java::LANGUAGE => ["java"],
+        /// Kotlin（tree-sitter-kotlin）
+        Kotlin(kotlin) = tree_sitter_kotlin_sg::LANGUAGE => ["kt", "kts"],
+        Xml(xml) = tree_sitter_xml::LANGUAGE_XML => ["xml", "fxml", "pom"],
+        Yaml(yaml) = tree_sitter_yaml::LANGUAGE => ["yml", "yaml"],
+        Json(json) = tree_sitter_json::LANGUAGE => ["json", "jsonc", "mcmeta"],
+        Html(html) = tree_sitter_html::LANGUAGE => ["html", "htm"],
+        Sql(sql) = tree_sitter_sequel::LANGUAGE => ["sql"],
+    }
+    custom {
+        Properties(properties) => ["properties", "cfg", "ini", "toml"],
+        /// JVM 字节码（自定义 tokenizer，非 tree-sitter）
+        Bytecode(bytecode),
+    }
 }
 
 impl Language {
-    /// 从文件扩展名推断
-    pub fn from_extension(ext: &str) -> Self {
-        match ext.to_ascii_lowercase().as_str() {
-            "java" => Self::Java,
-            "kt" | "kts" => Self::Kotlin,
-            "xml" | "fxml" | "pom" => Self::Xml,
-            "yml" | "yaml" => Self::Yaml,
-            "json" | "jsonc" | "mcmeta" => Self::Json,
-            "html" | "htm" => Self::Html,
-            "sql" => Self::Sql,
-            "properties" | "cfg" | "ini" | "toml" => Self::Properties,
-            _ => Self::Plain,
-        }
-    }
-
     /// 从文件名推断
     pub fn from_filename(name: &str) -> Self {
         if let Some(ext) = name.rsplit('.').next() {
@@ -131,34 +119,16 @@ pub fn compute_line_starts(source: &str) -> Vec<usize> {
     starts
 }
 
-/// 收集所有着色 span（字节偏移）
-fn collect_spans(source: &str, lang: Language) -> Vec<Span> {
-    match lang {
-        Language::Properties => properties::collect_spans(source),
-        Language::Bytecode => bytecode::collect_spans(source),
-        Language::Plain => vec![(0, source.len(), TokenKind::Plain)],
-        _ => collect_treesitter_spans(source, lang),
-    }
-}
-
 fn collect_treesitter_spans(source: &str, lang: Language) -> Vec<Span> {
     collect_treesitter_spans_checked(source, lang).0
 }
 
 fn collect_treesitter_spans_checked(source: &str, lang: Language) -> (Vec<Span>, bool) {
-    let mut parser = tree_sitter::Parser::new();
-    let ts_lang: tree_sitter::Language = match lang {
-        Language::Java => tree_sitter_java::LANGUAGE.into(),
-        Language::Kotlin => tree_sitter_kotlin_sg::LANGUAGE.into(),
-        Language::Xml => tree_sitter_xml::LANGUAGE_XML.into(),
-        Language::Yaml => tree_sitter_yaml::LANGUAGE.into(),
-        Language::Json => tree_sitter_json::LANGUAGE.into(),
-        Language::Html => tree_sitter_html::LANGUAGE.into(),
-        Language::Sql => tree_sitter_sequel::LANGUAGE.into(),
-        Language::Properties | Language::Bytecode | Language::Plain => {
-            return (vec![(0, source.len(), TokenKind::Plain)], false);
-        }
+    let (ts_lang, color_fn) = match resolve_treesitter(lang) {
+        Some(pair) => pair,
+        None => return (vec![(0, source.len(), TokenKind::Plain)], false),
     };
+    let mut parser = tree_sitter::Parser::new();
     if parser.set_language(&ts_lang).is_err() {
         return (vec![(0, source.len(), TokenKind::Plain)], true);
     }
@@ -167,18 +137,6 @@ fn collect_treesitter_spans_checked(source: &str, lang: Language) -> (Vec<Span>,
         None => return (vec![(0, source.len(), TokenKind::Plain)], true),
     };
     let has_errors = tree.root_node().has_error();
-    let color_fn: ColorFn = match lang {
-        Language::Java => java::classify,
-        Language::Kotlin => kotlin::classify,
-        Language::Xml => xml::classify,
-        Language::Yaml => yaml::classify,
-        Language::Json => json::classify,
-        Language::Html => html::classify,
-        Language::Sql => sql::classify,
-        Language::Properties | Language::Bytecode | Language::Plain => {
-            return (vec![(0, source.len(), TokenKind::Plain)], false);
-        }
-    };
     let mut spans = Vec::new();
     collect_node_spans(
         &mut tree.root_node().walk(),

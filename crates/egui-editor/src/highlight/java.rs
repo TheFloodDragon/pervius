@@ -80,7 +80,7 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
                 .child_by_field_name("name")
                 .is_some_and(|n| n.id() == node.id())
             {
-                return Some(TokenKind::MethodDecl);
+                return Some(TokenKind::MethodDeclaration);
             }
         }
         // 方法调用

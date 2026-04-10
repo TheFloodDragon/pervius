@@ -4,11 +4,13 @@
 
 use super::tab::{BytecodeSelection, EditorTab};
 use crate::appearance::{codicon, theme};
-use pervius_java_bridge::class_structure::{ClassStructure, EditableAnnotation, FieldInfo, MethodInfo};
 use crate::ui::widget::{flat_button_theme, FlatButton};
 use eframe::egui;
 use egui_animation::Anim;
 use egui_editor::search::FindMatch;
+use pervius_java_bridge::class_structure::{
+    ClassStructure, EditableAnnotation, FieldInfo, MethodInfo,
+};
 
 /// 导航栏最小宽度
 const MIN_NAV_WIDTH: f32 = 120.0;

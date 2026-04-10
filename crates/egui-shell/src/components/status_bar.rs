@@ -7,17 +7,18 @@
 use eframe::egui;
 use std::any::Any;
 
+/// 两侧内边距
+const PAD: f32 = 12.0;
+/// 相邻 item 之间的间距（含分隔符）
+const SEP_GAP: f32 = 16.0;
+/// 分隔符半高
+const SEP_HALF_H: f32 = 7.0;
+
 /// 状态栏项目的位置
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Alignment {
     Left,
     Right,
-}
-
-/// 状态栏项目渲染结果
-pub struct ItemResponse {
-    /// 该 item 占用的宽度
-    pub width: f32,
 }
 
 /// 状态栏可注册项目
@@ -35,7 +36,7 @@ pub trait StatusItem: Any {
     /// - `ui`: 状态栏 UI（用于交互和绘制）
     /// - `x`: 起始 x 坐标（左侧 item 为左边缘，右侧 item 为右边缘）
     /// - `center_y`: 状态栏垂直中心
-    fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> ItemResponse;
+    fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> f32;
 }
 
 /// blanket impl：所有 StatusItem 实现者自动获得 downcast 能力
@@ -92,45 +93,137 @@ impl StatusBarWidget {
         let rect = ui.max_rect();
         ui.painter().rect_filled(rect, 0.0, self.theme.bg);
         let center_y = rect.center().y;
-        let pad = 12.0;
-        let sep_gap = 16.0;
         let sep_color = self.theme.separator;
-        // 左侧 items 从左向右排列
-        let mut left_x = rect.left() + pad;
-        let mut left_first = true;
-        for item in self.items.iter_mut() {
-            if item.alignment() != Alignment::Left || !item.visible() {
+        self.render_side(
+            ui,
+            Alignment::Left,
+            rect.left() + PAD,
+            center_y,
+            sep_color,
+            false,
+        );
+        self.render_side(
+            ui,
+            Alignment::Right,
+            rect.right() - PAD,
+            center_y,
+            sep_color,
+            true,
+        );
+    }
+
+    /// 渲染某一侧的所有 items（`reverse` 控制遍历方向，右侧从右向左）
+    fn render_side(
+        &mut self,
+        ui: &mut egui::Ui,
+        side: Alignment,
+        start_x: f32,
+        center_y: f32,
+        sep_color: egui::Color32,
+        reverse: bool,
+    ) {
+        let mut x = start_x;
+        let mut first = true;
+        let indices: Vec<usize> = if reverse {
+            (0..self.items.len()).rev().collect()
+        } else {
+            (0..self.items.len()).collect()
+        };
+        for i in indices {
+            if self.items[i].alignment() != side || !self.items[i].visible() {
                 continue;
             }
-            if !left_first {
-                Self::paint_separator(ui, left_x + sep_gap / 2.0, center_y, sep_color);
-                left_x += sep_gap;
+            if !first {
+                let sep_x = if reverse {
+                    x - SEP_GAP / 2.0
+                } else {
+                    x + SEP_GAP / 2.0
+                };
+                Self::paint_separator(ui, sep_x, center_y, sep_color);
+                if reverse {
+                    x -= SEP_GAP
+                } else {
+                    x += SEP_GAP
+                };
             }
-            let resp = item.render(ui, left_x, center_y);
-            left_x += resp.width;
-            left_first = false;
-        }
-        // 右侧 items 从右向左排列
-        let mut right_x = rect.right() - pad;
-        let mut right_first = true;
-        for item in self.items.iter_mut().rev() {
-            if item.alignment() != Alignment::Right || !item.visible() {
-                continue;
-            }
-            if !right_first {
-                Self::paint_separator(ui, right_x - sep_gap / 2.0, center_y, sep_color);
-                right_x -= sep_gap;
-            }
-            let resp = item.render(ui, right_x, center_y);
-            right_x -= resp.width;
-            right_first = false;
+            let w = self.items[i].render(ui, x, center_y);
+            if reverse {
+                x -= w
+            } else {
+                x += w
+            };
+            first = false;
         }
     }
 
     fn paint_separator(ui: &egui::Ui, x: f32, y: f32, color: egui::Color32) {
         ui.painter().line_segment(
-            [egui::pos2(x, y - 7.0), egui::pos2(x, y + 7.0)],
+            [egui::pos2(x, y - SEP_HALF_H), egui::pos2(x, y + SEP_HALF_H)],
             egui::Stroke::new(1.0, color),
         );
+    }
+}
+
+/// 纯文本 item（无交互）
+pub struct TextItem {
+    /// 显示文本
+    text: String,
+    /// 文本颜色
+    color: egui::Color32,
+    /// 对齐方向（左 / 右）
+    alignment: Alignment,
+    /// 仅在有活跃 tab 时显示（由 StatusBar 统一控制）
+    context_only: bool,
+    /// 是否可见
+    visible: bool,
+}
+
+impl TextItem {
+    pub fn new(text: impl Into<String>, color: egui::Color32, alignment: Alignment) -> Self {
+        Self {
+            text: text.into(),
+            color,
+            alignment,
+            context_only: false,
+            visible: true,
+        }
+    }
+
+    pub fn is_context_only(&self) -> bool {
+        self.context_only
+    }
+
+    pub fn set_visible(&mut self, visible: bool) {
+        self.visible = visible;
+    }
+}
+
+impl StatusItem for TextItem {
+    fn alignment(&self) -> Alignment {
+        self.alignment
+    }
+
+    fn visible(&self) -> bool {
+        self.visible
+    }
+
+    fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> f32 {
+        let painter = ui.painter();
+        let galley = painter.layout_no_wrap(
+            self.text.clone(),
+            egui::FontId::proportional(11.0),
+            self.color,
+        );
+        let w = galley.size().x;
+        let draw_x = match self.alignment {
+            Alignment::Left => x,
+            Alignment::Right => x - w,
+        };
+        painter.galley(
+            egui::pos2(draw_x, center_y - galley.size().y / 2.0),
+            galley,
+            self.color,
+        );
+        w
     }
 }

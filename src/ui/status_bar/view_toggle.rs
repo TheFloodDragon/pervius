@@ -6,7 +6,7 @@ use crate::appearance::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
 use egui_animation::Anim;
-use egui_shell::components::status_bar::{Alignment, ItemResponse, StatusItem};
+use egui_shell::components::status_bar::{Alignment, StatusItem};
 use rust_i18n::t;
 
 /// 三视图切换 item
@@ -61,10 +61,10 @@ impl StatusItem for ViewToggleItem {
         self.active.is_some()
     }
 
-    fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> ItemResponse {
+    fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> f32 {
         let active = match self.active {
             Some(v) => v,
-            None => return ItemResponse { width: 0.0 },
+            None => return 0.0,
         };
         let painter = ui.painter();
         let font = egui::FontId::proportional(11.0);
@@ -139,6 +139,6 @@ impl StatusItem for ViewToggleItem {
             );
             ix += iw + item_gap;
         }
-        ItemResponse { width: container_w }
+        container_w
     }
 }

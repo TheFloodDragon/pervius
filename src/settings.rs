@@ -1,12 +1,17 @@
-//! 用户配置：数据定义 + 业务逻辑
+//! 用户配置：数据定义 + 设置面板 UI
 //!
 //! TOML 持久化由 [`egui_shell::components::SettingsFile`] trait 提供，
 //! 所有 section 均标注 `#[serde(default)]`，新增字段不会破坏旧配置文件。
 //!
 //! @author sky
 
+use crate::appearance::{codicon, theme};
+use eframe::egui;
 use egui_keybind::KeyBind;
-use egui_shell::components::SettingsFile;
+use egui_shell::components::{
+    path_picker_with, section_header, SectionDef, SettingsFile, SettingsPanel, SettingsTheme,
+};
+use egui_shell::keybind_rows;
 use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -47,33 +52,6 @@ impl Language {
             Self::En => t!("lang.en").to_string(),
             Self::Zh => t!("lang.zh").to_string(),
         }
-    }
-}
-
-/// 顶层配置
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Settings {
-    pub language: Language,
-    pub java: JavaSettings,
-    pub keymap: KeymapSettings,
-    pub recent: Vec<RecentEntry>,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            language: Language::default(),
-            java: JavaSettings::default(),
-            keymap: KeymapSettings::default(),
-            recent: Vec::new(),
-        }
-    }
-}
-
-impl SettingsFile for Settings {
-    fn app_name() -> &'static str {
-        "pervius"
     }
 }
 
@@ -138,6 +116,33 @@ impl Default for KeymapSettings {
     }
 }
 
+/// 顶层配置
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    pub language: Language,
+    pub java: JavaSettings,
+    pub keymap: KeymapSettings,
+    pub recent: Vec<RecentEntry>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            language: Language::default(),
+            java: JavaSettings::default(),
+            keymap: KeymapSettings::default(),
+            recent: Vec::new(),
+        }
+    }
+}
+
+impl SettingsFile for Settings {
+    fn app_name() -> &'static str {
+        "pervius"
+    }
+}
+
 impl Settings {
     /// 仅读取语言配置（用于启动时在 UI 初始化前设置 locale）
     pub fn load_for_locale() -> Self {
@@ -167,4 +172,125 @@ impl Settings {
     pub fn clear_recent(&mut self) {
         self.recent.clear();
     }
+}
+
+/// 构造预配置的设置面板实例
+pub fn new_panel() -> SettingsPanel<Settings> {
+    SettingsPanel::new("settings_window", t!("settings.title").to_string())
+        .icon(codicon::SETTINGS_GEAR)
+        .default_size([700.0, 500.0])
+        .min_size([520.0, 380.0])
+}
+
+/// 渲染设置面板，返回 `Some(Settings)` 表示配置有变更
+pub fn show(
+    panel: &mut SettingsPanel<Settings>,
+    ctx: &egui::Context,
+    shell_theme: &egui_shell::ShellTheme,
+) -> Option<Settings> {
+    let st = theme::settings_theme();
+    let sections = [
+        SectionDef {
+            icon: codicon::SETTINGS_GEAR,
+            label: t!("settings.general").to_string(),
+        },
+        SectionDef {
+            icon: codicon::BEAKER,
+            label: t!("settings.java").to_string(),
+        },
+        SectionDef {
+            icon: codicon::KEYBOARD,
+            label: t!("settings.keymap").to_string(),
+        },
+    ];
+    panel.show(ctx, shell_theme, &st, &sections, render_section)
+}
+
+/// 渲染指定 section 的内容
+fn render_section(
+    draft: &mut Settings,
+    active: usize,
+    ui: &mut egui::Ui,
+    st: &SettingsTheme,
+) -> bool {
+    match active {
+        0 => render_general(draft, ui, st),
+        1 => render_java(draft, ui, st),
+        _ => render_keymap(&mut draft.keymap, ui, st),
+    }
+}
+
+fn render_general(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> bool {
+    let mut changed = false;
+    section_header(ui, st, &t!("settings.section_general"));
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(t!("settings.language").to_string())
+                .size(13.0)
+                .color(st.text_primary),
+        );
+        ui.add_space(8.0);
+        let current = draft.language;
+        egui::ComboBox::from_id_salt("language_combo")
+            .selected_text(current.label())
+            .width(120.0)
+            .show_ui(ui, |ui| {
+                for &lang in Language::ALL {
+                    if ui.selectable_label(current == lang, lang.label()).clicked() {
+                        draft.language = lang;
+                        rust_i18n::set_locale(lang.code());
+                        changed = true;
+                    }
+                }
+            });
+    });
+    ui.add_space(4.0);
+    changed
+}
+
+fn render_java(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> bool {
+    let mut changed = false;
+    section_header(ui, st, &t!("settings.environment"));
+    changed |= path_picker_with(
+        ui,
+        st,
+        &t!("settings.java_home"),
+        &mut draft.java.java_home,
+        &t!("settings.java_home_hint"),
+        &t!("settings.browse"),
+        || {
+            rfd::FileDialog::new()
+                .pick_folder()
+                .map(|p| p.to_string_lossy().into_owned())
+        },
+    );
+    changed
+}
+
+fn render_keymap(km: &mut KeymapSettings, ui: &mut egui::Ui, st: &SettingsTheme) -> bool {
+    let defaults = KeymapSettings::default();
+    let hint = t!("settings.press_key");
+    let mut changed = false;
+    section_header(ui, st, &t!("settings.section_general"));
+    changed |= keybind_rows!(ui, st, hint, km, defaults,
+        t!("settings.open_jar") => open_jar,
+        t!("settings.toggle_explorer") => toggle_explorer,
+        t!("settings.open_settings") => open_settings,
+    );
+    section_header(ui, st, &t!("settings.section_editor"));
+    changed |= keybind_rows!(ui, st, hint, km, defaults,
+        t!("settings.save") => save,
+        t!("settings.find") => find,
+        t!("settings.find_in_files") => find_in_files,
+        t!("settings.close_tab") => close_tab,
+        t!("settings.close_all_tabs") => close_all_tabs,
+        t!("settings.cycle_view") => cycle_view,
+    );
+    section_header(ui, st, &t!("settings.section_export"));
+    changed |= keybind_rows!(ui, st, hint, km, defaults,
+        t!("settings.export_decompiled") => export_decompiled,
+    );
+    changed
 }

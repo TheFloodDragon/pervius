@@ -2,16 +2,18 @@
 //!
 //! @author sky
 
-use super::item::{menu_item, menu_item_raw, menu_submenu};
+use crate::appearance::theme;
 use crate::ui::layout::Layout;
 use eframe::egui;
-use egui_shell::components::SettingsFile;
+use egui_shell::components::{menu_item, menu_item_raw, menu_submenu, SettingsFile};
 use rust_i18n::t;
 use std::path::PathBuf;
 
 pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
+    let mt = &theme::menu_theme();
     if menu_item(
         ui,
+        mt,
         &t!("menu.open_jar"),
         Some(&layout.settings.keymap.open_jar),
     ) {
@@ -21,7 +23,7 @@ pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
     let recent = layout.settings.recent.clone();
     let mut open_path: Option<PathBuf> = None;
     let mut clear = false;
-    menu_submenu(ui, &t!("menu.open_recent"), |ui| {
+    menu_submenu(ui, mt, &t!("menu.open_recent"), |ui| {
         if recent.is_empty() {
             ui.add_enabled(
                 false,
@@ -32,17 +34,18 @@ pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
                 ),
             );
         } else {
+            let mt = &theme::menu_theme();
             for entry in &recent {
                 let dir = std::path::Path::new(&entry.path)
                     .parent()
                     .map(|p| p.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                if menu_item_raw(ui, &entry.name, &dir) {
+                if menu_item_raw(ui, mt, &entry.name, &dir) {
                     open_path = Some(PathBuf::from(&entry.path));
                 }
             }
             ui.separator();
-            if menu_item_raw(ui, &t!("menu.clear_recent"), "") {
+            if menu_item_raw(ui, mt, &t!("menu.clear_recent"), "") {
                 clear = true;
             }
         }
@@ -57,24 +60,26 @@ pub fn render(ui: &mut egui::Ui, layout: &mut Layout) {
     ui.separator();
     if menu_item(
         ui,
+        mt,
         &t!("menu.export_decompiled"),
         Some(&layout.settings.keymap.export_decompiled),
     ) {
         layout.export_decompiled();
     }
-    if menu_item(ui, &t!("menu.re_decompile"), None) {
+    if menu_item(ui, mt, &t!("menu.re_decompile"), None) {
         layout.re_decompile();
     }
     ui.separator();
     if menu_item(
         ui,
+        mt,
         &t!("menu.settings"),
         Some(&layout.settings.keymap.open_settings),
     ) {
         layout.open_settings();
     }
     ui.separator();
-    if menu_item_raw(ui, &t!("menu.exit"), "Alt+F4") {
+    if menu_item_raw(ui, mt, &t!("menu.exit"), "Alt+F4") {
         layout.request_close(ui.ctx());
     }
 }

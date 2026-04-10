@@ -1,4 +1,6 @@
-//! 未保存变更确认对话框（模态遮罩 + 居中面板）
+//! 未保存变更确认：业务逻辑 + 动作分发
+//!
+//! UI 渲染委托给 `egui_shell::components::ConfirmDialog`。
 //!
 //! @author sky
 
@@ -6,6 +8,7 @@ use super::Layout;
 use crate::appearance::theme;
 use crate::ui::editor::TabAction;
 use eframe::egui;
+use egui_shell::components::{ConfirmDialog, ConfirmResult};
 use rust_i18n::t;
 use std::path::PathBuf;
 
@@ -89,124 +92,26 @@ impl Layout {
         }
     }
 
-    /// 渲染确认对话框（模态遮罩 + 居中面板）
+    /// 渲染确认弹窗
     pub(super) fn render_confirm(&mut self, ctx: &egui::Context) {
         if self.pending_confirm.is_none() {
             return;
         }
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.pending_confirm = None;
-            return;
-        }
-        let screen = ctx.content_rect();
-        // 半透明遮罩
-        let backdrop_layer =
-            egui::LayerId::new(egui::Order::Foreground, egui::Id::new("confirm_backdrop"));
-        ctx.layer_painter(backdrop_layer).rect_filled(
-            screen,
-            0.0,
-            egui::Color32::from_black_alpha(80),
-        );
-        // 对话框
-        let mut discard = false;
-        let dialog_resp = egui::Area::new(egui::Id::new("confirm_dialog"))
-            .order(egui::Order::Foreground)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .show(ctx, |ui| {
-                egui::Frame::NONE
-                    .fill(theme::BG_LIGHT)
-                    .stroke(egui::Stroke::new(1.0, theme::BORDER_LIGHT))
-                    .corner_radius(8.0)
-                    .shadow(egui::Shadow {
-                        spread: 2,
-                        blur: 24,
-                        offset: [0, 8],
-                        color: egui::Color32::from_black_alpha(100),
-                    })
-                    .show(ui, |ui| {
-                        ui.set_width(340.0);
-                        // 内容区
-                        ui.add_space(20.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(20.0);
-                            ui.vertical(|ui| {
-                                ui.label(
-                                    egui::RichText::new(t!("confirm.unsaved_title"))
-                                        .size(13.0)
-                                        .color(theme::TEXT_PRIMARY)
-                                        .strong(),
-                                );
-                                ui.add_space(6.0);
-                                ui.label(
-                                    egui::RichText::new(t!("confirm.unsaved_message"))
-                                        .size(12.0)
-                                        .color(theme::TEXT_SECONDARY),
-                                );
-                            });
-                            ui.add_space(20.0);
-                        });
-                        ui.add_space(16.0);
-                        // 分隔线
-                        let sep_rect = egui::Rect::from_min_size(
-                            egui::pos2(ui.max_rect().left(), ui.cursor().top()),
-                            egui::vec2(ui.available_width(), 1.0),
-                        );
-                        ui.painter().rect_filled(sep_rect, 0.0, theme::BORDER);
-                        ui.add_space(1.0);
-                        // 按钮区
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(20.0);
-                            let fbt = crate::ui::widget::flat_button_theme();
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.add_space(20.0);
-                                    if ui
-                                        .add(
-                                            crate::ui::widget::FlatButton::new(
-                                                &t!("confirm.cancel"),
-                                                &fbt,
-                                            )
-                                            .min_size(egui::vec2(72.0, 28.0)),
-                                        )
-                                        .clicked()
-                                    {
-                                        self.pending_confirm = None;
-                                    }
-                                    ui.add_space(6.0);
-                                    if ui
-                                        .add(
-                                            crate::ui::widget::FlatButton::new(
-                                                &t!("confirm.discard"),
-                                                &fbt,
-                                            )
-                                            .inactive_color(theme::ACCENT_RED)
-                                            .min_size(egui::vec2(88.0, 28.0)),
-                                        )
-                                        .clicked()
-                                    {
-                                        discard = true;
-                                    }
-                                },
-                            );
-                        });
-                        ui.add_space(12.0);
-                    });
-            });
-        if discard {
-            let action = self.pending_confirm.take().unwrap();
-            self.execute_confirmed(action, ctx);
-            return;
-        }
-        // 点击对话框外部关闭
-        if ctx.input(|i| i.pointer.any_pressed()) {
-            let pointer = ctx.input(|i| i.pointer.interact_pos());
-            if let Some(pos) = pointer {
-                if !dialog_resp.response.rect.contains(pos) {
-                    self.pending_confirm = None;
-                }
+        let result =
+            ConfirmDialog::new(&t!("confirm.unsaved_title"), &t!("confirm.unsaved_message"))
+                .confirm_label(&t!("confirm.discard"))
+                .cancel_label(&t!("confirm.cancel"))
+                .confirm_color(theme::ACCENT_RED)
+                .show(ctx, &theme::confirm_theme());
+        match result {
+            ConfirmResult::Confirmed => {
+                let action = self.pending_confirm.take().unwrap();
+                self.execute_confirmed(action, ctx);
             }
+            ConfirmResult::Dismissed => {
+                self.pending_confirm = None;
+            }
+            ConfirmResult::None => {}
         }
     }
 }

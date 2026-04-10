@@ -442,7 +442,7 @@ fn classify_word(word: &str) -> TokenKind {
     }
     // 方法特殊名
     if word == "<init>" || word == "<clinit>" {
-        return TokenKind::MethodDecl;
+        return TokenKind::MethodDeclaration;
     }
     // #常量池引用
     if word.starts_with('#') && word.len() > 1 && word[1..].bytes().all(|b| b.is_ascii_digit()) {

@@ -70,7 +70,7 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
         // 函数声明的名称
         "function_declaration" => {
             if is_first_identifier_child(&parent, node) {
-                return Some(TokenKind::MethodDecl);
+                return Some(TokenKind::MethodDeclaration);
             }
         }
         // 函数调用

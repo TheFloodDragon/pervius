@@ -4,7 +4,7 @@
 
 use crate::appearance::theme;
 use eframe::egui;
-use egui_shell::components::status_bar::{Alignment, ItemResponse, StatusItem};
+use egui_shell::components::status_bar::{Alignment, StatusItem};
 use rust_i18n::t;
 
 /// 反编译进度 item（左侧显示，反编译期间可见）
@@ -60,7 +60,7 @@ impl StatusItem for DecompileProgressItem {
         self.visible
     }
 
-    fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> ItemResponse {
+    fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> f32 {
         let painter = ui.painter();
         let galley = painter.layout_no_wrap(
             self.text.clone(),
@@ -73,6 +73,6 @@ impl StatusItem for DecompileProgressItem {
             galley,
             theme::TEXT_MUTED,
         );
-        ItemResponse { width: w }
+        w
     }
 }

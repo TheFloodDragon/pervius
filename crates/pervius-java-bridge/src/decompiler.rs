@@ -116,20 +116,11 @@ pub fn cached_source_path(hash: &str, class_path: &str) -> Option<PathBuf> {
 pub fn cached_source(hash: &str, class_path: &str) -> Option<CachedSource> {
     let dir = cache_dir(hash).ok()?;
     let base = class_to_base_path(class_path);
-    for (ext, is_kt) in &[(".java", false), (".kt", true)] {
-        let file = dir.join(format!("{base}{ext}"));
-        if let Ok(raw) = std::fs::read_to_string(&file) {
-            log::debug!("Cache hit: {}", file.display());
-            let (source, line_mapping) = strip_line_markers(&raw);
-            return Some(CachedSource {
-                source,
-                is_kotlin: *is_kt,
-                line_mapping,
-            });
-        }
+    let result = try_read_source(&dir, base);
+    if result.is_none() {
+        log::warn!("Cache miss: {class_path} (tried .java and .kt)");
     }
-    log::warn!("Cache miss: {class_path} (tried .java and .kt)");
-    None
+    result
 }
 
 /// 从 Vineflower 输出中提取行号标记并移除
@@ -192,6 +183,38 @@ fn class_to_base_path(class_path: &str) -> &str {
     }
 }
 
+/// 在目录中尝试读取 .java 或 .kt 反编译源码
+fn try_read_source(dir: &Path, base: &str) -> Option<CachedSource> {
+    for (ext, is_kt) in &[(".java", false), (".kt", true)] {
+        let file = dir.join(format!("{base}{ext}"));
+        if let Ok(raw) = std::fs::read_to_string(&file) {
+            log::debug!("Source found: {}", file.display());
+            let (source, line_mapping) = strip_line_markers(&raw);
+            return Some(CachedSource {
+                source,
+                is_kotlin: *is_kt,
+                line_mapping,
+            });
+        }
+    }
+    None
+}
+
+/// 将子进程管道转发到 channel（在独立线程中运行）
+fn pipe_to_channel(
+    stream: impl std::io::Read + Send + 'static,
+    tx: mpsc::Sender<String>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let reader = std::io::BufReader::new(stream);
+        for line in reader.lines().flatten() {
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    })
+}
+
 /// 启动后台反编译任务
 ///
 /// 在后台线程中运行 `java -jar vineflower.jar <jar_path> <cache_dir>`，
@@ -250,28 +273,14 @@ fn run_vineflower(
     // stdout 和 stderr 各起一个线程读取，汇入同一 channel 统一解析
     // Vineflower 可能把进度日志写到任一流，合并后不遗漏且避免管道满死锁
     let (line_tx, line_rx) = mpsc::channel::<String>();
-    let stdout_thread = child.stdout.take().map(|out| {
-        let tx = line_tx.clone();
-        std::thread::spawn(move || {
-            let reader = std::io::BufReader::new(out);
-            for line in reader.lines().flatten() {
-                if tx.send(line).is_err() {
-                    break;
-                }
-            }
-        })
-    });
-    let stderr_thread = child.stderr.take().map(|err| {
-        let tx = line_tx.clone();
-        std::thread::spawn(move || {
-            let reader = std::io::BufReader::new(err);
-            for line in reader.lines().flatten() {
-                if tx.send(line).is_err() {
-                    break;
-                }
-            }
-        })
-    });
+    let stdout_thread = child
+        .stdout
+        .take()
+        .map(|out| pipe_to_channel(out, line_tx.clone()));
+    let stderr_thread = child
+        .stderr
+        .take()
+        .map(|err| pipe_to_channel(err, line_tx.clone()));
     drop(line_tx);
     // 进度阶段：
     //   "Preprocessing class" — 分析阶段（每个根类一次）
@@ -297,10 +306,7 @@ fn run_vineflower(
     if let Some(prev) = prev_class {
         mark_decompiled(&progress.decompiled, &prev);
     }
-    if let Some(t) = stdout_thread {
-        let _ = t.join();
-    }
-    if let Some(t) = stderr_thread {
+    for t in [stdout_thread, stderr_thread].into_iter().flatten() {
         let _ = t.join();
     }
     let status = child.wait()?;
@@ -340,6 +346,22 @@ fn mark_decompiled(set: &Mutex<HashSet<String>>, class_name: &str) {
     }
 }
 
+/// 临时目录 RAII 守卫，Drop 时自动清理
+struct TempDirGuard {
+    /// 目录路径
+    path: PathBuf,
+    /// 是否在 Drop 时删除
+    should_clean: bool,
+}
+
+impl Drop for TempDirGuard {
+    fn drop(&mut self) {
+        if self.should_clean {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
 /// 单文件反编译：将 class 字节写入临时目录，跑 Vineflower
 ///
 /// `class_path` 形如 `com/example/Foo.class`，用于构建临时目录结构。
@@ -354,54 +376,39 @@ pub fn decompile_single_class(
     let vineflower = find_vineflower()?;
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let id = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp_input = std::env::temp_dir().join(format!("pervius_single_{id}_in"));
+    let tmp_input = TempDirGuard {
+        path: std::env::temp_dir().join(format!("pervius_single_{id}_in")),
+        should_clean: true,
+    };
     // 有 hash 则写入缓存目录，无则用临时目录
-    let (output_dir, is_tmp_output) = match cache_hash {
-        Some(h) => (cache_dir(h)?, false),
-        None => (
-            std::env::temp_dir().join(format!("pervius_single_{id}_out")),
-            true,
-        ),
+    let output_guard = match cache_hash {
+        Some(h) => TempDirGuard {
+            path: cache_dir(h)?,
+            should_clean: false,
+        },
+        None => TempDirGuard {
+            path: std::env::temp_dir().join(format!("pervius_single_{id}_out")),
+            should_clean: true,
+        },
     };
     // 写入临时 .class 文件（保持包目录结构）
-    let class_file = tmp_input.join(class_path);
+    let class_file = tmp_input.path.join(class_path);
     if let Some(parent) = class_file.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::create_dir_all(&output_dir)?;
+    std::fs::create_dir_all(&output_guard.path)?;
     std::fs::write(&class_file, bytes)?;
     let mut cmd = process::JavaCommand::new(&vineflower)?;
     cmd.arg("--bytecode-source-mapping=1")
         .arg("--__dump_original_lines__=1")
         .arg(format!("-e={}", jar_path.display()))
-        .arg(tmp_input.as_os_str())
-        .arg(output_dir.as_os_str());
+        .arg(tmp_input.path.as_os_str())
+        .arg(output_guard.path.as_os_str());
     let output = cmd.output().map_err(BridgeError::SpawnFailed)?;
-    let _ = std::fs::remove_dir_all(&tmp_input);
     if !output.status.success() {
-        if is_tmp_output {
-            let _ = std::fs::remove_dir_all(&output_dir);
-        }
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(BridgeError::ProcessFailed(stderr.into_owned()));
     }
     let base = class_to_base_path(class_path);
-    for (ext, is_kt) in &[(".java", false), (".kt", true)] {
-        let file = output_dir.join(format!("{base}{ext}"));
-        if let Ok(raw) = std::fs::read_to_string(&file) {
-            if is_tmp_output {
-                let _ = std::fs::remove_dir_all(&output_dir);
-            }
-            let (source, line_mapping) = strip_line_markers(&raw);
-            return Ok(CachedSource {
-                source,
-                is_kotlin: *is_kt,
-                line_mapping,
-            });
-        }
-    }
-    if is_tmp_output {
-        let _ = std::fs::remove_dir_all(&output_dir);
-    }
-    Err(BridgeError::NoOutput)
+    try_read_source(&output_guard.path, base).ok_or(BridgeError::NoOutput)
 }

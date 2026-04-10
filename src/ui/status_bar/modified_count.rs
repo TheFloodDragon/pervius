@@ -4,7 +4,7 @@
 
 use crate::appearance::theme;
 use eframe::egui;
-use egui_shell::components::status_bar::{Alignment, ItemResponse, StatusItem};
+use egui_shell::components::status_bar::{Alignment, StatusItem};
 use rust_i18n::t;
 
 /// 文件修改条目
@@ -94,7 +94,7 @@ impl StatusItem for ModifiedCountItem {
         !self.saved_paths.is_empty() || !self.unsaved_paths.is_empty()
     }
 
-    fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> ItemResponse {
+    fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> f32 {
         let font = egui::FontId::proportional(11.0);
         let painter = ui.painter();
         let saved_count = self.saved_paths.len();
@@ -199,7 +199,7 @@ impl StatusItem for ModifiedCountItem {
                 }
             }
         }
-        ItemResponse { width: total_w }
+        total_w
     }
 }
 

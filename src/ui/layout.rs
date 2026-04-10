@@ -2,23 +2,37 @@
 //!
 //! @author sky
 
+/// 轮询 `mpsc::Receiver`：有数据则返回，空或断开时执行对应分支
+macro_rules! poll_recv {
+    ($rx:expr, miss => $miss:expr, disconnect => $dc:expr) => {
+        match $rx.try_recv() {
+            Ok(r) => r,
+            Err(std::sync::mpsc::TryRecvError::Empty) => $miss,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => $dc,
+        }
+    };
+}
+
 mod confirm;
+mod decompile;
+mod export;
 mod handler;
 mod island;
+mod platform;
+mod tab;
 
 use super::editor::EditorArea;
 use super::explorer::tree;
 use super::explorer::FilePanel;
 use super::search::SearchDialog;
-use super::settings::SettingsDialog;
 use super::status_bar::StatusBar;
 use crate::appearance::theme;
-use crate::settings::Settings;
+use crate::settings::{self, Settings};
 use confirm::ConfirmAction;
 use eframe::egui;
 use egui_keybind::KeyMap;
 use egui_notify::Toasts;
-use egui_shell::components::SettingsFile;
+use egui_shell::components::{SettingsFile, SettingsPanel};
 use pervius_java_bridge::decompiler::{CachedSource, DecompileTask};
 use pervius_java_bridge::error::BridgeError;
 use pervius_java_bridge::jar::JarArchive;
@@ -39,7 +53,7 @@ pub struct Layout {
     pub editor: EditorArea,
     pub status_bar: StatusBar,
     pub search: SearchDialog,
-    pub settings_dialog: SettingsDialog,
+    pub settings_panel: SettingsPanel<Settings>,
     pub settings: Settings,
     pub toasts: Toasts,
     keys: KeyMap<Self>,
@@ -80,7 +94,7 @@ impl Layout {
             editor: EditorArea::new(),
             status_bar: StatusBar::default(),
             search: SearchDialog::new(),
-            settings_dialog: SettingsDialog::new(),
+            settings_panel: settings::new_panel(),
             settings,
             toasts: Toasts::default(),
             keys,
@@ -144,7 +158,8 @@ impl Layout {
         self.sync_explorer_selection();
         self.render_status_bar(ui, rects.status);
         self.search.render(ui.ctx(), shell_theme);
-        if let Some(new_settings) = self.settings_dialog.render(ui.ctx(), shell_theme) {
+        if let Some(new_settings) = settings::show(&mut self.settings_panel, ui.ctx(), shell_theme)
+        {
             // keybind 配置变更时重建 KeyMap
             self.keys = super::keybindings::build_keymap(&new_settings.keymap);
             // 语言变更时更新 locale
@@ -413,6 +428,6 @@ impl Layout {
 
     /// 打开设置对话框
     pub fn open_settings(&mut self) {
-        self.settings_dialog.open(&self.settings);
+        self.settings_panel.open(&self.settings);
     }
 }

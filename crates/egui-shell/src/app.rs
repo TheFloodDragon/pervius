@@ -124,15 +124,15 @@ struct ShellApp {
     corners_set: bool,
     /// 启动帧计数
     ///
-    /// 无框窗口创建后、首帧渲染前内容为黑色，
-    /// 计数到 2 帧后再发送 Visible(true) 避免闪烁。
+    /// 无框窗口创建后首帧内容为黑色，
+    /// 渲染一帧后再发送 Visible(true) 避免闪烁。
     startup_frames: u8,
 }
 
 impl eframe::App for ShellApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        // 首帧渲染后再显示窗口，避免无框窗口出现黑色闪烁
+        // 渲染一帧后再显示窗口，避免无框窗口出现黑色闪烁
         if self.startup_frames < 2 {
             self.startup_frames += 1;
             if self.startup_frames == 2 {

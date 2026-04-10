@@ -8,10 +8,10 @@ use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
 use crate::appearance::{codicon, theme};
 use crate::ui::keybindings;
-use crate::ui::menu::item::menu_item;
 use eframe::egui;
 use egui_dock::{tab_viewer::OnCloseResponse, NodePath, TabViewer};
 use egui_editor::find_bar::FindBar;
+use egui_shell::components::menu_item;
 use rust_i18n::t;
 
 use std::collections::HashSet;
@@ -110,24 +110,27 @@ impl TabViewer for EditorTabViewer<'_> {
     }
 
     fn context_menu(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab, _path: NodePath) {
+        let mt = &theme::menu_theme();
         if menu_item(
             ui,
+            mt,
             &t!("editor.close"),
             Some(&keybindings::DEFAULT_CLOSE_TAB),
         ) {
             self.action = Some(TabAction::Close(tab.entry_path.clone()));
             ui.close();
         }
-        if menu_item(ui, &t!("editor.close_others"), None) {
+        if menu_item(ui, mt, &t!("editor.close_others"), None) {
             self.action = Some(TabAction::CloseOthers(tab.entry_path.clone()));
             ui.close();
         }
-        if menu_item(ui, &t!("editor.close_to_right"), None) {
+        if menu_item(ui, mt, &t!("editor.close_to_right"), None) {
             self.action = Some(TabAction::CloseToRight(tab.entry_path.clone()));
             ui.close();
         }
         if menu_item(
             ui,
+            mt,
             &t!("editor.close_all"),
             Some(&keybindings::DEFAULT_CLOSE_ALL_TABS),
         ) {

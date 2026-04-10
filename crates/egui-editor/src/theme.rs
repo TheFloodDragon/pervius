@@ -29,7 +29,7 @@ pub struct SyntaxTheme {
     /// 方法调用
     pub method_call: egui::Color32,
     /// 方法声明
-    pub method_decl: egui::Color32,
+    pub method_declaration: egui::Color32,
 }
 
 /// 代码视图配色（gutter + 编辑区 + 搜索匹配）

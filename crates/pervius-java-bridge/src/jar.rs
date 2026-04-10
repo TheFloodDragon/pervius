@@ -58,15 +58,12 @@ impl JarArchive {
             .map(|b| format!("{b:02x}"))
             .collect();
         let cursor = std::io::Cursor::new(data);
-        let mut zip =
-            zip::ZipArchive::new(cursor).map_err(|e| BridgeError::Parse(e.to_string()))?;
+        let mut zip = zip::ZipArchive::new(cursor).map_err(BridgeError::parse)?;
         let total = zip.len();
         progress.total.store(total as u32, Ordering::Relaxed);
         let mut entries = HashMap::new();
         for i in 0..total {
-            let mut entry = zip
-                .by_index(i)
-                .map_err(|e| BridgeError::Parse(e.to_string()))?;
+            let mut entry = zip.by_index(i).map_err(BridgeError::parse)?;
             if !entry.is_dir() {
                 let name = entry.name().to_owned();
                 let mut buf = Vec::with_capacity(entry.size() as usize);

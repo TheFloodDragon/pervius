@@ -4,7 +4,7 @@
 
 use crate::appearance::theme;
 use eframe::egui;
-use egui_shell::components::status_bar::{Alignment, ItemResponse, StatusItem};
+use egui_shell::components::status_bar::{Alignment, StatusItem};
 
 /// 动态显示当前聚焦 .class 文件的版本信息
 pub struct ClassInfoItem {
@@ -37,10 +37,10 @@ impl StatusItem for ClassInfoItem {
         self.text.is_some()
     }
 
-    fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> ItemResponse {
+    fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> f32 {
         let text = match &self.text {
             Some(t) => t,
-            None => return ItemResponse { width: 0.0 },
+            None => return 0.0,
         };
         let painter = ui.painter();
         let galley = painter.layout_no_wrap(
@@ -54,6 +54,6 @@ impl StatusItem for ClassInfoItem {
             galley,
             theme::TEXT_SECONDARY,
         );
-        ItemResponse { width: w }
+        w
     }
 }

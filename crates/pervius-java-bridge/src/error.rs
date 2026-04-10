@@ -60,6 +60,13 @@ impl std::fmt::Display for BridgeError {
 
 impl std::error::Error for BridgeError {}
 
+impl BridgeError {
+    /// 快捷构造 Parse 变体
+    pub fn parse(e: impl std::fmt::Display) -> Self {
+        Self::Parse(e.to_string())
+    }
+}
+
 impl From<std::io::Error> for BridgeError {
     fn from(e: std::io::Error) -> Self {
         Self::Io(e)

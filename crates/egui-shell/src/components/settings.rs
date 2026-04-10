@@ -36,6 +36,14 @@ macro_rules! keybind_rows {
     }};
 }
 
+/// 侧栏分类描述
+pub struct SectionDef {
+    /// 图标字符
+    pub icon: &'static str,
+    /// 显示名称
+    pub label: String,
+}
+
 /// 设置面板主题配色
 pub struct SettingsTheme {
     /// 主要文字色
