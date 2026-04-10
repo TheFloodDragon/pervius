@@ -20,7 +20,7 @@ dependencies {
 }
 
 jar {
-    archiveFileName = 'classforge.jar'
+    archiveFileName = "classforge-${version}.jar"
     manifest {
         attributes 'Main-Class': 'pervius.asm.ClassForge'
     }

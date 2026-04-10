@@ -85,8 +85,11 @@ pub fn clear_cache(hash: &str) {
 }
 
 /// 缓存查找结果
+#[derive(Clone)]
 pub struct CachedSource {
+    /// 反编译后的源码（已清理行号标记）
     pub source: String,
+    /// 是否为 Kotlin 类
     pub is_kotlin: bool,
     /// 反编译行 → 原始源码行号（1-indexed），None 表示无映射
     pub line_mapping: Vec<Option<u32>>,

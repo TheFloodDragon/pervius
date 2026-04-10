@@ -8,10 +8,10 @@ use super::modified_count::ModifiedCountItem;
 use super::text_item::TextItem;
 use super::view_toggle::ViewToggleItem;
 use crate::appearance::theme;
-use pervius_java_bridge::{classforge, decompiler};
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
 use egui_shell::components::status_bar::{Alignment, StatusBarWidget, StatusItem};
+use pervius_java_bridge::{classforge, decompiler};
 use rust_i18n::t;
 
 /// 状态栏服务
@@ -37,11 +37,23 @@ impl Default for StatusBar {
                 theme::ACCENT_GREEN,
                 Alignment::Right,
             ));
+        } else {
+            widget.add(TextItem::new(
+                t!("status.vineflower_not_found"),
+                theme::ACCENT_RED,
+                Alignment::Right,
+            ));
         }
         if let Some(ver) = classforge::classforge_version() {
             widget.add(TextItem::new(
                 t!("status.classforge_version", version = ver),
                 theme::ACCENT_GREEN,
+                Alignment::Right,
+            ));
+        } else {
+            widget.add(TextItem::new(
+                t!("status.classforge_not_found"),
+                theme::ACCENT_RED,
                 Alignment::Right,
             ));
         }

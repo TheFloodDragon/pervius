@@ -13,15 +13,15 @@ use super::search::SearchDialog;
 use super::settings::SettingsDialog;
 use super::status_bar::StatusBar;
 use crate::appearance::theme;
-use pervius_java_bridge::decompiler::{CachedSource, DecompileTask};
-use pervius_java_bridge::error::BridgeError;
-use pervius_java_bridge::jar::JarArchive;
 use crate::settings::Settings;
 use confirm::ConfirmAction;
 use eframe::egui;
 use egui_keybind::KeyMap;
 use egui_notify::Toasts;
 use egui_shell::components::SettingsFile;
+use pervius_java_bridge::decompiler::{CachedSource, DecompileTask};
+use pervius_java_bridge::error::BridgeError;
+use pervius_java_bridge::jar::JarArchive;
 use std::collections::HashSet;
 use std::sync::mpsc;
 
@@ -217,7 +217,7 @@ impl Layout {
             let jar_modified = self
                 .jar
                 .as_ref()
-                .map(|j| j.modified_entry_paths().clone())
+                .map(|j| j.modified_paths().map(|s| s.to_string()).collect())
                 .unwrap_or_default();
             self.editor.render(
                 &mut ui.new_child(
@@ -259,7 +259,7 @@ impl Layout {
         let saved_paths: Vec<String> = self
             .jar
             .as_ref()
-            .map(|j| j.modified_entry_paths().iter().cloned().collect())
+            .map(|j| j.modified_paths().map(|s| s.to_string()).collect())
             .unwrap_or_default();
         let unsaved_paths = self.editor.unsaved_paths();
         self.status_bar
@@ -390,7 +390,7 @@ impl Layout {
             }
         }
         if let Some(jar) = &self.jar {
-            for path in jar.modified_entry_paths() {
+            for path in jar.modified_paths() {
                 Self::insert_with_parents(&mut jar_set, path);
             }
         }

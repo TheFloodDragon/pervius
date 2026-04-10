@@ -39,6 +39,8 @@ pub fn viewport(title: &str, size: [f32; 2]) -> egui::ViewportBuilder {
     {
         vp = vp.with_decorations(false);
     }
+    // 首帧渲染前窗口内容为黑色，先隐藏，由 ShellApp 在首帧渲染后显示
+    vp = vp.with_visible(false);
     vp
 }
 

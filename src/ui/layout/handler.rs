@@ -4,16 +4,16 @@
 
 use super::Layout;
 use crate::appearance::theme;
-use pervius_java_bridge::class_structure::SavedMember;
-use pervius_java_bridge::decompiler;
-use pervius_java_bridge::error::BridgeError;
-use pervius_java_bridge::jar::{JarArchive, LoadProgress};
 use crate::ui::editor::view_toggle::ActiveView;
 use crate::ui::editor::{EditorArea, EditorTab};
 use crate::ui::explorer::tree;
 use eframe::egui;
 use egui_editor::highlight::Language;
 use egui_shell::components::SettingsFile;
+use pervius_java_bridge::class_structure::SavedMember;
+use pervius_java_bridge::decompiler::{self, CachedSource};
+use pervius_java_bridge::error::BridgeError;
+use pervius_java_bridge::jar::{JarArchive, LoadProgress};
 use rust_i18n::t;
 use std::collections::HashSet;
 use std::path::Path;
@@ -96,23 +96,23 @@ impl Layout {
             Some(b) => b.to_vec(),
             None => return,
         };
-        let hash = self.jar.as_ref().map(|j| j.hash.as_str());
-        let is_modified = self
-            .jar
-            .as_ref()
-            .map(|j| j.modified_entry_paths().contains(&entry_path))
-            .unwrap_or(false);
-        let has_cache = !is_modified
-            && hash
-                .and_then(|h| decompiler::cached_source_path(h, &entry_path))
-                .is_some();
-        let tab = Self::create_tab(&entry_path, &bytes, hash);
+        let jar = self.jar.as_ref().unwrap();
+        let hash = jar.hash.as_str();
+        let is_modified = jar.is_modified(&entry_path);
+        // 已修改条目优先从 JAR 内存缓存读取反编译结果
+        let mem_cached = if is_modified {
+            jar.get_decompiled(&entry_path).cloned()
+        } else {
+            None
+        };
+        let has_cache = !is_modified && decompiler::cached_source_path(hash, &entry_path).is_some();
+        let tab = Self::create_tab(&entry_path, &bytes, Some(hash), mem_cached.as_ref());
         self.editor.open_tab(tab);
-        // 已修改条目强制重新反编译（不写缓存），缓存未命中则正常反编译写缓存
         if entry_path.ends_with(".class") {
-            if is_modified {
+            if is_modified && mem_cached.is_none() {
+                // 已修改但无内存缓存（首次保存后 tab 未关闭过），重新反编译
                 self.start_single_decompile(&entry_path, false);
-            } else if !has_cache {
+            } else if !is_modified && !has_cache {
                 self.start_single_decompile(&entry_path, true);
             }
         }
@@ -423,6 +423,12 @@ impl Layout {
                             break;
                         }
                     }
+                    // 已修改条目的反编译结果缓存到 JAR 内存（磁盘缓存无效）
+                    if let Some(jar) = &mut self.jar {
+                        if jar.is_modified(&entry_path) {
+                            jar.put_decompiled(&entry_path, cached);
+                        }
+                    }
                     if let Some(set) = &mut self.decompiled_classes {
                         let base = entry_path.strip_suffix(".class").unwrap_or(&entry_path);
                         let base = match base.find('$') {
@@ -438,6 +444,7 @@ impl Layout {
                 }
                 Err(e) => {
                     log::warn!("Single decompile failed: {entry_path}: {e}");
+                    self.toasts.error(t!("layout.decompile_failed", error = e));
                 }
             }
         }
@@ -528,11 +535,20 @@ impl Layout {
     }
 
     /// 从 JAR 条目创建编辑器 tab
-    fn create_tab(entry_path: &str, bytes: &[u8], jar_hash: Option<&str>) -> EditorTab {
+    ///
+    /// `mem_cached` 为已修改条目的内存反编译缓存，优先于磁盘缓存。
+    fn create_tab(
+        entry_path: &str,
+        bytes: &[u8],
+        jar_hash: Option<&str>,
+        mem_cached: Option<&CachedSource>,
+    ) -> EditorTab {
         let file_name = entry_path.rsplit('/').next().unwrap_or(entry_path);
         let title = file_name.strip_suffix(".class").unwrap_or(file_name);
         if file_name.ends_with(".class") {
-            let cached = jar_hash.and_then(|h| decompiler::cached_source(h, entry_path));
+            let cached = mem_cached
+                .cloned()
+                .or_else(|| jar_hash.and_then(|h| decompiler::cached_source(h, entry_path)));
             let lang = match &cached {
                 Some(c) if c.is_kotlin => Language::Kotlin,
                 _ => Language::Java,

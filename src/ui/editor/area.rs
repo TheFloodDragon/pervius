@@ -8,11 +8,11 @@ use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
 use super::viewer::{EditorTabViewer, TabAction};
 use crate::appearance::theme;
-use pervius_java_bridge::class_structure::SavedMember;
-use pervius_java_bridge::decompiler;
 use eframe::egui;
 use egui_dock::{DockArea, DockState, SurfaceIndex};
 use egui_editor::find_bar::FindBar;
+use pervius_java_bridge::class_structure::SavedMember;
+use pervius_java_bridge::decompiler;
 use rust_i18n::t;
 use std::collections::{HashMap, HashSet};
 
