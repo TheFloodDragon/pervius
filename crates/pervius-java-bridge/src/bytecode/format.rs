@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+use super::descriptor::uppercase_opcode;
 use ristretto_classfile::attributes::Instruction;
 use std::collections::{BTreeSet, HashMap};
 
@@ -57,22 +58,20 @@ pub(super) fn index_to_alpha_label(idx: usize) -> String {
 }
 
 /// 格式化单条指令为文本
+///
+/// LDC / LDC_W / LDC2_W 不经此函数处理——它们需要常量池类型信息来
+/// 生成正确的类型后缀（Float→f, Long→L），由 `format_ldc` 单独处理。
 pub(super) fn format_instruction(
     insn: &Instruction,
     insn_index: usize,
     resolve: &dyn Fn(u16) -> String,
     labels: &HashMap<usize, String>,
 ) -> String {
-    // CP 引用指令（Ldc 单独处理：u8 → u16）
-    if let Instruction::Ldc(idx) = insn {
-        return format!("LDC {}", resolve(u16::from(*idx)));
-    }
+    // CP 引用指令（LDC 系列已在调用方单独处理）
     if let Some(s) = cp_ref_format!(
         insn,
         resolve,
         [
-            Ldc_w,
-            Ldc2_w,
             Getstatic,
             Putstatic,
             Getfield,
@@ -95,6 +94,22 @@ pub(super) fn format_instruction(
     }
     if let Instruction::Multianewarray(idx, dims) = insn {
         return format!("MULTIANEWARRAY {} {dims}", resolve(*idx));
+    }
+    // wide 指令变体 → 输出为普通指令（ASM 自动处理 wide 编码）
+    match insn {
+        Instruction::Iload_w(v) => return format!("ILOAD {v}"),
+        Instruction::Lload_w(v) => return format!("LLOAD {v}"),
+        Instruction::Fload_w(v) => return format!("FLOAD {v}"),
+        Instruction::Dload_w(v) => return format!("DLOAD {v}"),
+        Instruction::Aload_w(v) => return format!("ALOAD {v}"),
+        Instruction::Istore_w(v) => return format!("ISTORE {v}"),
+        Instruction::Lstore_w(v) => return format!("LSTORE {v}"),
+        Instruction::Fstore_w(v) => return format!("FSTORE {v}"),
+        Instruction::Dstore_w(v) => return format!("DSTORE {v}"),
+        Instruction::Astore_w(v) => return format!("ASTORE {v}"),
+        Instruction::Iinc_w(v, inc) => return format!("IINC {v}, {inc}"),
+        Instruction::Ret_w(v) => return format!("RET {v}"),
+        _ => {}
     }
     // Branch 指令（绝对指令索引 → 标签）
     if let Some(s) = branch_format!(
@@ -193,39 +208,10 @@ pub(super) fn resolve_vars_in_instruction(
     formatted.to_string()
 }
 
-/// 去除 CP 格式化文本的类型前缀，返回纯引用名称
-pub(super) fn strip_cp_prefix(formatted: &str) -> String {
-    let prefixes = [
-        "Interface method ",
-        "Method handle ",
-        "Method type ",
-        "Method ",
-        "Field ",
-        "Class ",
-        "Name ",
-        "Module ",
-        "Package ",
-    ];
-    for prefix in prefixes {
-        if let Some(rest) = formatted.strip_prefix(prefix) {
-            return rest.to_string();
-        }
-    }
-    // InvokeDynamic / Dynamic: #bsm_idx:name:descriptor → name + descriptor
-    if let Some(rest) = formatted.strip_prefix("InvokeDynamic ") {
-        return strip_bsm_ref(rest);
-    }
-    if let Some(rest) = formatted.strip_prefix("Dynamic ") {
-        return strip_bsm_ref(rest);
-    }
-    // String 常量加引号
-    if let Some(rest) = formatted.strip_prefix("String ") {
-        return format!("\"{rest}\"");
-    }
-    formatted.to_string()
-}
-
 /// 解析槽位号为变量名
+///
+/// 同名变量绑定到不同 slot 时保留数字，避免 assembler 端 nameToSlot
+/// 只记录首次出现导致 slot 错位。
 fn resolve_slot(
     insn_idx: usize,
     slot: u16,
@@ -237,30 +223,15 @@ fn resolve_slot(
     }
     for (vslot, vname, start, end) in resolved_vars {
         if *vslot == slot && insn_idx >= *start && insn_idx < *end {
+            // 同名不同 slot → 放弃替换，保留数字
+            let ambiguous = resolved_vars
+                .iter()
+                .any(|(s, n, _, _)| n == vname && *s != slot);
+            if ambiguous {
+                return slot.to_string();
+            }
             return vname.clone();
         }
     }
     slot.to_string()
-}
-
-/// 将指令文本的操作码部分转为大写
-fn uppercase_opcode(line: &str) -> String {
-    if let Some(idx) = line.find(' ') {
-        let (opcode, rest) = line.split_at(idx);
-        format!("{}{}", opcode.to_uppercase(), rest)
-    } else {
-        line.to_uppercase()
-    }
-}
-
-/// 去除 bootstrap method 前缀并保留索引：`#0:name:desc` → `#0 name desc`
-fn strip_bsm_ref(s: &str) -> String {
-    if let Some(rest) = s.strip_prefix('#') {
-        if let Some(colon_pos) = rest.find(':') {
-            let bsm_idx = &rest[..colon_pos];
-            let remainder = rest[colon_pos + 1..].replacen(':', "", 1);
-            return format!("#{bsm_idx} {remainder}");
-        }
-    }
-    s.to_string()
 }

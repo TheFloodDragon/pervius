@@ -72,6 +72,12 @@ pub fn patch_methods(
     if output.stdout.is_empty() {
         return Err(BridgeError::ClassForge("produced no output".to_string()));
     }
+    // 校验输出是合法的 class 文件（防止 stdout 混入日志或 JVM 警告）
+    if output.stdout.len() < 4 || output.stdout[..4] != [0xCA, 0xFE, 0xBA, 0xBE] {
+        return Err(BridgeError::ClassForge(
+            "output is not a valid class file (missing CAFEBABE magic)".to_string(),
+        ));
+    }
     log::debug!(
         "classforge patch: {} -> {} bytes ({} methods patched)",
         class_bytes.len(),

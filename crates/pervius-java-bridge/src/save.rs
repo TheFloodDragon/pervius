@@ -172,24 +172,23 @@ fn apply_annotations(
     cp: &mut ConstantPool,
     editable: &[crate::class_structure::EditableAnnotation],
 ) {
-    // 只更新 RuntimeVisibleAnnotations，跳过 Kotlin 内部注解
+    // 只处理 RuntimeVisibleAnnotations，跳过 Kotlin 内部注解
+    // RuntimeInvisibleAnnotations 不碰——读取端已过滤，原样保留
     for attr in attrs.iter_mut() {
         let anns = match attr {
             Attribute::RuntimeVisibleAnnotations { annotations, .. } => annotations,
             _ => continue,
         };
-        // 按位置对齐更新（跳过 Kotlin 内部注解）
-        let mut editable_iter = editable.iter();
+        let mut edit_idx = 0;
         for ann in anns.iter_mut() {
             let type_str = cp
                 .try_get_utf8(ann.type_index)
                 .map(|s| s.to_string())
                 .unwrap_or_default();
-            // 跳过 Kotlin 内部注解（不可编辑，不消耗 editable 迭代器）
             if crate::KOTLIN_INTERNAL_ANNOTATIONS.contains(&type_str.as_str()) {
                 continue;
             }
-            if let Some(ea) = editable_iter.next() {
+            if let Some(ea) = editable.get(edit_idx) {
                 ann.type_index = find_or_add_utf8(cp, &ea.type_desc);
                 ann.elements = ea
                     .elements
@@ -201,6 +200,7 @@ fn apply_annotations(
                     })
                     .collect();
             }
+            edit_idx += 1;
         }
         break;
     }
@@ -220,10 +220,56 @@ fn build_annotation_value(cp: &mut ConstantPool, value: &str, tag: u8) -> Annota
                 const_value_index: idx,
             }
         }
+        b'B' => {
+            let v: i32 = value.parse().unwrap_or(0);
+            let idx = cp.add_integer(v).unwrap_or(0);
+            AnnotationElement::Byte {
+                const_value_index: idx,
+            }
+        }
+        b'C' => {
+            let v: i32 = if value.len() == 1 {
+                value.chars().next().unwrap_or('\0') as i32
+            } else {
+                value.parse().unwrap_or(0)
+            };
+            let idx = cp.add_integer(v).unwrap_or(0);
+            AnnotationElement::Char {
+                const_value_index: idx,
+            }
+        }
+        b'S' => {
+            let v: i32 = value.parse().unwrap_or(0);
+            let idx = cp.add_integer(v).unwrap_or(0);
+            AnnotationElement::Short {
+                const_value_index: idx,
+            }
+        }
         b'I' => {
             let v: i32 = value.parse().unwrap_or(0);
             let idx = cp.add_integer(v).unwrap_or(0);
             AnnotationElement::Int {
+                const_value_index: idx,
+            }
+        }
+        b'J' => {
+            let v: i64 = value.parse().unwrap_or(0);
+            let idx = cp.add_long(v).unwrap_or(0);
+            AnnotationElement::Long {
+                const_value_index: idx,
+            }
+        }
+        b'F' => {
+            let v: f32 = value.parse().unwrap_or(0.0);
+            let idx = cp.add_float(v).unwrap_or(0);
+            AnnotationElement::Float {
+                const_value_index: idx,
+            }
+        }
+        b'D' => {
+            let v: f64 = value.parse().unwrap_or(0.0);
+            let idx = cp.add_double(v).unwrap_or(0);
+            AnnotationElement::Double {
                 const_value_index: idx,
             }
         }
@@ -250,8 +296,14 @@ fn build_annotation_value(cp: &mut ConstantPool, value: &str, tag: u8) -> Annota
                 class_info_index: idx,
             }
         }
-        // 其他 tag（array, nested annotation 等）暂不支持编辑，原样返回 string
+        // array / nested annotation 暂不支持编辑，保留原始 tag 类型
+        // 如果走到这里说明 UI 未限制编辑，用 String 兜底避免 panic
         _ => {
+            log::warn!(
+                "Unsupported annotation tag '{}'(0x{:02X}), falling back to String",
+                tag as char,
+                tag
+            );
             let idx = find_or_add_utf8(cp, value);
             AnnotationElement::String {
                 const_value_index: idx,
@@ -311,7 +363,7 @@ parse_flags!(parse_field_flags, FieldAccessFlags, {
     "enum" => FieldAccessFlags::ENUM,
 });
 
-parse_flags!(parse_method_flags, MethodAccessFlags, {
+parse_flags!(parse_method_flags, format_method_flags, MethodAccessFlags, {
     "public" => MethodAccessFlags::PUBLIC,
     "private" => MethodAccessFlags::PRIVATE,
     "protected" => MethodAccessFlags::PROTECTED,

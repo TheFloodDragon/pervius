@@ -13,15 +13,16 @@ use crate::class_structure::{
     ClassInfo, ClassStructure, EditableAnnotation, FieldInfo, MethodInfo,
 };
 use ristretto_classfile::attributes::{Attribute, Instruction};
-use ristretto_classfile::{ClassFile, ConstantPool, MethodAccessFlags};
+use ristretto_classfile::{ClassFile, Constant, ConstantPool, MethodAccessFlags};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write;
 use std::io::Cursor;
 
 use annotation::to_editable_annotation;
+use descriptor::{escape_java_string, parse_class_version, strip_cp_prefix};
 use format::{
     collect_branch_targets, format_instruction, index_to_alpha_label, label_at,
-    resolve_vars_in_instruction, strip_cp_prefix,
+    resolve_vars_in_instruction,
 };
 
 /// 从常量池解析 UTF-8 条目，失败回退为 `#index`
@@ -75,10 +76,9 @@ fn extract_common_attrs(attrs: &[Attribute], cp: &ConstantPool) -> CommonAttrs {
             }
             Attribute::Deprecated { .. } => result.is_deprecated = true,
             Attribute::Synthetic { .. } => result.is_synthetic = true,
+            // RuntimeInvisibleAnnotations 不读取——Kotlin @Metadata 的 d1 字段含
+            // protobuf 二进制数据，走一趟文本编辑器 round-trip 必坏
             Attribute::RuntimeVisibleAnnotations {
-                annotations: anns, ..
-            }
-            | Attribute::RuntimeInvisibleAnnotations {
                 annotations: anns, ..
             } => {
                 for ann in anns {
@@ -201,54 +201,9 @@ fn extract_field(field: &ristretto_classfile::Field, cp: &ConstantPool) -> Field
     }
 }
 
-/// 方法 access flags → 字符串（保留所有标记）
-///
-/// ristretto 的 `as_code()` 会丢弃 BRIDGE / VARARGS / STRICT / SYNTHETIC，
-/// 导致保存时这些标记被静默剥离。此函数输出完整标记，确保 round-trip 无损。
-fn method_access_to_string(flags: MethodAccessFlags) -> String {
-    let mut parts = Vec::new();
-    if flags.contains(MethodAccessFlags::PUBLIC) {
-        parts.push("public");
-    }
-    if flags.contains(MethodAccessFlags::PRIVATE) {
-        parts.push("private");
-    }
-    if flags.contains(MethodAccessFlags::PROTECTED) {
-        parts.push("protected");
-    }
-    if flags.contains(MethodAccessFlags::STATIC) {
-        parts.push("static");
-    }
-    if flags.contains(MethodAccessFlags::FINAL) {
-        parts.push("final");
-    }
-    if flags.contains(MethodAccessFlags::SYNCHRONIZED) {
-        parts.push("synchronized");
-    }
-    if flags.contains(MethodAccessFlags::BRIDGE) {
-        parts.push("bridge");
-    }
-    if flags.contains(MethodAccessFlags::VARARGS) {
-        parts.push("varargs");
-    }
-    if flags.contains(MethodAccessFlags::NATIVE) {
-        parts.push("native");
-    }
-    if flags.contains(MethodAccessFlags::ABSTRACT) {
-        parts.push("abstract");
-    }
-    if flags.contains(MethodAccessFlags::STRICT) {
-        parts.push("strictfp");
-    }
-    if flags.contains(MethodAccessFlags::SYNTHETIC) {
-        parts.push("synthetic");
-    }
-    parts.join(" ")
-}
-
 fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> MethodInfo {
-    let access = method_access_to_string(method.access_flags);
-    let is_static = access.contains("static");
+    let access = crate::save::format_method_flags(method.access_flags);
+    let is_static = method.access_flags.contains(MethodAccessFlags::STATIC);
     let name = resolve_utf8(cp, method.name_index);
     let descriptor = resolve_utf8(cp, method.descriptor_index);
     let common = extract_common_attrs(&method.attributes, cp);
@@ -405,7 +360,12 @@ fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> Me
                         let label_ref = labels.get(&i).cloned().unwrap_or_else(|| i.to_string());
                         writeln!(bytecode, "LINE {label_ref} {line}").unwrap();
                     }
-                    let formatted = format_instruction(insn, i, &resolve, &labels);
+                    let formatted = match insn {
+                        Instruction::Ldc(idx) => format_ldc(cp, u16::from(*idx), "LDC"),
+                        Instruction::Ldc_w(idx) => format_ldc(cp, *idx, "LDC_W"),
+                        Instruction::Ldc2_w(idx) => format_ldc(cp, *idx, "LDC2_W"),
+                        _ => format_instruction(insn, i, &resolve, &labels),
+                    };
                     let with_vars =
                         resolve_vars_in_instruction(&formatted, i, &resolved_vars, is_static);
                     writeln!(bytecode, "{}", with_vars).unwrap();
@@ -446,6 +406,40 @@ fn extract_method(method: &ristretto_classfile::Method, cp: &ConstantPool) -> Me
     }
 }
 
+/// LDC 系列指令格式化（需要常量池类型信息来添加后缀）
+///
+/// Float → `3.14f`，Long → `42L`，String → 带转义引号。
+/// Integer / Double 不加后缀（它们是各自宽度的默认类型）。
+fn format_ldc(cp: &ConstantPool, idx: u16, opcode: &str) -> String {
+    match cp.try_get(idx) {
+        Ok(Constant::Integer(v)) => format!("{opcode} {v}"),
+        Ok(Constant::Float(v)) => format!("{opcode} {v}f"),
+        Ok(Constant::Long(v)) => format!("{opcode} {v}L"),
+        Ok(Constant::Double(v)) => format!("{opcode} {v}"),
+        Ok(Constant::String(utf8_idx)) => {
+            let s = cp
+                .try_get_utf8(*utf8_idx)
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            format!("{opcode} \"{}\"", escape_java_string(&s))
+        }
+        Ok(Constant::Class(name_idx)) => {
+            let name = cp
+                .try_get_utf8(*name_idx)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|_| format!("#{name_idx}"));
+            format!("{opcode} {name}")
+        }
+        _ => {
+            let resolved = cp
+                .try_get_formatted_string(idx)
+                .map(|s| strip_cp_prefix(&s))
+                .unwrap_or_else(|_| format!("#{idx}"));
+            format!("{opcode} {resolved}")
+        }
+    }
+}
+
 /// 从指令列表构建 byte_offset → instruction_index 映射
 ///
 /// ristretto 不转换 LVT/LVTT 的偏移量（仅转换 LineNumberTable/StackMapTable/ExceptionTable），
@@ -469,19 +463,4 @@ fn lookup_byte_offset(map: &BTreeMap<usize, usize>, byte_offset: usize) -> usize
         .copied()
         .or_else(|| map.range(..=byte_offset).next_back().map(|(_, &v)| v))
         .unwrap_or(0)
-}
-
-/// 从 .class 字节解析版本信息
-fn parse_class_version(bytes: &[u8]) -> Option<String> {
-    if bytes.len() < 8 || bytes[0..4] != [0xCA, 0xFE, 0xBA, 0xBE] {
-        return None;
-    }
-    let minor = u16::from_be_bytes([bytes[4], bytes[5]]);
-    let major = u16::from_be_bytes([bytes[6], bytes[7]]);
-    let java_ver = if major >= 49 {
-        format!("{}", major - 44)
-    } else {
-        format!("1.{}", major - 44)
-    };
-    Some(format!("Java {java_ver} (class {major}.{minor})"))
 }

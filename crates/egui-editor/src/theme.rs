@@ -5,13 +5,15 @@
 use eframe::egui;
 use egui_shell::components::FlatButtonTheme;
 
-/// 语法高亮配色（11 种 token 类型）
+/// 语法高亮配色（12 种 token 类型）
 #[derive(Clone)]
 pub struct SyntaxTheme {
     /// 普通文本
     pub text: egui::Color32,
     /// 关键字
     pub keyword: egui::Color32,
+    /// JVM 操作码（字节码指令，区别于语言关键字）
+    pub opcode: egui::Color32,
     /// 字符串
     pub string: egui::Color32,
     /// 类型名

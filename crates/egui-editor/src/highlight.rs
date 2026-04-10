@@ -27,11 +27,19 @@ use eframe::egui::text::LayoutJob;
 pub enum TokenKind {
     /// 普通文本
     Plain,
+    /// 语言关键字（access modifier、声明关键字等）
     Keyword,
+    /// JVM 操作码（INVOKEVIRTUAL、ALOAD 等字节码指令）
+    Opcode,
+    /// 字符串字面量
     String,
+    /// 类型名
     Type,
+    /// 数字字面量
     Number,
+    /// 注释
     Comment,
+    /// 注解
     Annotation,
     /// 低对比度文本（标点、分隔符）
     Muted,
@@ -49,6 +57,7 @@ impl TokenKind {
         match self {
             Self::Plain => theme.text,
             Self::Keyword => theme.keyword,
+            Self::Opcode => theme.opcode,
             Self::String => theme.string,
             Self::Type => theme.type_name,
             Self::Number => theme.number,

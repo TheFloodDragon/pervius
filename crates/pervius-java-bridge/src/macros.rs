@@ -2,8 +2,35 @@
 //!
 //! @author sky
 
-/// 从空格分隔的修饰符文本解析 access flags
+/// Access flags 双向转换：文本 ↔ bitflags
+///
+/// 单函数模式：只生成 parse 函数。
+/// 双函数模式：同时生成 parse 和 format 函数，映射表只写一次。
+/// format 遇到同一 flag 的多个 keyword（如 strict / strictfp）时取第一个。
 macro_rules! parse_flags {
+    ($parse_fn:ident, $format_fn:ident, $flag_type:ty, { $($keyword:literal => $flag:expr),* $(,)? }) => {
+        fn $parse_fn(s: &str) -> $flag_type {
+            let mut flags = <$flag_type>::empty();
+            for word in s.split_whitespace() {
+                flags |= match word {
+                    $($keyword => $flag,)*
+                    _ => <$flag_type>::empty(),
+                };
+            }
+            flags
+        }
+        pub(crate) fn $format_fn(flags: $flag_type) -> String {
+            let mut parts: Vec<&str> = Vec::new();
+            let mut seen = <$flag_type>::empty();
+            $(
+                if flags.contains($flag) && !seen.contains($flag) {
+                    parts.push($keyword);
+                    seen |= $flag;
+                }
+            )*
+            parts.join(" ")
+        }
+    };
     ($fn_name:ident, $flag_type:ty, { $($keyword:literal => $flag:expr),* $(,)? }) => {
         fn $fn_name(s: &str) -> $flag_type {
             let mut flags = <$flag_type>::empty();
