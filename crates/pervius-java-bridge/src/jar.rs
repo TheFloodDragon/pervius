@@ -1,4 +1,4 @@
-//! JAR/ZIP 归档读取
+//! JAR/ZIP 归档读写
 //!
 //! @author sky
 
@@ -6,19 +6,19 @@ use crate::decompiler::CachedSource;
 use crate::error::BridgeError;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-/// JAR 加载进度（跨线程共享）
-pub struct LoadProgress {
-    /// 当前已处理数
-    pub current: AtomicU32,
-    /// 总数
-    pub total: AtomicU32,
-}
+tabookit::class! {
+    /// JAR 加载进度（跨线程共享）
+    pub struct LoadProgress {
+        /// 当前已处理数
+        pub current: AtomicU32,
+        /// 总数
+        pub total: AtomicU32,
+    }
 
-impl LoadProgress {
     pub fn new() -> Self {
         Self {
             current: AtomicU32::new(0),
@@ -35,24 +35,27 @@ pub struct ModifiedEntry {
     pub decompiled: Option<CachedSource>,
 }
 
-/// JAR 归档内存表示
-pub struct JarArchive {
-    /// 归档文件名
-    pub name: String,
-    /// 原始文件路径
-    pub path: PathBuf,
-    /// 文件内容 SHA-256（hex，前 16 字符用于缓存目录）
-    pub hash: String,
-    /// 条目路径 → 原始字节（不可变）
-    entries: HashMap<String, Vec<u8>>,
-    /// 已修改条目（路径 → 修改后的数据 + 反编译缓存）
-    modified_entries: HashMap<String, ModifiedEntry>,
-}
+tabookit::class! {
+    /// JAR 归档内存表示
+    pub struct JarArchive {
+        /// 归档文件名
+        pub name: String,
+        /// 原始文件路径
+        pub path: PathBuf,
+        /// 文件内容 SHA-256（hex，前 16 字符用于缓存目录）
+        pub hash: String,
+        /// 原始文件大小（字节）
+        pub file_size: u64,
+        /// 条目路径 → 原始字节（不可变）
+        entries: HashMap<String, Vec<u8>>,
+        /// 已修改条目（路径 → 修改后的数据 + 反编译缓存）
+        modified_entries: HashMap<String, ModifiedEntry>,
+    }
 
-impl JarArchive {
     /// 带进度回报的打开方法（供后台线程调用）
     pub fn open_with_progress(path: &Path, progress: &LoadProgress) -> Result<Self, BridgeError> {
         let data = std::fs::read(path)?;
+        let file_size = data.len() as u64;
         let hash: String = Sha256::digest(&data)
             .iter()
             .map(|b| format!("{b:02x}"))
@@ -80,6 +83,7 @@ impl JarArchive {
             name,
             path: path.to_path_buf(),
             hash,
+            file_size,
             entries,
             modified_entries: HashMap::new(),
         })
@@ -163,4 +167,45 @@ impl JarArchive {
             .filter(|k| k.ends_with(".class"))
             .count() as u32
     }
+
+    /// 快照所有条目（已修改条目使用修改后的字节）
+    ///
+    /// 返回排序后的 `(路径, 字节)` 列表，可安全移入后台线程。
+    pub fn snapshot_entries(&self) -> Vec<(String, Vec<u8>)> {
+        let mut paths: Vec<&str> = self.entries.keys().map(|s| s.as_str()).collect();
+        paths.sort_unstable();
+        paths
+            .into_iter()
+            .map(|p| {
+                let data = self.get(p).unwrap().to_vec();
+                (p.to_owned(), data)
+            })
+            .collect()
+    }
+}
+
+/// 将条目快照写成 JAR 文件
+///
+/// 独立函数，可在后台线程中调用（不持有 `JarArchive` 引用）。
+pub fn write_jar(
+    entries: &[(String, Vec<u8>)],
+    output: &Path,
+    progress: &LoadProgress,
+) -> Result<usize, BridgeError> {
+    let file = std::fs::File::create(output)?;
+    let mut writer = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    progress
+        .total
+        .store(entries.len() as u32, Ordering::Relaxed);
+    for (i, (path, data)) in entries.iter().enumerate() {
+        writer
+            .start_file(path, options)
+            .map_err(BridgeError::parse)?;
+        writer.write_all(data)?;
+        progress.current.store((i + 1) as u32, Ordering::Relaxed);
+    }
+    writer.finish().map_err(BridgeError::parse)?;
+    Ok(entries.len())
 }

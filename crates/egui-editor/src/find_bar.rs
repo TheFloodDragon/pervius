@@ -13,31 +13,31 @@ const MARGIN: f32 = 8.0;
 /// island 高度
 const BAR_H: f32 = 30.0;
 
-/// 编辑器内查找栏
-pub struct FindBar {
-    /// 是否打开
-    pub open: bool,
-    /// 搜索查询
-    query: String,
-    /// 是否区分大小写
-    case_sensitive: bool,
-    /// 是否仅匹配完整单词
-    whole_word: bool,
-    /// 是否使用正则表达式
-    regex: bool,
-    /// 搜索匹配项列表
-    matches: Vec<FindMatch>,
-    /// 当前选中项索引
-    current: usize,
-    /// 是否需要聚焦输入框
-    focus_input: bool,
-    /// 导航匹配项时请求视图滚动
-    scroll_requested: bool,
-    /// 缓存指纹，避免重复搜索
-    last_key: u64,
-}
+tabookit::class! {
+    /// 编辑器内查找栏
+    pub struct FindBar {
+        /// 是否打开
+        pub open: bool,
+        /// 搜索查询
+        query: String,
+        /// 是否区分大小写
+        case_sensitive: bool,
+        /// 是否仅匹配完整单词
+        whole_word: bool,
+        /// 是否使用正则表达式
+        regex: bool,
+        /// 搜索匹配项列表
+        matches: Vec<FindMatch>,
+        /// 当前选中项索引
+        current: usize,
+        /// 是否需要聚焦输入框
+        focus_input: bool,
+        /// 导航匹配项时请求视图滚动
+        scroll_requested: bool,
+        /// 缓存指纹，避免重复搜索
+        last_key: u64,
+    }
 
-impl FindBar {
     pub fn new() -> Self {
         Self {
             open: false,

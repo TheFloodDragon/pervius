@@ -12,7 +12,9 @@ impl App {
         let Some(entry_path) = self.layout.file_panel.pending_reveal.take() else {
             return;
         };
-        let Some(jar) = &self.jar else { return };
+        let Some(jar) = self.workspace.jar() else {
+            return;
+        };
         log::info!("Reveal: entry_path={entry_path}");
         // class 文件：定位到缓存的反编译源码
         if entry_path.ends_with(".class") || entry_path.contains('$') {

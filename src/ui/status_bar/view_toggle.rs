@@ -6,16 +6,8 @@ use crate::appearance::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
 use egui_animation::Anim;
-use egui_shell::components::status_bar::{Alignment, StatusItem};
+use egui_shell::components::panel::status_bar::{Alignment, StatusItem};
 use rust_i18n::t;
-
-/// 三视图切换 item
-pub struct ViewToggleItem {
-    /// 当前活跃视图（None 表示无 tab 聚焦，不显示）
-    active: Option<ActiveView>,
-    /// 用户点击后的新视图
-    changed: Option<ActiveView>,
-}
 
 const VIEWS: [ActiveView; 3] = [
     ActiveView::Decompiled,
@@ -31,9 +23,15 @@ fn view_label(v: ActiveView) -> String {
     }
 }
 
-const ANIM_DURATION: f32 = 0.15;
+tabookit::class! {
+    /// 三视图切换 item
+    pub struct ViewToggleItem {
+        /// 当前活跃视图（None 表示无 tab 聚焦，不显示）
+        active: Option<ActiveView>,
+        /// 用户点击后的新视图
+        changed: Option<ActiveView>,
+    }
 
-impl ViewToggleItem {
     pub fn new() -> Self {
         Self {
             active: None,
@@ -95,7 +93,7 @@ impl StatusItem for ViewToggleItem {
         let active_idx = VIEWS.iter().position(|v| *v == active).unwrap_or(0);
         let target_offset: f32 = (0..active_idx).map(|i| item_widths[i] + item_gap).sum();
         let target_w = item_widths[active_idx];
-        let anim = Anim::new(ui, ANIM_DURATION);
+        let anim = Anim::new(ui, theme::VIEW_TOGGLE_ANIM_DURATION);
         let anim_offset = anim.f32("offset", target_offset);
         let anim_w = anim.f32("width", target_w);
         let highlight_rect = egui::Rect::from_min_size(

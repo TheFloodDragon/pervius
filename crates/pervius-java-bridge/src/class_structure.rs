@@ -6,31 +6,30 @@
 
 use std::collections::HashSet;
 
-/// 解析后的 class 结构化数据
-pub struct ClassStructure {
-    /// class 级别元数据
-    pub info: ClassInfo,
-    /// 字段列表
-    pub fields: Vec<FieldInfo>,
-    /// 方法列表
-    pub methods: Vec<MethodInfo>,
-}
-
-impl ClassStructure {
-    /// 收集已修改或已保存的成员
+tabookit::class! {
+    /// 解析后的 class 结构化数据
+    pub struct ClassStructure {
+        /// class 级别元数据
+        pub info: ClassInfo,
+        /// 字段列表
+        pub fields: Vec<FieldInfo>,
+        /// 方法列表
+        pub methods: Vec<MethodInfo>,
+    }
+    /// 收集已修改或已保存的成员（位置索引）
     pub fn collect_saved_members(&self) -> HashSet<SavedMember> {
         let mut set = HashSet::new();
         if self.info.modified || self.info.saved {
             set.insert(SavedMember::ClassInfo);
         }
-        for f in &self.fields {
+        for (i, f) in self.fields.iter().enumerate() {
             if f.modified || f.saved {
-                set.insert(SavedMember::Field(f.name.clone(), f.descriptor.clone()));
+                set.insert(SavedMember::Field(i));
             }
         }
-        for m in &self.methods {
+        for (i, m) in self.methods.iter().enumerate() {
             if m.modified || m.saved {
-                set.insert(SavedMember::Method(m.name.clone(), m.descriptor.clone()));
+                set.insert(SavedMember::Method(i));
             }
         }
         set
@@ -41,13 +40,13 @@ impl ClassStructure {
         if saved.contains(&SavedMember::ClassInfo) {
             self.info.saved = true;
         }
-        for f in &mut self.fields {
-            if saved.contains(&SavedMember::Field(f.name.clone(), f.descriptor.clone())) {
+        for (i, f) in self.fields.iter_mut().enumerate() {
+            if saved.contains(&SavedMember::Field(i)) {
                 f.saved = true;
             }
         }
-        for m in &mut self.methods {
-            if saved.contains(&SavedMember::Method(m.name.clone(), m.descriptor.clone())) {
+        for (i, m) in self.methods.iter_mut().enumerate() {
+            if saved.contains(&SavedMember::Method(i)) {
                 m.saved = true;
             }
         }
@@ -133,13 +132,15 @@ pub struct MethodInfo {
 }
 
 /// 持久化的已保存成员标识（跨 tab 关闭/重开保留）
+///
+/// 使用位置索引而非 name+descriptor，避免编辑签名后断链。
 #[derive(Clone, Hash, Eq, PartialEq)]
 pub enum SavedMember {
     ClassInfo,
-    /// (name, descriptor)
-    Field(String, String),
-    /// (name, descriptor)
-    Method(String, String),
+    /// 字段在 fields Vec 中的位置索引
+    Field(usize),
+    /// 方法在 methods Vec 中的位置索引
+    Method(usize),
 }
 
 /// 可编辑的注解

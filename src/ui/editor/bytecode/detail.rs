@@ -2,21 +2,17 @@
 //!
 //! @author sky
 
+use crate::appearance::theme::flat_button_theme;
 use crate::appearance::{codicon, theme};
-use crate::ui::widget::{flat_button_theme, FlatButton};
 use eframe::egui;
 use egui_editor::search::FindMatch;
+use egui_shell::components::FlatButton;
 use pervius_java_bridge::bytecode::descriptor::{
     return_type_readable, short_class_name, short_descriptor, short_params,
 };
 use pervius_java_bridge::class_structure::{
     ClassStructure, EditableAnnotation, FieldInfo, MethodInfo,
 };
-
-/// 内容区内边距
-const CONTENT_PAD: f32 = 16.0;
-/// 元数据 key-value 间距
-const KV_KEY_WIDTH: f32 = 100.0;
 
 /// 12px monospace 字体
 fn mono_12() -> egui::FontId {
@@ -36,12 +32,12 @@ fn mono_label(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
 pub fn render_class_info_editable(ui: &mut egui::Ui, cs: &mut ClassStructure) -> bool {
     let mut changed = false;
     egui::ScrollArea::vertical()
-        .id_salt("bc_class_info")
+        .id_salt("bc_detail")
         .auto_shrink(false)
         .show(ui, |ui| {
             // push_id 隔离 TextEdit undo 历史，避免与 Field/Method 面板共享 widget ID
             ui.push_id("class_info", |ui| {
-                ui.add_space(CONTENT_PAD);
+                ui.add_space(theme::BYTECODE_DETAIL_PAD);
                 changed |=
                     render_editable_kv(ui, "Access", &mut cs.info.access, theme::SYN_KEYWORD);
                 changed |= render_editable_kv(ui, "Name", &mut cs.info.name, theme::TEXT_PRIMARY);
@@ -73,7 +69,7 @@ pub fn render_class_info_editable(ui: &mut egui::Ui, cs: &mut ClassStructure) ->
                         render_kv(ui, "Deprecated", "true");
                     }
                 }
-                ui.add_space(CONTENT_PAD);
+                ui.add_space(theme::BYTECODE_DETAIL_PAD);
             });
         });
     changed
@@ -82,12 +78,12 @@ pub fn render_class_info_editable(ui: &mut egui::Ui, cs: &mut ClassStructure) ->
 pub fn render_field_editable(ui: &mut egui::Ui, field: &mut FieldInfo, idx: usize) -> bool {
     let mut changed = false;
     egui::ScrollArea::vertical()
-        .id_salt(("bc_field", idx))
+        .id_salt("bc_detail")
         .auto_shrink(false)
         .show(ui, |ui| {
             // push_id 隔离 TextEdit undo 历史，避免与其他 Field/Method 共享 widget ID
             ui.push_id(("field", idx), |ui| {
-                ui.add_space(CONTENT_PAD);
+                ui.add_space(theme::BYTECODE_DETAIL_PAD);
                 changed |= render_editable_kv(ui, "Access", &mut field.access, theme::SYN_KEYWORD);
                 changed |= render_editable_kv(ui, "Name", &mut field.name, theme::TEXT_PRIMARY);
                 changed |= render_editable_kv(
@@ -108,7 +104,7 @@ pub fn render_field_editable(ui: &mut egui::Ui, field: &mut FieldInfo, idx: usiz
                     field.is_deprecated,
                     field.is_synthetic,
                 );
-                ui.add_space(CONTENT_PAD);
+                ui.add_space(theme::BYTECODE_DETAIL_PAD);
             });
         });
     changed
@@ -123,12 +119,12 @@ pub fn render_method_editable(
 ) -> bool {
     let mut changed = false;
     egui::ScrollArea::both()
-        .id_salt(("bc_method", idx))
+        .id_salt("bc_detail")
         .auto_shrink(false)
         .show(ui, |ui| {
             // push_id 隔离 TextEdit undo 历史，避免与其他 Method/Field 共享 widget ID
             ui.push_id(("method", idx), |ui| {
-                ui.add_space(CONTENT_PAD);
+                ui.add_space(theme::BYTECODE_DETAIL_PAD);
                 changed |= render_editable_kv(ui, "Access", &mut method.access, theme::SYN_KEYWORD);
                 changed |= render_editable_kv(ui, "Name", &mut method.name, theme::TEXT_PRIMARY);
                 changed |= render_editable_kv(
@@ -154,6 +150,7 @@ pub fn render_method_editable(
                 if method.has_code {
                     ui.add_space(12.0);
                     let t = theme::editor_theme();
+                    let mut bc_cache = None;
                     changed |= egui_editor::code_view::code_view_editable(
                         ui,
                         egui::Id::new(("bc_code", idx)),
@@ -162,11 +159,13 @@ pub fn render_method_editable(
                         matches,
                         current,
                         &t,
+                        &mut bc_cache,
+                        None,
                     );
                 } else {
                     ui.add_space(12.0);
                     ui.horizontal(|ui| {
-                        ui.add_space(CONTENT_PAD);
+                        ui.add_space(theme::BYTECODE_DETAIL_PAD);
                         mono_label(ui, "// no code (abstract or native)", theme::TEXT_MUTED);
                     });
                 }
@@ -176,7 +175,7 @@ pub fn render_method_editable(
                     method.is_deprecated,
                     method.is_synthetic,
                 );
-                ui.add_space(CONTENT_PAD);
+                ui.add_space(theme::BYTECODE_DETAIL_PAD);
             });
         });
     changed
@@ -197,7 +196,7 @@ fn render_annotations(ui: &mut egui::Ui, annotations: &mut Vec<EditableAnnotatio
     for (i, ann) in annotations.iter_mut().enumerate() {
         let readonly = is_kotlin_internal_annotation(&ann.type_desc);
         ui.horizontal(|ui| {
-            ui.add_space(CONTENT_PAD);
+            ui.add_space(theme::BYTECODE_DETAIL_PAD);
             mono_label(ui, "@", theme::SYN_ANNOTATION);
             if readonly {
                 mono_label(ui, &ann.type_desc, theme::TEXT_MUTED);
@@ -243,7 +242,7 @@ fn render_annotations(ui: &mut egui::Ui, annotations: &mut Vec<EditableAnnotatio
                 mono_label(ui, ")", theme::TEXT_MUTED);
             }
             if !readonly {
-                let fbt = flat_button_theme();
+                let fbt = flat_button_theme(theme::TEXT_SECONDARY);
                 if ui
                     .add(
                         FlatButton::new(codicon::CLOSE, &fbt)
@@ -265,8 +264,8 @@ fn render_annotations(ui: &mut egui::Ui, annotations: &mut Vec<EditableAnnotatio
         changed = true;
     }
     ui.horizontal(|ui| {
-        ui.add_space(CONTENT_PAD);
-        let fbt = flat_button_theme();
+        ui.add_space(theme::BYTECODE_DETAIL_PAD);
+        let fbt = flat_button_theme(theme::TEXT_SECONDARY);
         if ui
             .add(
                 FlatButton::new("+ annotation", &fbt)
@@ -326,7 +325,7 @@ fn render_readonly_attrs(
 
 /// 渲染 KV 行的 key label + 对齐间距
 fn render_kv_label(ui: &mut egui::Ui, key: &str) {
-    ui.add_space(CONTENT_PAD);
+    ui.add_space(theme::BYTECODE_DETAIL_PAD);
     if !key.is_empty() {
         ui.label(
             egui::RichText::new(key)
@@ -334,11 +333,11 @@ fn render_kv_label(ui: &mut egui::Ui, key: &str) {
                 .font(prop_12()),
         );
         let used = ui.min_rect().width();
-        if used < KV_KEY_WIDTH {
-            ui.add_space(KV_KEY_WIDTH - used);
+        if used < theme::BYTECODE_KV_KEY_WIDTH {
+            ui.add_space(theme::BYTECODE_KV_KEY_WIDTH - used);
         }
     } else {
-        ui.add_space(KV_KEY_WIDTH);
+        ui.add_space(theme::BYTECODE_KV_KEY_WIDTH);
     }
 }
 
@@ -371,7 +370,7 @@ fn render_editable_kv(
 /// 可读预览行（与 KV value 列对齐）
 fn render_preview(ui: &mut egui::Ui, text: &str) {
     ui.horizontal(|ui| {
-        ui.add_space(KV_KEY_WIDTH);
+        ui.add_space(theme::BYTECODE_KV_KEY_WIDTH);
         ui.label(
             egui::RichText::new(text)
                 .color(theme::TEXT_MUTED)

@@ -4,7 +4,7 @@
 
 use crate::appearance::theme;
 use eframe::egui;
-use egui_shell::components::status_bar::{Alignment, StatusItem};
+use egui_shell::components::panel::status_bar::{Alignment, StatusItem};
 use rust_i18n::t;
 
 /// 文件修改条目
@@ -17,26 +17,26 @@ struct FileEntry {
     color: egui::Color32,
 }
 
-/// 右侧显示已修改文件数量（无修改时自动隐藏）
-///
-/// - 蓝色 (ACCENT_CYAN)：已保存到 JAR 的修改
-/// - 橙色 (ACCENT_ORANGE)：tab 有编辑但未保存
-///
-/// 点击状态栏文字弹出文件列表，点击可聚焦对应 tab。
-pub struct ModifiedCountItem {
-    /// 已保存到 JAR 的文件路径
-    saved_paths: Vec<String>,
-    /// tab 有编辑但未保存的文件路径
-    unsaved_paths: Vec<String>,
-    /// 用户点击的文件路径（由 StatusBar 消费）
-    clicked: Option<String>,
-    /// 弹出列表是否打开
-    popup_open: bool,
-    /// 上次 toggle 的帧号（多 pass 去重）
-    last_toggle_pass: u64,
-}
+tabookit::class! {
+    /// 右侧显示已修改文件数量（无修改时自动隐藏）
+    ///
+    /// - 蓝色 (ACCENT_CYAN)：已保存到 JAR 的修改
+    /// - 橙色 (ACCENT_ORANGE)：tab 有编辑但未保存
+    ///
+    /// 点击状态栏文字弹出文件列表，点击可聚焦对应 tab。
+    pub struct ModifiedCountItem {
+        /// 已保存到 JAR 的文件路径
+        saved_paths: Vec<String>,
+        /// tab 有编辑但未保存的文件路径
+        unsaved_paths: Vec<String>,
+        /// 用户点击的文件路径（由 StatusBar 消费）
+        clicked: Option<String>,
+        /// 弹出列表是否打开
+        popup_open: bool,
+        /// 上次 toggle 的帧号（多 pass 去重）
+        last_toggle_pass: u64,
+    }
 
-impl ModifiedCountItem {
     pub fn new() -> Self {
         Self {
             saved_paths: Vec::new(),
@@ -78,12 +78,55 @@ impl ModifiedCountItem {
         }
         entries
     }
-}
 
-const POPUP_ITEM_HEIGHT: f32 = 22.0;
-const POPUP_PAD: f32 = 4.0;
-const POPUP_MAX_VISIBLE: usize = 12;
-const POPUP_WIDTH: f32 = 260.0;
+    /// 渲染弹出列表中的条目
+    fn render_entries(&mut self, ui: &mut egui::Ui, entries: &[FileEntry]) {
+        let font = egui::FontId::proportional(11.5);
+        for (_i, entry) in entries.iter().enumerate() {
+            let (rect, resp) = ui.allocate_exact_size(
+                egui::vec2(ui.available_width(), theme::MODIFIED_POPUP_ITEM_HEIGHT),
+                egui::Sense::click(),
+            );
+            if resp.hovered() {
+                ui.painter().rect_filled(rect, 2.0, theme::BG_HOVER);
+            }
+            if resp.clicked() {
+                self.clicked = Some(entry.path.clone());
+                self.popup_open = false;
+            }
+            // 圆点指示器
+            let dot_x = rect.left() + 8.0;
+            let dot_y = rect.center().y;
+            ui.painter()
+                .circle_filled(egui::pos2(dot_x, dot_y), 3.0, entry.color);
+            // 文件名
+            let text_x = dot_x + 10.0;
+            ui.painter().text(
+                egui::pos2(text_x, dot_y),
+                egui::Align2::LEFT_CENTER,
+                &entry.short_name,
+                font.clone(),
+                theme::TEXT_PRIMARY,
+            );
+            // 路径（右侧灰色）
+            let path_galley = ui.painter().layout_no_wrap(
+                entry.path.clone(),
+                egui::FontId::proportional(10.0),
+                theme::TEXT_MUTED,
+            );
+            let path_w = path_galley.size().x;
+            let max_path_x = rect.right() - 6.0;
+            let path_x = (max_path_x - path_w).max(text_x + 60.0);
+            if path_x + path_w <= max_path_x + 1.0 {
+                ui.painter().galley(
+                    egui::pos2(path_x, dot_y - path_galley.size().y / 2.0),
+                    path_galley,
+                    theme::TEXT_MUTED,
+                );
+            }
+        }
+    }
+}
 
 impl StatusItem for ModifiedCountItem {
     fn alignment(&self) -> Alignment {
@@ -155,14 +198,15 @@ impl StatusItem for ModifiedCountItem {
         }
         if self.popup_open {
             let entries = self.build_entries();
-            let visible_count = entries.len().min(POPUP_MAX_VISIBLE);
-            let content_h = visible_count as f32 * POPUP_ITEM_HEIGHT + POPUP_PAD * 2.0;
+            let visible_count = entries.len().min(theme::MODIFIED_POPUP_MAX_VISIBLE);
+            let content_h = visible_count as f32 * theme::MODIFIED_POPUP_ITEM_HEIGHT
+                + theme::MODIFIED_POPUP_PAD * 2.0;
             let popup_rect = egui::Rect::from_min_size(
                 egui::pos2(
-                    interact_rect.right() - POPUP_WIDTH,
+                    interact_rect.right() - theme::MODIFIED_POPUP_WIDTH,
                     interact_rect.top() - content_h,
                 ),
-                egui::vec2(POPUP_WIDTH, content_h),
+                egui::vec2(theme::MODIFIED_POPUP_WIDTH, content_h),
             );
             let popup_id = ui.id().with("modified_popup");
             let area_resp = egui::Area::new(popup_id)
@@ -179,11 +223,14 @@ impl StatusItem for ModifiedCountItem {
                             offset: [0, -4],
                             color: egui::Color32::from_black_alpha(80),
                         })
-                        .inner_margin(egui::Margin::same(POPUP_PAD as i8));
+                        .inner_margin(egui::Margin::same(theme::MODIFIED_POPUP_PAD as i8));
                     frame.show(ui, |ui| {
-                        ui.set_width(POPUP_WIDTH - POPUP_PAD * 2.0);
+                        ui.set_width(theme::MODIFIED_POPUP_WIDTH - theme::MODIFIED_POPUP_PAD * 2.0);
                         egui::ScrollArea::vertical()
-                            .max_height(POPUP_MAX_VISIBLE as f32 * POPUP_ITEM_HEIGHT)
+                            .max_height(
+                                theme::MODIFIED_POPUP_MAX_VISIBLE as f32
+                                    * theme::MODIFIED_POPUP_ITEM_HEIGHT,
+                            )
                             .show(ui, |ui| {
                                 self.render_entries(ui, &entries);
                             });
@@ -200,54 +247,5 @@ impl StatusItem for ModifiedCountItem {
             }
         }
         total_w
-    }
-}
-
-impl ModifiedCountItem {
-    fn render_entries(&mut self, ui: &mut egui::Ui, entries: &[FileEntry]) {
-        let font = egui::FontId::proportional(11.5);
-        for (_i, entry) in entries.iter().enumerate() {
-            let (rect, resp) = ui.allocate_exact_size(
-                egui::vec2(ui.available_width(), POPUP_ITEM_HEIGHT),
-                egui::Sense::click(),
-            );
-            if resp.hovered() {
-                ui.painter().rect_filled(rect, 2.0, theme::BG_HOVER);
-            }
-            if resp.clicked() {
-                self.clicked = Some(entry.path.clone());
-                self.popup_open = false;
-            }
-            // 圆点指示器
-            let dot_x = rect.left() + 8.0;
-            let dot_y = rect.center().y;
-            ui.painter()
-                .circle_filled(egui::pos2(dot_x, dot_y), 3.0, entry.color);
-            // 文件名
-            let text_x = dot_x + 10.0;
-            ui.painter().text(
-                egui::pos2(text_x, dot_y),
-                egui::Align2::LEFT_CENTER,
-                &entry.short_name,
-                font.clone(),
-                theme::TEXT_PRIMARY,
-            );
-            // 路径（右侧灰色）
-            let path_galley = ui.painter().layout_no_wrap(
-                entry.path.clone(),
-                egui::FontId::proportional(10.0),
-                theme::TEXT_MUTED,
-            );
-            let path_w = path_galley.size().x;
-            let max_path_x = rect.right() - 6.0;
-            let path_x = (max_path_x - path_w).max(text_x + 60.0);
-            if path_x + path_w <= max_path_x + 1.0 {
-                ui.painter().galley(
-                    egui::pos2(path_x, dot_y - path_galley.size().y / 2.0),
-                    path_galley,
-                    theme::TEXT_MUTED,
-                );
-            }
-        }
     }
 }

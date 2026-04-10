@@ -26,14 +26,13 @@ pub fn find_java() -> Result<PathBuf, BridgeError> {
     Ok(java)
 }
 
-/// Java `-jar` 子进程构建器
-///
-/// 自动处理 java 定位、Windows `CREATE_NO_WINDOW`、管道配置。
-pub struct JavaCommand {
-    cmd: Command,
-}
-
-impl JavaCommand {
+tabookit::class! {
+    /// Java `-jar` 子进程构建器
+    ///
+    /// 自动处理 java 定位、Windows `CREATE_NO_WINDOW`、管道配置。
+    pub struct JavaCommand {
+        cmd: Command,
+    }
     /// 创建 `java -jar <jar>` 命令
     pub fn new(jar: &Path) -> Result<Self, BridgeError> {
         let java = find_java()?;

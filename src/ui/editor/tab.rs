@@ -4,20 +4,21 @@
 
 use super::view_toggle::ActiveView;
 use egui_editor::highlight::{self, Language, Span};
+use egui_editor::{EditableLayoutCache, LayoutCache};
 use egui_hex_view::HexViewState;
 use pervius_java_bridge::class_structure::ClassStructure;
 use rust_i18n::t;
 use std::path::{Path, PathBuf};
 
-/// 预处理后的代码视图数据（虚拟滚动用）
-pub struct CodeData {
-    /// 语法高亮 span（全文字节偏移，已排序）
-    pub spans: Vec<Span>,
-    /// 每行在源码中的起始字节偏移
-    pub line_starts: Vec<usize>,
-}
+tabookit::class! {
+    /// 预处理后的代码视图数据（虚拟滚动用）
+    pub struct CodeData {
+        /// 语法高亮 span（全文字节偏移，已排序）
+        pub spans: Vec<Span>,
+        /// 每行在源码中的起始字节偏移
+        pub line_starts: Vec<usize>,
+    }
 
-impl CodeData {
     pub fn new(source: &str, spans: Vec<Span>) -> Self {
         let line_starts = highlight::compute_line_starts(source);
         Self { spans, line_starts }
@@ -36,41 +37,47 @@ pub enum BytecodeSelection {
     Method(usize),
 }
 
-/// 编辑器 Tab 数据
-pub struct EditorTab {
-    pub title: String,
-    /// JAR 内条目路径（用于 tab 去重 + widget ID）
-    pub entry_path: Option<String>,
-    /// 独立文件的磁盘路径（非 JAR 内条目，保存时直接写回磁盘，不参与 JAR modified 管理）
-    pub standalone_path: Option<PathBuf>,
-    /// 反编译源码（只读）
-    pub decompiled: String,
-    /// 原始字节（只读，用于 hex 视图）
-    pub raw_bytes: Vec<u8>,
-    pub language: Language,
-    pub active_view: ActiveView,
-    /// .class 文件才显示三视图切换
-    pub is_class: bool,
-    /// 纯文本文件（可直接编辑）
-    pub is_text: bool,
-    /// class 文件版本信息（如 "Java 21 (class 65.0)"）
-    pub class_info: Option<String>,
-    pub is_modified: bool,
-    /// Hex 视图交互状态
-    pub hex_state: HexViewState,
-    /// 反编译视图预处理数据
-    pub(super) decompiled_data: CodeData,
-    /// 反编译行 → 原始源码行号映射（1-indexed），None 表示无映射
-    pub decompiled_line_mapping: Vec<Option<u32>>,
-    /// 解析后的 class 结构化数据
-    pub class_structure: Option<ClassStructure>,
-    /// 字节码面板当前选中项
-    pub bc_selection: BytecodeSelection,
-    /// 字节码面板左侧导航栏宽度（可拖拽调整）
-    pub nav_width: f32,
-}
+tabookit::class! {
+    /// 编辑器 Tab 数据
+    pub struct EditorTab {
+        pub title: String,
+        /// JAR 内条目路径（用于 tab 去重 + widget ID）
+        pub entry_path: Option<String>,
+        /// 独立文件的磁盘路径（非 JAR 内条目，保存时直接写回磁盘，不参与 JAR modified 管理）
+        pub standalone_path: Option<PathBuf>,
+        /// 反编译源码（只读）
+        pub decompiled: String,
+        /// 原始字节（只读，用于 hex 视图）
+        pub raw_bytes: Vec<u8>,
+        pub language: Language,
+        pub active_view: ActiveView,
+        /// .class 文件才显示三视图切换
+        pub is_class: bool,
+        /// 纯文本文件（可直接编辑）
+        pub is_text: bool,
+        /// class 文件版本信息（如 "Java 21 (class 65.0)"）
+        pub class_info: Option<String>,
+        pub is_modified: bool,
+        /// Hex 视图交互状态
+        pub hex_state: HexViewState,
+        /// 反编译视图预处理数据
+        pub(super) decompiled_data: CodeData,
+        /// 反编译行 → 原始源码行号映射（1-indexed），None 表示无映射
+        pub decompiled_line_mapping: Vec<Option<u32>>,
+        /// 解析后的 class 结构化数据
+        pub class_structure: Option<ClassStructure>,
+        /// 字节码面板当前选中项
+        pub bc_selection: BytecodeSelection,
+        /// 字节码面板左侧导航栏宽度（可拖拽调整）
+        pub nav_width: f32,
+        /// 只读视图布局缓存（避免每帧重建 LayoutJob）
+        pub layout_cache: Option<LayoutCache>,
+        /// 可编辑视图布局缓存（缓存 tree-sitter span + galley）
+        pub editable_layout_cache: Option<EditableLayoutCache>,
+        /// 视窗模式手动覆盖（None = 自动检测，Some(true) = 强制启用，Some(false) = 强制关闭）
+        pub viewport_override: Option<bool>,
+    }
 
-impl EditorTab {
     /// 创建 .class 文件 tab
     pub fn new_class(
         title: impl Into<String>,
@@ -110,6 +117,9 @@ impl EditorTab {
             class_structure: cs,
             bc_selection,
             nav_width: 220.0,
+            layout_cache: None,
+            editable_layout_cache: None,
+            viewport_override: None,
         }
     }
 
@@ -140,6 +150,9 @@ impl EditorTab {
             class_structure: None,
             bc_selection: BytecodeSelection::ClassInfo,
             nav_width: 220.0,
+            layout_cache: None,
+            editable_layout_cache: None,
+            viewport_override: None,
         }
     }
 
@@ -167,6 +180,9 @@ impl EditorTab {
             class_structure: None,
             bc_selection: BytecodeSelection::ClassInfo,
             nav_width: 220.0,
+            layout_cache: None,
+            editable_layout_cache: None,
+            viewport_override: None,
         }
     }
 
@@ -181,6 +197,8 @@ impl EditorTab {
         self.decompiled = source;
         self.language = lang;
         self.decompiled_line_mapping = line_mapping;
+        self.layout_cache = None;
+        self.editable_layout_cache = None;
     }
 
     /// 当前选中方法的字节码文本（find bar 用）
@@ -203,6 +221,8 @@ impl EditorTab {
             &self.decompiled,
             highlight::compute_spans(&self.decompiled, self.language),
         );
+        self.layout_cache = None;
+        self.editable_layout_cache = None;
     }
 
     /// 根据 tab 类型序列化当前编辑内容为字节

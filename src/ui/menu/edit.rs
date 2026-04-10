@@ -2,26 +2,41 @@
 //!
 //! @author sky
 
+use super::MenuState;
 use crate::app::App;
 use crate::appearance::theme;
 use eframe::egui;
-use egui_shell::components::menu_item;
+use egui_shell::components::menu_item_if;
 use rust_i18n::t;
 
 pub fn render(ui: &mut egui::Ui, app: &mut App) {
     let mt = &theme::menu_theme();
-    if menu_item(ui, mt, &t!("menu.save"), Some(&app.settings.keymap.save)) {
+    let state = MenuState::from_app(app);
+    if menu_item_if(
+        ui,
+        mt,
+        &t!("menu.save"),
+        Some(&app.settings.keymap.save),
+        state.has_tab,
+    ) {
         app.save_active_tab();
     }
     ui.separator();
-    if menu_item(ui, mt, &t!("menu.find"), Some(&app.settings.keymap.find)) {
+    if menu_item_if(
+        ui,
+        mt,
+        &t!("menu.find"),
+        Some(&app.settings.keymap.find),
+        state.has_tab,
+    ) {
         app.layout.editor.open_find();
     }
-    if menu_item(
+    if menu_item_if(
         ui,
         mt,
         &t!("menu.find_in_files"),
         Some(&app.settings.keymap.find_in_files),
+        state.has_jar,
     ) {
         app.layout.search.open();
     }

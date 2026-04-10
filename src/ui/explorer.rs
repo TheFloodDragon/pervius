@@ -2,43 +2,46 @@
 //!
 //! @author sky
 
+mod filter;
 pub mod tree;
 
+use crate::appearance::theme::flat_button_theme;
 use crate::appearance::{codicon, theme};
-use crate::ui::widget::{flat_button_theme, FlatButton};
+use crate::task::Task;
 use eframe::egui;
+use egui_shell::components::FlatButton;
 use rust_i18n::t;
 use std::collections::HashSet;
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
 use tree::TreeNode;
 
-/// 文件面板状态
-pub struct FilePanel {
-    /// 根目录（文件树顶部）
-    pub roots: Vec<TreeNode>,
-    /// 当前选中项（路径）
-    pub selected: Option<String>,
-    /// 待打开的文件条目路径（由 App 消费）
-    pub pending_open: Option<String>,
-    /// 待定位的文件条目路径（由 App 消费，在资源管理器中打开）
-    pub pending_reveal: Option<String>,
-    /// 需要滚动到选中项
-    pub scroll_to_selected: bool,
-    /// 速搜过滤文本（键盘直接输入，IntelliJ 风格）
-    pub filter: String,
-    /// 面板是否拥有隐式键盘焦点（点击面板获得，点击别处失去）
-    focused: bool,
-    /// 预构建的过滤索引（树变化时重建，Arc 共享给后台线程）
-    filter_index: Option<Arc<Vec<tree::FilterEntry>>>,
-    /// 当前过滤可见集合（后台线程产出）
-    filter_visible: HashSet<String>,
-    /// 后台过滤结果接收端
-    filter_rx: Option<mpsc::Receiver<(u64, tree::FilterResult)>>,
-    /// 过滤请求计数器（丢弃过期结果）
-    filter_gen: u64,
-}
+tabookit::class! {
+    /// 文件面板状态
+    pub struct FilePanel {
+        /// 根目录（文件树顶部）
+        pub roots: Vec<TreeNode>,
+        /// 当前选中项（路径）
+        pub selected: Option<String>,
+        /// 待打开的文件条目路径（由 App 消费）
+        pub pending_open: Option<String>,
+        /// 待定位的文件条目路径（由 App 消费，在资源管理器中打开）
+        pub pending_reveal: Option<String>,
+        /// 需要滚动到选中项
+        pub scroll_to_selected: bool,
+        /// 速搜过滤文本（键盘直接输入，IntelliJ 风格）
+        pub filter: String,
+        /// 面板是否拥有隐式键盘焦点（点击面板获得，点击别处失去）
+        focused: bool,
+        /// 预构建的过滤索引（树变化时重建，Arc 共享给后台线程）
+        filter_index: Option<Arc<Vec<tree::FilterEntry>>>,
+        /// 当前过滤可见集合（后台线程产出）
+        filter_visible: HashSet<String>,
+        /// 后台过滤任务
+        filter_task: Option<Task<(u64, tree::FilterResult)>>,
+        /// 过滤请求计数器（丢弃过期结果）
+        filter_gen: u64,
+    }
 
-impl FilePanel {
     pub fn new() -> Self {
         Self {
             roots: Vec::new(),
@@ -50,7 +53,7 @@ impl FilePanel {
             focused: false,
             filter_index: None,
             filter_visible: HashSet::new(),
-            filter_rx: None,
+            filter_task: None,
             filter_gen: 0,
         }
     }
@@ -98,134 +101,6 @@ impl FilePanel {
         self.render_filter_bar(ui, rect);
     }
 
-    /// 更新面板隐式焦点：点击面板内获得，点击面板外或有 widget 聚焦时失去
-    fn update_focus(&mut self, ctx: &egui::Context, rect: egui::Rect) {
-        // 有文本控件聚焦时（如编辑器 TextEdit、查找栏）让出焦点
-        if ctx.memory(|m| m.focused().is_some()) {
-            if self.focused {
-                self.focused = false;
-                self.clear_filter();
-            }
-            return;
-        }
-        // 检测主键点击位置
-        if ctx.input(|i| i.pointer.primary_clicked()) {
-            let inside = ctx
-                .input(|i| i.pointer.interact_pos())
-                .is_some_and(|p| rect.contains(p));
-            if inside {
-                self.focused = true;
-            } else {
-                self.focused = false;
-                self.clear_filter();
-            }
-        }
-    }
-
-    /// 捕获键盘输入用于速搜过滤（仅在面板拥有焦点时调用）
-    fn capture_input(&mut self, ctx: &egui::Context) {
-        if self.roots.is_empty() {
-            return;
-        }
-        let events = ctx.input(|i| i.events.clone());
-        let mut changed = false;
-        for event in &events {
-            match event {
-                egui::Event::Text(text) => {
-                    // 忽略组合键产生的文本事件（Alt+1、Ctrl+O 等）
-                    let has_modifier = ctx.input(|i| {
-                        let m = i.modifiers;
-                        m.alt || m.ctrl || m.command
-                    });
-                    if !has_modifier {
-                        self.filter.push_str(text);
-                        changed = true;
-                    }
-                }
-                egui::Event::Key {
-                    key: egui::Key::Backspace,
-                    pressed: true,
-                    modifiers,
-                    ..
-                } if !modifiers.any() && !self.filter.is_empty() => {
-                    self.filter.pop();
-                    changed = true;
-                }
-                egui::Event::Key {
-                    key: egui::Key::Escape,
-                    pressed: true,
-                    ..
-                } if !self.filter.is_empty() => {
-                    self.clear_filter();
-                }
-                egui::Event::Key {
-                    key: egui::Key::Enter,
-                    pressed: true,
-                    ..
-                } if !self.filter.is_empty() => {
-                    if let Some(path) = self.selected.clone() {
-                        tree::reveal(&mut self.roots, &path);
-                        self.pending_open = Some(path);
-                        self.scroll_to_selected = true;
-                    }
-                    self.clear_filter();
-                }
-                _ => {}
-            }
-        }
-        if changed {
-            self.dispatch_filter();
-        }
-    }
-
-    /// 发起后台过滤计算
-    fn dispatch_filter(&mut self) {
-        self.filter_gen += 1;
-        if self.filter.is_empty() {
-            self.filter_visible.clear();
-            return;
-        }
-        // 首次过滤时构建索引
-        if self.filter_index.is_none() {
-            self.filter_index = Some(Arc::new(tree::build_filter_index(&self.roots)));
-        }
-        let lower = self.filter.to_ascii_lowercase();
-        let index = Arc::clone(self.filter_index.as_ref().unwrap());
-        let seq = self.filter_gen;
-        let (tx, rx) = mpsc::channel();
-        self.filter_rx = Some(rx);
-        std::thread::spawn(move || {
-            let result = tree::compute_filter(&index, &lower);
-            let _ = tx.send((seq, result));
-        });
-    }
-
-    /// 拉取后台过滤结果（每帧调用，非阻塞）
-    fn poll_filter_result(&mut self) {
-        let rx = tabookit::or!(&self.filter_rx, return);
-        let (seq, result) = match rx.try_recv() {
-            Ok(v) => v,
-            Err(_) => return,
-        };
-        self.filter_rx = None;
-        // 丢弃过期结果
-        if seq != self.filter_gen {
-            return;
-        }
-        self.filter_visible = result.visible;
-        if result.first_match.is_some() {
-            self.selected = result.first_match;
-            self.scroll_to_selected = true;
-        }
-    }
-
-    /// 清除过滤状态
-    fn clear_filter(&mut self) {
-        self.filter.clear();
-        self.filter_visible.clear();
-        self.filter_gen += 1;
-    }
-
     fn render_tree(
         &mut self,
         ui: &mut egui::Ui,
@@ -267,7 +142,7 @@ impl FilePanel {
         if self.roots.is_empty() {
             return;
         }
-        let fbt = flat_button_theme();
+        let fbt = flat_button_theme(theme::TEXT_SECONDARY);
         let btn_size = egui::vec2(22.0, 22.0);
         let mid_y = title_rect.center().y;
         let icon_family = codicon::family();
@@ -314,41 +189,52 @@ impl FilePanel {
             tree::expand_one_level(&mut self.roots);
         }
     }
+}
 
-    /// 在面板底部绘制过滤条浮层
-    fn render_filter_bar(&self, ui: &egui::Ui, rect: egui::Rect) {
-        if self.filter.is_empty() {
-            return;
+use crate::app::App;
+
+impl App {
+    /// 编辑器聚焦 tab 变化时同步 explorer 选中状态
+    pub(crate) fn sync_explorer_selection(&mut self) {
+        if let Some(path) = self.layout.editor.focused_entry_path() {
+            if self.layout.file_panel.selected.as_ref() != Some(&path) {
+                tree::reveal(&mut self.layout.file_panel.roots, &path);
+                self.layout.file_panel.selected = Some(path);
+                self.layout.file_panel.scroll_to_selected = true;
+            }
         }
-        let painter = ui.painter();
-        let bar_h = 24.0;
-        let m = 6.0;
-        let bar_rect = egui::Rect::from_min_max(
-            egui::pos2(rect.left() + m, rect.bottom() - bar_h - m),
-            egui::pos2(rect.right() - m, rect.bottom() - m),
-        );
-        painter.rect_filled(bar_rect, 4.0, theme::BG_MEDIUM);
-        painter.rect_stroke(
-            bar_rect,
-            4.0,
-            egui::Stroke::new(1.0, theme::BORDER),
-            egui::StrokeKind::Middle,
-        );
-        // 搜索图标
-        painter.text(
-            egui::pos2(bar_rect.left() + 10.0, bar_rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            codicon::SEARCH,
-            egui::FontId::new(11.0, codicon::family()),
-            theme::TEXT_MUTED,
-        );
-        // 过滤文本
-        painter.text(
-            egui::pos2(bar_rect.left() + 26.0, bar_rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            &self.filter,
-            egui::FontId::proportional(12.0),
-            theme::TEXT_PRIMARY,
-        );
+    }
+
+    /// 分别收集 tab 级别（橙色）和 JAR 级别（绿色）已修改条目路径（含父级目录）
+    pub(crate) fn split_modified_entries(&self) -> (HashSet<String>, HashSet<String>) {
+        let mut tab_set = HashSet::new();
+        let mut jar_set = HashSet::new();
+        for (_, tab) in self.layout.editor.dock_state.iter_all_tabs() {
+            if tab.is_modified {
+                if let Some(path) = &tab.entry_path {
+                    Self::insert_with_parents(&mut tab_set, path);
+                }
+            }
+        }
+        if let Some(jar) = self.workspace.jar() {
+            for path in jar.modified_paths() {
+                Self::insert_with_parents(&mut jar_set, path);
+            }
+        }
+        (tab_set, jar_set)
+    }
+
+    /// 将路径及其所有父级目录加入集合
+    fn insert_with_parents(set: &mut HashSet<String>, path: &str) {
+        set.insert(path.to_string());
+        let mut p = path;
+        while let Some(idx) = p.rfind('/') {
+            let parent = &p[..idx + 1];
+            if !set.insert(parent.to_string()) {
+                break;
+            }
+            p = &p[..idx];
+        }
+        set.insert(String::new());
     }
 }

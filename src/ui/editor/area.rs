@@ -16,19 +16,18 @@ use pervius_java_bridge::decompiler;
 use rust_i18n::t;
 use std::collections::{HashMap, HashSet};
 
-/// 编辑器区域状态
-pub struct EditorArea {
-    /// egui-dock 管理的 tab 布局
-    pub dock_state: DockState<EditorTab>,
-    /// 编辑器内查找栏
-    pub find_bar: FindBar,
-    /// 被 is_modified 拦截的关闭动作，由 App 消费并弹出确认对话框
-    pub blocked_close: Option<TabAction>,
-    /// 已保存成员记录（entry_path → 成员集合），跨 tab 关闭/重开保留
-    pub saved_members: HashMap<String, HashSet<SavedMember>>,
-}
-
-impl EditorArea {
+tabookit::class! {
+    /// 编辑器区域状态
+    pub struct EditorArea {
+        /// egui-dock 管理的 tab 布局
+        pub dock_state: DockState<EditorTab>,
+        /// 编辑器内查找栏
+        pub find_bar: FindBar,
+        /// 被 is_modified 拦截的关闭动作，由 App 消费并弹出确认对话框
+        pub blocked_close: Option<TabAction>,
+        /// 已保存成员记录（entry_path → 成员集合），跨 tab 关闭/重开保留
+        pub saved_members: HashMap<String, HashSet<SavedMember>>,
+    }
     pub fn new() -> Self {
         Self {
             dock_state: DockState::new(vec![]),
@@ -176,29 +175,7 @@ impl EditorArea {
         if let Some(entry_path) = &tab.entry_path {
             if let Some(saved) = self.saved_members.get(entry_path) {
                 if let Some(cs) = &mut tab.class_structure {
-                    for member in saved {
-                        match member {
-                            SavedMember::ClassInfo => cs.info.saved = true,
-                            SavedMember::Field(n, d) => {
-                                if let Some(f) = cs
-                                    .fields
-                                    .iter_mut()
-                                    .find(|f| f.name == *n && f.descriptor == *d)
-                                {
-                                    f.saved = true;
-                                }
-                            }
-                            SavedMember::Method(n, d) => {
-                                if let Some(m) = cs
-                                    .methods
-                                    .iter_mut()
-                                    .find(|m| m.name == *n && m.descriptor == *d)
-                                {
-                                    m.saved = true;
-                                }
-                            }
-                        }
-                    }
+                    cs.restore_saved_flags(saved);
                 }
             }
         }
@@ -267,6 +244,25 @@ impl EditorArea {
         self.find_bar.toggle();
     }
 
+    /// 切换当前 tab 的视窗模式
+    pub fn toggle_viewport(&mut self) {
+        let tab = tabookit::or!(self.focused_tab(), return);
+        if !tab.is_text {
+            return;
+        }
+        let currently_on = match tab.viewport_override {
+            Some(v) => v,
+            None => tab
+                .editable_layout_cache
+                .as_ref()
+                .map_or(
+                    tab.decompiled.len() > egui_editor::code_view::VIEWPORT_TEXT_LEN,
+                    |c| c.is_viewport(),
+                ),
+        };
+        tab.viewport_override = Some(!currently_on);
+    }
+
     /// 反编译完成后，刷新所有已打开的 .class tab 的源码
     pub fn refresh_class_tabs(&mut self, jar_hash: Option<&str>) {
         let hash = tabookit::or!(jar_hash, return);
@@ -292,14 +288,22 @@ impl EditorArea {
     /// 关闭当前活跃 tab
     pub fn close_active_tab(&mut self) {
         let path = self.dock_state.focused_leaf().or_else(|| {
-            let node = self.dock_state[SurfaceIndex::main()].focused_leaf()?;
+            let tree = &self.dock_state[SurfaceIndex::main()];
+            if tree.is_empty() {
+                return None;
+            }
+            let node = tree.focused_leaf()?;
             Some(egui_dock::NodePath {
                 surface: SurfaceIndex::main(),
                 node,
             })
         });
         if let Some(node_path) = path {
-            let leaf = self.dock_state[node_path.surface][node_path.node].get_leaf();
+            let tree = &self.dock_state[node_path.surface];
+            if tree.is_empty() || node_path.node.0 >= tree.len() {
+                return;
+            }
+            let leaf = tree[node_path.node].get_leaf();
             let active = leaf.map(|l| l.active);
             if let Some(tab_idx) = active {
                 let is_modified = leaf

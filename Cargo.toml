@@ -29,6 +29,7 @@ sha2 = "0.11"
 dirs = "6"
 ristretto_classfile = "0.30"
 indexmap = "2"
+regex = "1"
 rust-i18n = "3"
 
 [build-dependencies]
@@ -36,3 +37,4 @@ winresource = "0.1"
 
 [patch.crates-io]
 egui_dock = { path = "crates/egui-dock-patch" }
+egui = { path = "crates/egui-patch" }

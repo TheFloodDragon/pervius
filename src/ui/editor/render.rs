@@ -34,6 +34,7 @@ pub fn render_decompiled(
         matches,
         current,
         &t,
+        &mut tab.layout_cache,
     );
 }
 
@@ -55,6 +56,8 @@ pub fn render_editable(
         matches,
         current,
         &t,
+        &mut tab.editable_layout_cache,
+        tab.viewport_override,
     );
     if changed {
         tab.refresh_decompiled_data();

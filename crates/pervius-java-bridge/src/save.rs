@@ -12,7 +12,9 @@ use crate::assembler;
 use crate::assembler::MethodEdit;
 use crate::bytecode;
 use crate::class_structure::ClassStructure;
-use ristretto_classfile::attributes::{AnnotationElement, AnnotationValuePair, Attribute};
+use ristretto_classfile::attributes::{
+    Annotation, AnnotationElement, AnnotationValuePair, Attribute,
+};
 use ristretto_classfile::{
     ClassAccessFlags, ClassFile, ConstantPool, FieldAccessFlags, MethodAccessFlags,
 };
@@ -172,37 +174,57 @@ fn apply_annotations(
     cp: &mut ConstantPool,
     editable: &[crate::class_structure::EditableAnnotation],
 ) {
-    // 只处理 RuntimeVisibleAnnotations，跳过 Kotlin 内部注解
-    // RuntimeInvisibleAnnotations 不碰——读取端已过滤，原样保留
-    for attr in attrs.iter_mut() {
-        let anns = match attr {
-            Attribute::RuntimeVisibleAnnotations { annotations, .. } => annotations,
-            _ => continue,
-        };
-        let mut edit_idx = 0;
-        for ann in anns.iter_mut() {
-            let type_str = cp
-                .try_get_utf8(ann.type_index)
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-            if crate::KOTLIN_INTERNAL_ANNOTATIONS.contains(&type_str.as_str()) {
-                continue;
+    // 收集需要保留的 Kotlin 内部注解
+    let mut kotlin_anns = Vec::new();
+    let mut attr_name_index = 0u16;
+    for attr in attrs.iter() {
+        if let Attribute::RuntimeVisibleAnnotations {
+            name_index,
+            annotations,
+        } = attr
+        {
+            attr_name_index = *name_index;
+            for ann in annotations {
+                let type_str = cp
+                    .try_get_utf8(ann.type_index)
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                if crate::KOTLIN_INTERNAL_ANNOTATIONS.contains(&type_str.as_str()) {
+                    kotlin_anns.push(ann.clone());
+                }
             }
-            if let Some(ea) = editable.get(edit_idx) {
-                ann.type_index = find_or_add_utf8(cp, &ea.type_desc);
-                ann.elements = ea
-                    .elements
-                    .iter()
-                    .map(|pair| {
-                        let name_index = find_or_add_utf8(cp, &pair.name);
-                        let value = build_annotation_value(cp, &pair.value, pair.tag);
-                        AnnotationValuePair { name_index, value }
-                    })
-                    .collect();
-            }
-            edit_idx += 1;
+            break;
         }
-        break;
+    }
+    // 从 editable 构建用户注解
+    let mut new_anns: Vec<Annotation> = editable
+        .iter()
+        .map(|ea| Annotation {
+            type_index: find_or_add_utf8(cp, &ea.type_desc),
+            elements: ea
+                .elements
+                .iter()
+                .map(|pair| AnnotationValuePair {
+                    name_index: find_or_add_utf8(cp, &pair.name),
+                    value: build_annotation_value(cp, &pair.value, pair.tag),
+                })
+                .collect(),
+        })
+        .collect();
+    // Kotlin 内部注解追加到末尾
+    new_anns.extend(kotlin_anns);
+    // 移除旧属性
+    attrs.retain(|a| !matches!(a, Attribute::RuntimeVisibleAnnotations { .. }));
+    if !new_anns.is_empty() {
+        let name_index = if attr_name_index > 0 {
+            attr_name_index
+        } else {
+            find_or_add_utf8(cp, "RuntimeVisibleAnnotations")
+        };
+        attrs.push(Attribute::RuntimeVisibleAnnotations {
+            name_index,
+            annotations: new_anns,
+        });
     }
 }
 

@@ -89,8 +89,10 @@ pub struct KeymapSettings {
     pub close_tab: KeyBind,
     pub close_all_tabs: KeyBind,
     pub export_decompiled: KeyBind,
+    pub export_jar: KeyBind,
     pub cycle_view: KeyBind,
     pub open_settings: KeyBind,
+    pub toggle_viewport: KeyBind,
 }
 
 impl Default for KeymapSettings {
@@ -105,20 +107,12 @@ impl Default for KeymapSettings {
             close_tab: keybindings::DEFAULT_CLOSE_TAB,
             close_all_tabs: keybindings::DEFAULT_CLOSE_ALL_TABS,
             export_decompiled: keybindings::DEFAULT_EXPORT_DECOMPILED,
+            export_jar: keybindings::DEFAULT_EXPORT_JAR,
             cycle_view: keybindings::DEFAULT_CYCLE_VIEW,
             open_settings: keybindings::DEFAULT_OPEN_SETTINGS,
+            toggle_viewport: keybindings::DEFAULT_TOGGLE_VIEWPORT,
         }
     }
-}
-
-/// 顶层配置
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Settings {
-    pub language: Language,
-    pub java: JavaSettings,
-    pub keymap: KeymapSettings,
-    pub recent: Vec<RecentEntry>,
 }
 
 impl Default for Settings {
@@ -138,7 +132,17 @@ impl SettingsFile for Settings {
     }
 }
 
-impl Settings {
+tabookit::class! {
+    /// 顶层配置
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(default)]
+    pub struct Settings {
+        pub language: Language,
+        pub java: JavaSettings,
+        pub keymap: KeymapSettings,
+        pub recent: Vec<RecentEntry>,
+    }
+
     /// 仅读取语言配置（用于启动时在 UI 初始化前设置 locale）
     pub fn load_for_locale() -> Self {
         Self::load()
@@ -161,6 +165,12 @@ impl Settings {
             },
         );
         self.recent.truncate(MAX_RECENT);
+    }
+
+    /// 从最近打开列表中移除指定路径
+    pub fn remove_recent(&mut self, path: &Path) {
+        let path_str = path.to_string_lossy();
+        self.recent.retain(|e| e.path != *path_str);
     }
 
     /// 清空最近打开列表
@@ -282,9 +292,11 @@ fn render_keymap(km: &mut KeymapSettings, ui: &mut egui::Ui, st: &SettingsTheme)
         t!("settings.close_tab") => close_tab,
         t!("settings.close_all_tabs") => close_all_tabs,
         t!("settings.cycle_view") => cycle_view,
+        t!("settings.toggle_viewport") => toggle_viewport,
     );
     section_header(ui, st, &t!("settings.section_export"));
     changed |= keybind_rows!(ui, st, hint, km, defaults,
+        t!("settings.export_jar") => export_jar,
         t!("settings.export_decompiled") => export_decompiled,
     );
     changed

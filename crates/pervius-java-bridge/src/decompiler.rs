@@ -389,8 +389,17 @@ pub fn decompile_single_class(
             should_clean: true,
         },
     };
+    // 独立文件的绝对路径需要取文件名，否则 Path::join 会替换基路径
+    let effective_path = if Path::new(class_path).is_absolute() {
+        Path::new(class_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(class_path)
+    } else {
+        class_path
+    };
     // 写入临时 .class 文件（保持包目录结构）
-    let class_file = tmp_input.path.join(class_path);
+    let class_file = tmp_input.path.join(effective_path);
     if let Some(parent) = class_file.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -409,6 +418,6 @@ pub fn decompile_single_class(
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(BridgeError::ProcessFailed(stderr.into_owned()));
     }
-    let base = class_to_base_path(class_path);
+    let base = class_to_base_path(effective_path);
     try_read_source(&output_guard.path, base).ok_or(BridgeError::NoOutput)
 }

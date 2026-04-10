@@ -10,7 +10,9 @@ pub mod find_bar;
 pub mod highlight;
 pub mod search;
 pub mod theme;
+mod viewport;
 
+pub use code_view::{EditableLayoutCache, LayoutCache};
 pub use find_bar::FindBar;
 pub use highlight::{Language, Span, TokenKind};
 pub use search::FindMatch;

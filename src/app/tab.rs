@@ -1,4 +1,4 @@
-//! Tab 生命周期：打开、创建、保存、编码检测
+//! Tab 生命周期：创建、保存、编码检测
 //!
 //! @author sky
 
@@ -10,40 +10,6 @@ use pervius_java_bridge::decompiler::{self, CachedSource};
 use rust_i18n::t;
 
 impl App {
-    /// 处理 explorer 中点击的文件
-    pub(crate) fn handle_pending_open(&mut self) {
-        let Some(entry_path) = self.layout.file_panel.pending_open.take() else {
-            return;
-        };
-        // 已打开的 tab 直接聚焦
-        if self.layout.editor.focus_tab(&entry_path) {
-            return;
-        }
-        let Some(jar) = &self.jar else { return };
-        let Some(raw) = jar.get(&entry_path) else {
-            return;
-        };
-        let bytes = raw.to_vec();
-        let hash = jar.hash.as_str();
-        let is_modified = jar.is_modified(&entry_path);
-        // 已修改条目优先从 JAR 内存缓存读取反编译结果
-        let mem_cached = if is_modified {
-            jar.get_decompiled(&entry_path).cloned()
-        } else {
-            None
-        };
-        let has_cache = !is_modified && decompiler::cached_source_path(hash, &entry_path).is_some();
-        let tab = Self::create_tab(&entry_path, &bytes, Some(hash), mem_cached.as_ref());
-        self.layout.editor.open_tab(tab);
-        if entry_path.ends_with(".class") {
-            if is_modified && mem_cached.is_none() {
-                self.start_single_decompile(&entry_path, bytes, false);
-            } else if !is_modified && !has_cache {
-                self.start_single_decompile(&entry_path, bytes, true);
-            }
-        }
-    }
-
     /// 保存当前聚焦 tab 的修改
     ///
     /// 独立文件直接写回磁盘；JAR 条目写入 JAR 内存并触发重反编译。
@@ -75,7 +41,7 @@ impl App {
             log::info!("Saved standalone: {}", disk_path.display());
             if is_class {
                 if let Some(ep) = entry_path {
-                    self.start_single_decompile(&ep, new_bytes, false);
+                    self.decompile_class(&ep, new_bytes, false);
                 }
             }
             return;
@@ -87,7 +53,7 @@ impl App {
         if tab.is_text {
             let new_bytes = tab.serialize_bytes(None).unwrap();
             tab.commit_save(new_bytes.clone());
-            if let Some(jar) = &mut self.jar {
+            if let Some(jar) = self.workspace.jar_mut() {
                 jar.put(&entry_path, new_bytes);
             }
             log::info!("Saved text: {entry_path}");
@@ -98,7 +64,7 @@ impl App {
             self.toasts.error(t!("status.vineflower_not_found"));
             return;
         }
-        let jar_path = self.jar.as_ref().map(|j| j.path.as_path());
+        let jar_path = self.workspace.jar().map(|j| j.path.as_path());
         match tab.serialize_bytes(jar_path) {
             Ok(new_bytes) => {
                 let saved_set = tab
@@ -114,11 +80,11 @@ impl App {
                     .editor
                     .saved_members
                     .insert(entry_path.clone(), saved_set);
-                if let Some(jar) = &mut self.jar {
+                if let Some(jar) = self.workspace.jar_mut() {
                     jar.put(&entry_path, new_bytes.clone());
                 }
                 log::info!("Saved: {entry_path}");
-                self.start_single_decompile(&entry_path, new_bytes, false);
+                self.decompile_class(&entry_path, new_bytes, false);
             }
             Err(e) => {
                 log::error!("Save failed: {entry_path}: {e}");

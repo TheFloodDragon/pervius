@@ -2,91 +2,88 @@
 //!
 //! @author sky
 
+use super::workspace::{DecompilePhase, Workspace};
 use super::App;
+use crate::task::{Poll, Pollable, Task};
+use crate::ui::editor::view_toggle::ActiveView;
 use egui_editor::highlight::Language;
 use pervius_java_bridge::decompiler;
 use rust_i18n::t;
 use std::collections::HashSet;
-use std::sync::mpsc;
 
 impl App {
-    /// 检查后台反编译是否完成
-    pub(crate) fn check_decompiling(&mut self) {
-        let Some(task) = &self.decompiling else {
+    /// 轮询 JAR 全量反编译结果
+    pub(crate) fn poll_jar_decompile(&mut self) {
+        let Workspace::Loaded(loaded) = &mut self.workspace else {
             return;
         };
-        // 快照已反编译类集合
-        if let Ok(set) = task.progress.decompiled.lock() {
-            if !set.is_empty() {
-                self.decompiled_classes = Some(set.clone());
+        // 更新已反编译类集合
+        if let DecompilePhase::Running { task, completed } = &mut loaded.decompile {
+            if let Ok(set) = task.progress.decompiled.lock() {
+                if !set.is_empty() {
+                    *completed = set.clone();
+                }
             }
         }
-        let jar_name = task.jar_name.clone();
-        let result = poll_recv!(task.receiver,
-            miss => return,
-            disconnect => { log::error!("Decompiler thread disconnected"); self.decompiling = None; return; }
-        );
-        self.decompiling = None;
+        // 轮询反编译任务完成
+        let poll_result = if let DecompilePhase::Running { task, .. } = &loaded.decompile {
+            match task.receiver.try_recv() {
+                Ok(r) => Some((task.jar_name.clone(), Some(r))),
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    Some((task.jar_name.clone(), None))
+                }
+            }
+        } else {
+            None
+        };
+        let Some((jar_name, result)) = poll_result else {
+            return;
+        };
+        loaded.decompile = DecompilePhase::Done;
         match result {
-            Ok(()) => {
+            Some(Ok(())) => {
                 log::info!("Decompilation complete: {jar_name}");
-                let hash = self.jar.as_ref().map(|j| j.hash.as_str());
-                self.layout.editor.refresh_class_tabs(hash);
+                let hash = loaded.jar.hash.as_str();
+                self.layout.editor.refresh_class_tabs(Some(hash));
                 self.toasts
                     .info(t!("layout.decompile_complete", name = jar_name));
-                self.decompiled_classes = None;
+                loaded.search_index = None;
             }
-            Err(e) => {
+            Some(Err(e)) => {
                 log::error!("Decompilation failed: {e}");
                 self.toasts.error(t!("layout.decompile_failed", error = e));
             }
+            None => {
+                log::error!("Decompiler thread disconnected: {jar_name}");
+            }
         }
     }
 
-    /// JAR 加载完成后启动反编译（有缓存则跳过）
-    pub(super) fn start_decompile(&mut self, jar: &pervius_java_bridge::jar::JarArchive) {
-        if decompiler::is_cached(&jar.hash) {
-            log::info!("Decompiled cache hit for {}", jar.name);
-            self.decompiled_classes = None;
+    /// 用户确认后启动全量反编译（由 ConfirmAction::DecompileAll 触发）
+    pub(crate) fn start_confirmed_decompile(&mut self) {
+        let Workspace::Loaded(loaded) = &mut self.workspace else {
+            return;
+        };
+        if !matches!(loaded.decompile, DecompilePhase::Pending) {
             return;
         }
-        self.decompiled_classes = Some(HashSet::new());
-        self.force_decompile(jar);
-    }
-
-    /// 强制重反编译（清除缓存后重新启动）
-    pub fn re_decompile(&mut self) {
-        let Some(jar) = &self.jar else { return };
-        if self.decompiling.is_some() {
-            self.toasts.warning(t!("layout.decompile_in_progress"));
-            return;
-        }
-        self.decompiled_classes = Some(HashSet::new());
-        let path = jar.path.clone();
-        let name = jar.name.clone();
-        let hash = jar.hash.clone();
-        let class_count = jar.class_count();
-        let (tx, rx) = mpsc::channel();
-        let thread_name = name.clone();
-        std::thread::spawn(move || {
-            decompiler::clear_cache(&hash);
-            let result = decompiler::start(&path, &thread_name, &hash, class_count);
-            let _ = tx.send(result);
-        });
-        log::info!("Re-decompiling: {name} ({class_count} classes)");
-        self.pending_re_decompile = Some((name, rx));
-    }
-
-    /// 启动反编译（无缓存检查）
-    fn force_decompile(&mut self, jar: &pervius_java_bridge::jar::JarArchive) {
-        match decompiler::start(&jar.path, &jar.name, &jar.hash, jar.class_count()) {
+        match decompiler::start(
+            &loaded.jar.path,
+            &loaded.jar.name,
+            &loaded.jar.hash,
+            loaded.jar.class_count(),
+        ) {
             Ok(task) => {
                 log::info!(
                     "Starting decompilation: {} ({} classes)",
-                    jar.name,
-                    jar.class_count()
+                    loaded.jar.name,
+                    loaded.jar.class_count()
                 );
-                self.decompiling = Some(task);
+                loaded.decompile = DecompilePhase::Running {
+                    task,
+                    completed: HashSet::new(),
+                };
             }
             Err(e) => {
                 log::warn!("Cannot start decompiler: {e}");
@@ -96,50 +93,71 @@ impl App {
         }
     }
 
+    /// 清除缓存并重新反编译整个 JAR
+    pub fn redecompile_jar(&mut self) {
+        let Workspace::Loaded(loaded) = &mut self.workspace else {
+            return;
+        };
+        if matches!(loaded.decompile, DecompilePhase::Running { .. }) {
+            self.toasts.warning(t!("layout.decompile_in_progress"));
+            return;
+        }
+        loaded.decompile = DecompilePhase::Pending;
+        let path = loaded.jar.path.clone();
+        let name = loaded.jar.name.clone();
+        let hash = loaded.jar.hash.clone();
+        let class_count = loaded.jar.class_count();
+        let thread_name = name.clone();
+        let task = Task::spawn(move || {
+            decompiler::clear_cache(&hash);
+            decompiler::start(&path, &thread_name, &hash, class_count)
+        });
+        log::info!("Re-decompiling: {name} ({class_count} classes)");
+        loaded.pending_re_decompile = Some((name, task));
+    }
+
     /// 后台反编译单个 .class 文件
     ///
     /// `write_cache` 为 true 时输出写入缓存目录（首次预览），为 false 时仅返回内存结果。
     /// 有 JAR 上下文时自动传入 `-e` 依赖解析；独立文件无上下文也能反编译。
-    pub(super) fn start_single_decompile(
-        &mut self,
-        entry_path: &str,
-        bytes: Vec<u8>,
-        write_cache: bool,
-    ) {
-        let jar_path = self.jar.as_ref().map(|j| j.path.clone());
+    pub(super) fn decompile_class(&mut self, entry_path: &str, bytes: Vec<u8>, write_cache: bool) {
+        let jar_path = self.workspace.jar().map(|j| j.path.clone());
         let hash = if write_cache {
-            self.jar.as_ref().map(|j| j.hash.clone())
+            self.workspace.jar().map(|j| j.hash.clone())
         } else {
             None
         };
         let class_path = entry_path.to_string();
-        let (tx, rx) = mpsc::channel();
         let cp = class_path.clone();
-        std::thread::spawn(move || {
-            let result = decompiler::decompile_single_class(
-                &bytes,
-                &cp,
-                jar_path.as_deref(),
-                hash.as_deref(),
-            );
-            let _ = tx.send(result);
+        let task = Task::spawn(move || {
+            decompiler::decompile_single_class(&bytes, &cp, jar_path.as_deref(), hash.as_deref())
         });
-        self.pending_decompiles.push((class_path, rx));
+        self.pending_decompiles.push((class_path, task));
     }
 
-    /// 轮询后台重反编译启动结果
-    pub(crate) fn check_re_decompile(&mut self) {
-        let Some((_, rx)) = &self.pending_re_decompile else {
+    /// 轮询重反编译启动结果
+    pub(crate) fn poll_redecompile(&mut self) {
+        let Workspace::Loaded(loaded) = &mut self.workspace else {
             return;
         };
-        let result = poll_recv!(rx,
-            miss => return,
-            disconnect => { self.pending_re_decompile = None; return; }
-        );
-        self.pending_re_decompile = None;
+        let Some((_, task)) = &loaded.pending_re_decompile else {
+            return;
+        };
+        let result = match task.poll() {
+            Poll::Ready(r) => r,
+            Poll::Pending => return,
+            Poll::Lost => {
+                loaded.pending_re_decompile = None;
+                return;
+            }
+        };
+        loaded.pending_re_decompile = None;
         match result {
             Ok(task) => {
-                self.decompiling = Some(task);
+                loaded.decompile = DecompilePhase::Running {
+                    task,
+                    completed: HashSet::new(),
+                };
             }
             Err(e) => {
                 log::error!("Re-decompile failed to start: {e}");
@@ -150,16 +168,23 @@ impl App {
     }
 
     /// 轮询单文件反编译结果，完成后回填到对应 tab
-    pub(crate) fn check_single_decompile(&mut self) {
+    pub(crate) fn poll_class_decompiles(&mut self) {
         if self.pending_decompiles.is_empty() {
             return;
         }
         let mut i = 0;
         while i < self.pending_decompiles.len() {
-            let result = poll_recv!(self.pending_decompiles[i].1,
-                miss => { i += 1; continue; },
-                disconnect => { self.pending_decompiles.swap_remove(i); continue; }
-            );
+            let result = match self.pending_decompiles[i].1.poll() {
+                Poll::Ready(r) => r,
+                Poll::Pending => {
+                    i += 1;
+                    continue;
+                }
+                Poll::Lost => {
+                    self.pending_decompiles.swap_remove(i);
+                    continue;
+                }
+            };
             let entry_path = self.pending_decompiles.swap_remove(i).0;
             match result {
                 Ok(cached) => {
@@ -175,24 +200,29 @@ impl App {
                                 lang,
                                 cached.line_mapping.clone(),
                             );
+                            if tab.active_view == ActiveView::Hex {
+                                tab.active_view = ActiveView::Decompiled;
+                            }
                             break;
                         }
                     }
                     // 已修改条目的反编译结果缓存到 JAR 内存（磁盘缓存无效）
-                    if let Some(jar) = &mut self.jar {
+                    if let Some(jar) = self.workspace.jar_mut() {
                         if jar.is_modified(&entry_path) {
                             jar.put_decompiled(&entry_path, cached);
                         }
                     }
-                    if let Some(set) = &mut self.decompiled_classes {
-                        let base = entry_path.strip_suffix(".class").unwrap_or(&entry_path);
-                        let base = match base.find('$') {
-                            Some(pos) => &base[..pos],
-                            None => base,
-                        };
-                        set.insert(base.to_string());
-                        for (idx, _) in base.match_indices('/') {
-                            set.insert(base[..idx + 1].to_string());
+                    if let Some(loaded) = self.workspace.loaded_mut() {
+                        if let DecompilePhase::Running { completed, .. } = &mut loaded.decompile {
+                            let base = entry_path.strip_suffix(".class").unwrap_or(&entry_path);
+                            let base = match base.find('$') {
+                                Some(pos) => &base[..pos],
+                                None => base,
+                            };
+                            completed.insert(base.to_string());
+                            for (idx, _) in base.match_indices('/') {
+                                completed.insert(base[..idx + 1].to_string());
+                            }
                         }
                     }
                     log::info!("Single-decompiled: {entry_path}");

@@ -73,6 +73,19 @@ pub const CAPTION_HOVER: egui::Color32 = egui::Color32::from_rgb(42, 42, 47);
 /// 关闭按钮 hover #C42B1C（Win11 风格红）
 pub const CLOSE_HOVER: egui::Color32 = egui::Color32::from_rgb(196, 43, 28);
 
+/// Hex 视图 null 字节色 #3C3C4680（premultiplied）
+pub const HEX_NULL: egui::Color32 = egui::Color32::from_rgba_premultiplied(60, 60, 70, 128);
+/// Hex 视图行 hover 底色 #0F0F100F（premultiplied，极淡）
+pub const HEX_ROW_HOVER: egui::Color32 = egui::Color32::from_rgba_premultiplied(15, 15, 16, 15);
+/// Hex 视图字节 hover 底色 #112D2C40（premultiplied，铜绿色调）
+pub const HEX_BYTE_HOVER: egui::Color32 = egui::Color32::from_rgba_premultiplied(17, 45, 44, 64);
+/// Hex 视图选区底色 #1436344D（premultiplied，铜绿色调）
+pub const HEX_SELECTION: egui::Color32 = egui::Color32::from_rgba_premultiplied(20, 54, 52, 77);
+/// Hex 视图光标底色 #225A5780（premultiplied，铜绿色调）
+pub const HEX_CURSOR: egui::Color32 = egui::Color32::from_rgba_premultiplied(34, 90, 87, 128);
+/// Hex 视图列分隔线 #0D0D0D0D（premultiplied，近透明）
+pub const HEX_SEPARATOR: egui::Color32 = egui::Color32::from_rgba_premultiplied(13, 13, 13, 13);
+
 /// 标题栏高度
 pub const TITLE_BAR_HEIGHT: f32 = 36.0;
 /// 文件面板宽度
@@ -87,6 +100,57 @@ pub const ISLAND_GAP: f32 = 6.0;
 pub const ISLAND_MARGIN_H: f32 = 6.0;
 /// Island 到窗口上下边缘的垂直边距
 pub const ISLAND_MARGIN_V: f32 = 4.0;
+/// 修改文件弹出列表单行高度
+pub const MODIFIED_POPUP_ITEM_HEIGHT: f32 = 22.0;
+/// 修改文件弹出列表内边距
+pub const MODIFIED_POPUP_PAD: f32 = 4.0;
+/// 修改文件弹出列表最大可见行数
+pub const MODIFIED_POPUP_MAX_VISIBLE: usize = 12;
+/// 修改文件弹出列表宽度
+pub const MODIFIED_POPUP_WIDTH: f32 = 260.0;
+/// 视图切换动画时长（秒）
+pub const VIEW_TOGGLE_ANIM_DURATION: f32 = 0.15;
+/// Explorer 面板最小宽度
+pub const EXPLORER_MIN_WIDTH: f32 = 160.0;
+/// Explorer 面板最大宽度
+pub const EXPLORER_MAX_WIDTH: f32 = 600.0;
+/// Explorer 折叠/展开动画时长（秒）
+pub const EXPLORER_ANIM_DURATION: f32 = 0.08;
+/// 搜索结果列表最小高度
+pub const SEARCH_MIN_RESULTS_H: f32 = 80.0;
+/// 搜索预览面板最小高度
+pub const SEARCH_MIN_PREVIEW_H: f32 = 80.0;
+/// 搜索面板分割线拖拽手柄高度
+pub const SEARCH_RESIZE_HANDLE_H: f32 = 6.0;
+/// 字节码详情内容区内边距
+pub const BYTECODE_DETAIL_PAD: f32 = 16.0;
+/// 字节码详情 key-value 键列宽度
+pub const BYTECODE_KV_KEY_WIDTH: f32 = 100.0;
+/// 文件树行高
+pub const TREE_ROW_HEIGHT: f32 = 22.0;
+/// 文件树展开/折叠动画时长（秒）
+pub const TREE_EXPAND_DURATION: f32 = 0.12;
+/// 字节码导航项行高
+pub const BYTECODE_NAV_ROW_HEIGHT: f32 = 24.0;
+/// 字节码 section 标签行高
+pub const BYTECODE_SECTION_LABEL_HEIGHT: f32 = 28.0;
+/// 字节码导航栏最小宽度
+pub const BYTECODE_MIN_NAV_WIDTH: f32 = 120.0;
+/// 字节码导航栏最大宽度
+pub const BYTECODE_MAX_NAV_WIDTH: f32 = 500.0;
+/// 字节码导航栏拖拽手柄宽度
+pub const BYTECODE_RESIZE_HANDLE_W: f32 = 6.0;
+/// 搜索结果行高
+pub const SEARCH_ROW_HEIGHT: f32 = 24.0;
+/// 搜索分组 header 行高
+pub const SEARCH_GROUP_HEADER_HEIGHT: f32 = 28.0;
+
+/// Explorer / Editor 面板共用的 island 样式
+pub const ISLAND: egui_shell::components::IslandStyle = egui_shell::components::IslandStyle {
+    radius: ISLAND_RADIUS as f32,
+    fill: BG_DARKEST,
+    mask: BG_DARK,
+};
 
 /// 铜绿色带透明度（用于选中高亮等）
 pub fn verdigris_alpha(alpha: u8) -> egui::Color32 {
@@ -96,6 +160,17 @@ pub fn verdigris_alpha(alpha: u8) -> egui::Color32 {
         (174u16 * alpha as u16 / 255) as u8,
         alpha,
     )
+}
+
+/// 扁平按钮主题
+pub fn flat_button_theme(inactive_color: egui::Color32) -> egui_shell::components::FlatButtonTheme {
+    egui_shell::components::FlatButtonTheme {
+        text_primary: TEXT_PRIMARY,
+        text_active: VERDIGRIS,
+        text_inactive: inactive_color,
+        bg_hover: BG_HOVER,
+        bg_pressed: BG_LIGHT,
+    }
 }
 
 /// 浮动窗口（Search / Settings 等）的 WindowConfig
@@ -174,13 +249,7 @@ pub fn confirm_theme() -> egui_shell::components::ConfirmTheme {
         message_color: TEXT_SECONDARY,
         separator: BORDER,
         backdrop: egui::Color32::from_black_alpha(80),
-        button: egui_shell::components::FlatButtonTheme {
-            text_primary: TEXT_PRIMARY,
-            text_active: VERDIGRIS,
-            text_inactive: TEXT_SECONDARY,
-            bg_hover: BG_HOVER,
-            bg_pressed: BG_LIGHT,
-        },
+        button: flat_button_theme(TEXT_SECONDARY),
     }
 }
 
@@ -241,12 +310,6 @@ pub fn find_bar_theme() -> egui_editor::FindBarTheme {
             },
             hint: t!("find.hint").to_string(),
         },
-        button: egui_shell::components::FlatButtonTheme {
-            text_primary: TEXT_PRIMARY,
-            text_active: VERDIGRIS,
-            text_inactive: TEXT_MUTED,
-            bg_hover: BG_HOVER,
-            bg_pressed: BG_LIGHT,
-        },
+        button: flat_button_theme(TEXT_MUTED),
     }
 }

@@ -4,66 +4,26 @@
 
 use super::class_info::ClassInfoItem;
 use super::decompile_progress::DecompileProgressItem;
+use super::export_progress::ExportProgressItem;
+use super::index_progress::IndexProgressItem;
 use super::modified_count::ModifiedCountItem;
 use super::view_toggle::ViewToggleItem;
 use crate::appearance::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
-use egui_shell::components::status_bar::{Alignment, StatusBarWidget, StatusItem, TextItem};
+use egui_shell::components::panel::status_bar::{Alignment, StatusBarWidget, StatusItem, TextItem};
 use pervius_java_bridge::{assembler, decompiler};
 use rust_i18n::t;
 
-/// 状态栏服务
-///
-/// 内置默认 items（版本号、类信息、编码、反编译器版本、视图切换），
-/// 外部只需调用 `render` 和 `sync` 即可。
-pub struct StatusBar {
-    widget: StatusBarWidget,
-}
-
-impl Default for StatusBar {
-    fn default() -> Self {
-        let mut widget = StatusBarWidget::new(theme::status_bar_theme());
-        widget.add(TextItem::new(
-            t!("status.version"),
-            theme::TEXT_MUTED,
-            Alignment::Left,
-        ));
-        widget.add(ClassInfoItem::new());
-        if let Some(ver) = decompiler::vineflower_version() {
-            widget.add(TextItem::new(
-                t!("decompiler.vineflower_version", version = ver),
-                theme::ACCENT_GREEN,
-                Alignment::Right,
-            ));
-        } else {
-            widget.add(TextItem::new(
-                t!("status.vineflower_not_found"),
-                theme::ACCENT_RED,
-                Alignment::Right,
-            ));
-        }
-        if let Some(ver) = assembler::classforge_version() {
-            widget.add(TextItem::new(
-                t!("status.classforge_version", version = ver),
-                theme::ACCENT_GREEN,
-                Alignment::Right,
-            ));
-        } else {
-            widget.add(TextItem::new(
-                t!("status.classforge_not_found"),
-                theme::ACCENT_RED,
-                Alignment::Right,
-            ));
-        }
-        widget.add(ModifiedCountItem::new());
-        widget.add(ViewToggleItem::new());
-        widget.add(DecompileProgressItem::new());
-        Self { widget }
+tabookit::class! {
+    /// 状态栏服务
+    ///
+    /// 内置默认 items（版本号、类信息、编码、反编译器版本、视图切换），
+    /// 外部只需调用 `render` 和 `sync` 即可。
+    pub struct StatusBar {
+        widget: StatusBarWidget,
     }
-}
 
-impl StatusBar {
     /// 获取指定类型的 item 可变引用
     fn item_mut<T: StatusItem>(&mut self) -> Option<&mut T> {
         self.widget.item_mut::<T>()
@@ -120,6 +80,20 @@ impl StatusBar {
         }
     }
 
+    /// 同步 JAR 导出进度，None 表示无任务
+    pub fn sync_export(&mut self, info: Option<(u32, u32)>) {
+        if let Some(item) = self.item_mut::<ExportProgressItem>() {
+            item.set_progress(info);
+        }
+    }
+
+    /// 同步搜索索引构建进度，None 表示无任务
+    pub fn sync_index(&mut self, info: Option<(u32, u32)>) {
+        if let Some(item) = self.item_mut::<IndexProgressItem>() {
+            item.set_progress(info);
+        }
+    }
+
     /// 取出弹出列表中用户点击的文件路径
     pub fn take_clicked_file(&mut self) -> Option<String> {
         self.item_mut::<ModifiedCountItem>()?.take_clicked()
@@ -128,5 +102,49 @@ impl StatusBar {
     /// 渲染状态栏
     pub fn render(&mut self, ui: &mut egui::Ui) {
         self.widget.render(ui);
+    }
+}
+
+impl Default for StatusBar {
+    fn default() -> Self {
+        let mut widget = StatusBarWidget::new(theme::status_bar_theme());
+        widget.add(TextItem::new(
+            t!("status.version"),
+            theme::TEXT_MUTED,
+            Alignment::Left,
+        ));
+        widget.add(ClassInfoItem::new());
+        if let Some(ver) = decompiler::vineflower_version() {
+            widget.add(TextItem::new(
+                t!("decompiler.vineflower_version", version = ver),
+                theme::ACCENT_GREEN,
+                Alignment::Right,
+            ));
+        } else {
+            widget.add(TextItem::new(
+                t!("status.vineflower_not_found"),
+                theme::ACCENT_RED,
+                Alignment::Right,
+            ));
+        }
+        if let Some(ver) = assembler::classforge_version() {
+            widget.add(TextItem::new(
+                t!("status.classforge_version", version = ver),
+                theme::ACCENT_GREEN,
+                Alignment::Right,
+            ));
+        } else {
+            widget.add(TextItem::new(
+                t!("status.classforge_not_found"),
+                theme::ACCENT_RED,
+                Alignment::Right,
+            ));
+        }
+        widget.add(ModifiedCountItem::new());
+        widget.add(ViewToggleItem::new());
+        widget.add(DecompileProgressItem::new());
+        widget.add(ExportProgressItem::new());
+        widget.add(IndexProgressItem::new());
+        Self { widget }
     }
 }

@@ -5,18 +5,18 @@
 use crate::appearance::{codicon, theme};
 use eframe::egui;
 
-/// 文件树节点
-pub struct TreeNode {
-    /// 显示名称
-    pub label: String,
-    /// 唯一路径标识（文件: 条目路径, 目录: 以 / 结尾, 根: 空字符串）
-    pub path: String,
-    pub is_folder: bool,
-    pub expanded: bool,
-    pub children: Vec<TreeNode>,
-}
+tabookit::class! {
+    /// 文件树节点
+    pub struct TreeNode {
+        /// 显示名称
+        pub label: String,
+        /// 唯一路径标识（文件: 条目路径, 目录: 以 / 结尾, 根: 空字符串）
+        pub path: String,
+        pub is_folder: bool,
+        pub expanded: bool,
+        pub children: Vec<TreeNode>,
+    }
 
-impl TreeNode {
     /// 是否为 class 文件（含内部类）
     pub fn is_class(&self) -> bool {
         self.label.ends_with(".class") || self.label.starts_with('$')

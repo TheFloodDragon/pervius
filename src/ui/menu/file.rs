@@ -2,15 +2,19 @@
 //!
 //! @author sky
 
+use super::MenuState;
 use crate::app::App;
 use crate::appearance::theme;
 use eframe::egui;
-use egui_shell::components::{menu_item, menu_item_raw, menu_submenu, SettingsFile};
+use egui_shell::components::{
+    menu_item, menu_item_if, menu_item_raw, menu_item_raw_if, menu_submenu, SettingsFile,
+};
 use rust_i18n::t;
 use std::path::PathBuf;
 
 pub fn render(ui: &mut egui::Ui, app: &mut App) {
     let mt = &theme::menu_theme();
+    let state = MenuState::from_app(app);
     if menu_item(
         ui,
         mt,
@@ -36,11 +40,13 @@ pub fn render(ui: &mut egui::Ui, app: &mut App) {
         } else {
             let mt = &theme::menu_theme();
             for entry in &recent {
-                let dir = std::path::Path::new(&entry.path)
+                let path = std::path::Path::new(&entry.path);
+                let exists = path.exists();
+                let dir = path
                     .parent()
                     .map(|p| p.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                if menu_item_raw(ui, mt, &entry.name, &dir) {
+                if menu_item_raw_if(ui, mt, &entry.name, &dir, exists) {
                     open_path = Some(PathBuf::from(&entry.path));
                 }
             }
@@ -58,16 +64,32 @@ pub fn render(ui: &mut egui::Ui, app: &mut App) {
         let _ = app.settings.save();
     }
     ui.separator();
-    if menu_item(
+    if menu_item_if(
+        ui,
+        mt,
+        &t!("menu.export_jar"),
+        Some(&app.settings.keymap.export_jar),
+        state.has_jar && state.is_idle,
+    ) {
+        app.export_jar();
+    }
+    if menu_item_if(
         ui,
         mt,
         &t!("menu.export_decompiled"),
         Some(&app.settings.keymap.export_decompiled),
+        state.has_jar && state.is_decompiled && state.is_idle,
     ) {
         app.export_decompiled();
     }
-    if menu_item(ui, mt, &t!("menu.re_decompile"), None) {
-        app.re_decompile();
+    if menu_item_if(
+        ui,
+        mt,
+        &t!("menu.re_decompile"),
+        None,
+        state.has_jar && state.is_idle,
+    ) {
+        app.redecompile_jar();
     }
     ui.separator();
     if menu_item(

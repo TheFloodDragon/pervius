@@ -144,16 +144,16 @@ impl TabViewer for EditorTabViewer<'_> {
         }
     }
 
-    fn allowed_in_windows(&self, _tab: &mut Self::Tab) -> bool {
-        false
-    }
-
     fn on_close(&mut self, tab: &mut Self::Tab) -> OnCloseResponse {
         if tab.is_modified {
             self.pending_close = Some(tab.entry_path.clone());
             return OnCloseResponse::Focus;
         }
         OnCloseResponse::Close
+    }
+
+    fn allowed_in_windows(&self, _tab: &mut Self::Tab) -> bool {
+        false
     }
 
     fn modification_color(&self, tab: &Self::Tab) -> Option<egui::Color32> {

@@ -1,9 +1,8 @@
-//! 搜索模块：反编译器搜索（egui::Window 浮动面板）
+//! 搜索模块：反编译源码全文搜索（egui::Window 浮动面板）
 //!
 //! @author sky
 
-mod category;
-mod demo;
+pub mod index;
 mod result;
 mod tab;
 mod widget;

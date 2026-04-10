@@ -2,34 +2,17 @@
 //!
 //! @author sky
 
-use super::result::{SearchMatch, SearchResultGroup, SourcePreview};
+use super::result::SearchResultGroup;
 use crate::appearance::{codicon, theme};
 use eframe::egui;
+use egui_editor::search::FindMatch;
 use rust_i18n::t;
 
-/// 结果行高
-pub const ROW_HEIGHT: f32 = 24.0;
-/// 分组 header 行高
-pub const GROUP_HEADER_HEIGHT: f32 = 28.0;
-
-/// 预览视图模式
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum SearchMode {
-    Decompiled,
-    Bytecode,
-}
-
-pub fn preview_for(m: &SearchMatch, mode: SearchMode) -> &SourcePreview {
-    match mode {
-        SearchMode::Decompiled => &m.decompiled,
-        SearchMode::Bytecode => &m.bytecode,
-    }
-}
-
+/// 渲染分组标题行（类名 + 包路径 + 匹配数），返回是否被点击
 pub fn render_group_header(ui: &mut egui::Ui, group: &SearchResultGroup) -> bool {
     let avail_w = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(
-        egui::vec2(avail_w, GROUP_HEADER_HEIGHT),
+        egui::vec2(avail_w, theme::SEARCH_GROUP_HEADER_HEIGHT),
         egui::Sense::click(),
     );
     let painter = ui.painter();
@@ -78,49 +61,8 @@ pub fn render_group_header(ui: &mut egui::Ui, group: &SearchResultGroup) -> bool
     resp.clicked()
 }
 
-pub fn render_match_row(
-    ui: &mut egui::Ui,
-    m: &SearchMatch,
-    selected: bool,
-    mode: SearchMode,
-) -> bool {
-    let sp = preview_for(m, mode);
-    let avail_w = ui.available_width();
-    let (rect, resp) =
-        ui.allocate_exact_size(egui::vec2(avail_w, ROW_HEIGHT), egui::Sense::click());
-    let painter = ui.painter();
-    if selected {
-        painter.rect_filled(rect, 0.0, theme::BG_HOVER);
-    } else if resp.hovered() {
-        painter.rect_filled(rect, 0.0, theme::BG_LIGHT);
-    }
-    let mid_y = rect.center().y;
-    let loc_x = rect.left() + 32.0;
-    painter.text(
-        egui::pos2(loc_x, mid_y),
-        egui::Align2::LEFT_CENTER,
-        &m.location,
-        egui::FontId::proportional(11.0),
-        theme::TEXT_MUTED,
-    );
-    let loc_galley = painter.layout_no_wrap(
-        m.location.clone(),
-        egui::FontId::proportional(11.0),
-        theme::TEXT_MUTED,
-    );
-    let preview_x = loc_x + loc_galley.size().x + 8.0;
-    let job = highlight_preview(&sp.preview, &sp.highlight_ranges);
-    let galley = ui.ctx().fonts_mut(|f| f.layout_job(job));
-    painter.galley(
-        egui::pos2(preview_x, mid_y - galley.size().y / 2.0),
-        galley,
-        egui::Color32::PLACEHOLDER,
-    );
-    resp.clicked()
-}
-
 /// 结果列表行内匹配区间高亮（VERDIGRIS 前景）
-fn highlight_preview(text: &str, ranges: &[(usize, usize)]) -> egui::text::LayoutJob {
+pub fn highlight_preview(text: &str, ranges: &[(usize, usize)]) -> egui::text::LayoutJob {
     let fmt = |color| egui::TextFormat {
         font_id: egui::FontId::monospace(11.0),
         color,
@@ -146,6 +88,7 @@ fn highlight_preview(text: &str, ranges: &[(usize, usize)]) -> egui::text::Layou
     job
 }
 
+/// 水平分隔线
 pub fn separator(ui: &mut egui::Ui) {
     let avail = ui.available_rect_before_wrap();
     ui.painter().line_segment(
@@ -156,4 +99,29 @@ pub fn separator(ui: &mut egui::Ui) {
         egui::Stroke::new(1.0, theme::BORDER),
     );
     ui.allocate_space(egui::vec2(avail.width(), 1.0));
+}
+
+/// 将匹配行内的高亮区间转换为源码全文字节偏移的 FindMatch 列表
+///
+/// `highlights` 是 preview 文本（去前导空白）内的字节区间，
+/// 需要加上行首偏移和前导空白长度还原为源码全文偏移。
+pub fn compute_find_matches(
+    source: &str,
+    match_line: usize,
+    highlights: &[(usize, usize)],
+) -> Vec<FindMatch> {
+    let line_start: usize = source
+        .split('\n')
+        .take(match_line)
+        .map(|l| l.len() + 1)
+        .sum();
+    let src_line = source.split('\n').nth(match_line).unwrap_or("");
+    let trim_offset = src_line.len() - src_line.trim_start().len();
+    highlights
+        .iter()
+        .map(|&(s, e)| FindMatch {
+            start: line_start + s + trim_offset,
+            end: line_start + e + trim_offset,
+        })
+        .collect()
 }

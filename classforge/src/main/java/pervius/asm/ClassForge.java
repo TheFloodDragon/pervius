@@ -9,6 +9,8 @@ import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.InvokeDynamicInsnNode;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.analysis.Analyzer;
+import org.objectweb.asm.tree.analysis.BasicVerifier;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -126,6 +128,12 @@ public class ClassForge {
             BytecodeAssembler.assemble(mn, code, originalDynamic);
             modified.put(key, mn);
         }
+        // 用 COMPUTE_MAXS 预算 maxStack/maxLocals，再交给 Analyzer 校验
+        computeMaxs(cn, modified);
+        Analyzer<?> analyzer = new Analyzer<>(new BasicVerifier());
+        for (MethodNode mn : modified.values()) {
+            analyzer.analyze(cn.name, mn);
+        }
         // 第二遍：流式复制——未修改方法直接字节拷贝（保留原始帧），修改的方法由 ASM 重算
         ClassReader cr = new ClassReader(classData);
         try {
@@ -150,16 +158,40 @@ public class ClassForge {
             cr.accept(new ClassVisitor(Opcodes.ASM9, cw) {
                 @Override
                 public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
-                    if (modified.containsKey(name + descriptor)) {
+                    MethodNode mod = modified.get(name + descriptor);
+                    if (mod != null) {
+                        // 在原始位置写入修改后的方法内容
+                        MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
+                        mod.accept(mv);
                         return null;
                     }
                     return super.visitMethod(access, name, descriptor, signature, exceptions);
                 }
             }, ClassReader.SKIP_FRAMES);
-            for (MethodNode mn : modified.values()) {
-                mn.accept(cw);
-            }
             return cw.toByteArray();
+        }
+    }
+
+    /**
+     * 用临时 ClassWriter(COMPUTE_MAXS) 预算 maxStack/maxLocals，
+     * 回填到 MethodNode，供后续 Analyzer 校验使用。
+     */
+    private static void computeMaxs(ClassNode cn, Map<String, MethodNode> modified) {
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        String[] ifaces = cn.interfaces != null ? cn.interfaces.toArray(new String[0]) : null;
+        cw.visit(cn.version, cn.access, cn.name, cn.signature, cn.superName, ifaces);
+        for (MethodNode mn : modified.values()) {
+            mn.accept(cw);
+        }
+        ClassReader cr = new ClassReader(cw.toByteArray());
+        ClassNode tmp = new ClassNode();
+        cr.accept(tmp, ClassReader.SKIP_FRAMES);
+        for (MethodNode tmn : tmp.methods) {
+            MethodNode orig = modified.get(tmn.name + tmn.desc);
+            if (orig != null) {
+                orig.maxStack = tmn.maxStack;
+                orig.maxLocals = tmn.maxLocals;
+            }
         }
     }
 

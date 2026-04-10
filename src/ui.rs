@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+pub mod confirm;
 pub mod editor;
 pub mod explorer;
 pub mod keybindings;
@@ -9,4 +10,3 @@ pub mod layout;
 pub mod menu;
 pub mod search;
 pub mod status_bar;
-pub mod widget;

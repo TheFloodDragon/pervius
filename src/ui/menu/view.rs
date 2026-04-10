@@ -2,25 +2,36 @@
 //!
 //! @author sky
 
+use super::MenuState;
 use crate::app::App;
 use crate::appearance::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
-use egui_shell::components::menu_item;
+use egui_shell::components::{menu_item, menu_item_if};
 use rust_i18n::t;
 
 pub fn render(ui: &mut egui::Ui, app: &mut App) {
     let mt = &theme::menu_theme();
-    if menu_item(ui, mt, &t!("menu.decompiled"), None) {
+    let state = MenuState::from_app(app);
+    if menu_item_if(ui, mt, &t!("menu.decompiled"), None, state.has_tab) {
         app.layout.editor.set_focused_view(ActiveView::Decompiled);
     }
-    if menu_item(ui, mt, &t!("menu.bytecode"), None) {
+    if menu_item_if(ui, mt, &t!("menu.bytecode"), None, state.has_tab) {
         app.layout.editor.set_focused_view(ActiveView::Bytecode);
     }
-    if menu_item(ui, mt, &t!("menu.hex"), None) {
+    if menu_item_if(ui, mt, &t!("menu.hex"), None, state.has_tab) {
         app.layout.editor.set_focused_view(ActiveView::Hex);
     }
     ui.separator();
+    if menu_item_if(
+        ui,
+        mt,
+        &t!("menu.toggle_viewport"),
+        Some(&app.settings.keymap.toggle_viewport),
+        state.has_tab,
+    ) {
+        app.layout.editor.toggle_viewport();
+    }
     if menu_item(
         ui,
         mt,

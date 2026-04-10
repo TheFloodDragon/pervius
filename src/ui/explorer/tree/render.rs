@@ -15,12 +15,6 @@ use rust_i18n::t;
 use std::collections::HashSet;
 use std::ops::Range;
 
-/// 行高
-const ROW_H: f32 = 22.0;
-
-/// 展开/折叠动画时长（秒）
-const EXPAND_DURATION: f32 = 0.12;
-
 /// 根据 openness 计算有效行数
 fn effective_count(full: usize, openness: f32) -> usize {
     if openness >= 1.0 {
@@ -39,7 +33,7 @@ fn node_openness(ctx: &egui::Context, node: &TreeNode, filtering: bool) -> f32 {
     ctx.animate_bool_with_time(
         egui::Id::new("tree_expand").with(&node.path),
         target,
-        EXPAND_DURATION,
+        theme::TREE_EXPAND_DURATION,
     )
 }
 
@@ -76,7 +70,7 @@ pub fn render_tree(
     decompiled_classes: Option<&HashSet<String>>,
 ) -> Option<String> {
     ui.spacing_mut().item_spacing.y = 2.0;
-    let row_h = ROW_H + 2.0;
+    let row_h = theme::TREE_ROW_HEIGHT + 2.0;
     let ctx = ui.ctx().clone();
     // 每帧只计算一次行数，避免多 pass 之间 total 不一致导致 show_rows 范围漂移
     let total = {
@@ -273,7 +267,7 @@ fn render_row(
     let indent_px = 8.0 + depth as f32 * 16.0;
     let avail_w = ui.available_width();
     // 使用行索引作为位置稳定 ID，避免过滤切换内容时同一 rect 的 ID 在帧间漂移
-    let (_, rect) = ui.allocate_space(egui::vec2(avail_w, ROW_H));
+    let (_, rect) = ui.allocate_space(egui::vec2(avail_w, theme::TREE_ROW_HEIGHT));
     let response = ui.interact(
         rect,
         egui::Id::new("tree_row").with(row_idx),

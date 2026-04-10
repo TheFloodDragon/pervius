@@ -9,11 +9,6 @@ use egui_animation::Anim;
 use pervius_java_bridge::bytecode::descriptor::{short_class_name, short_descriptor, short_params};
 use pervius_java_bridge::class_structure::ClassStructure;
 
-/// 导航项行高
-const NAV_ROW_HEIGHT: f32 = 24.0;
-/// section label 行高
-const SECTION_LABEL_HEIGHT: f32 = 28.0;
-
 /// 成员修改状态 → 颜色：未保存→橙色，已保存→绿色，未修改→无
 fn member_color(modified: bool, saved: bool) -> Option<egui::Color32> {
     if modified {
@@ -87,7 +82,7 @@ pub fn render_nav(
 fn render_section_label(ui: &mut egui::Ui, text: &str) {
     let avail_w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(avail_w, SECTION_LABEL_HEIGHT),
+        egui::vec2(avail_w, theme::BYTECODE_SECTION_LABEL_HEIGHT),
         egui::Sense::hover(),
     );
     ui.painter().text(
@@ -108,8 +103,10 @@ fn render_nav_item(
     mod_color: Option<egui::Color32>,
 ) -> bool {
     let avail_w = ui.available_width();
-    let (rect, resp) =
-        ui.allocate_exact_size(egui::vec2(avail_w, NAV_ROW_HEIGHT), egui::Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(
+        egui::vec2(avail_w, theme::BYTECODE_NAV_ROW_HEIGHT),
+        egui::Sense::click(),
+    );
     let painter = ui.painter();
     // 用 resp.id 作为动画 key，避免同名方法（如重载 <init>()）共享动画状态
     let anim = Anim::new(ui, 0.1).with(resp.id);

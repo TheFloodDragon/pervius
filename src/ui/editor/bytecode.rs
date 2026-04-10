@@ -11,13 +11,6 @@ use detail::{render_class_info_editable, render_field_editable, render_method_ed
 use eframe::egui;
 use egui_editor::search::FindMatch;
 
-/// 导航栏最小宽度
-const MIN_NAV_WIDTH: f32 = 120.0;
-/// 导航栏最大宽度
-const MAX_NAV_WIDTH: f32 = 500.0;
-/// 拖拽手柄宽度
-const RESIZE_HANDLE_W: f32 = 6.0;
-
 /// 渲染字节码结构化面板
 pub fn render_bytecode_panel(
     ui: &mut egui::Ui,
@@ -36,7 +29,9 @@ pub fn render_bytecode_panel(
         return;
     }
     let rect = ui.max_rect();
-    let nav_w = tab.nav_width.clamp(MIN_NAV_WIDTH, rect.width() - 100.0);
+    let nav_w = tab
+        .nav_width
+        .clamp(theme::BYTECODE_MIN_NAV_WIDTH, rect.width() - 100.0);
     tab.nav_width = nav_w;
     let painter = ui.painter();
     // 左侧导航背景
@@ -49,14 +44,19 @@ pub fn render_bytecode_panel(
     painter.rect_filled(content_rect, 0.0, theme::BG_DARKEST);
     // 拖拽 resize 手柄
     let handle_rect = egui::Rect::from_min_size(
-        egui::pos2(divider_x - RESIZE_HANDLE_W / 2.0, rect.top()),
-        egui::vec2(RESIZE_HANDLE_W, rect.height()),
+        egui::pos2(
+            divider_x - theme::BYTECODE_RESIZE_HANDLE_W / 2.0,
+            rect.top(),
+        ),
+        egui::vec2(theme::BYTECODE_RESIZE_HANDLE_W, rect.height()),
     );
     let handle_id = ui.id().with("bc_resize");
     let handle_resp = ui.interact(handle_rect, handle_id, egui::Sense::drag());
     if handle_resp.dragged() {
-        tab.nav_width = (nav_w + handle_resp.drag_delta().x)
-            .clamp(MIN_NAV_WIDTH, MAX_NAV_WIDTH.min(rect.width() - 100.0));
+        tab.nav_width = (nav_w + handle_resp.drag_delta().x).clamp(
+            theme::BYTECODE_MIN_NAV_WIDTH,
+            theme::BYTECODE_MAX_NAV_WIDTH.min(rect.width() - 100.0),
+        );
     }
     if handle_resp.hovered() || handle_resp.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);

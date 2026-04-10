@@ -1,23 +1,119 @@
-//! 反编译源码导出
+//! 导出功能：反编译源码导出、JAR 导出
 //!
 //! @author sky
 
 use super::App;
+use crate::task::{Poll, Pollable, Task};
 use pervius_java_bridge::decompiler;
+use pervius_java_bridge::jar::LoadProgress;
 use rust_i18n::t;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+/// JAR 后台导出状态
+pub(crate) struct ExportingState {
+    /// 目标文件路径（用于完成后显示）
+    pub dest: PathBuf,
+    /// 已修改条目数（用于完成后显示）
+    pub modified_count: usize,
+    /// 导出进度
+    pub progress: Arc<LoadProgress>,
+    /// 后台导出任务
+    pub task: Task<Result<usize, String>>,
+}
 
 impl App {
+    /// 导出修改后的 JAR 到用户选择的路径
+    ///
+    /// 在主线程快照条目数据，然后在后台线程写出 ZIP，
+    /// 通过 `LoadProgress` 原子量回报进度。
+    pub fn export_jar(&mut self) {
+        let Some(jar) = self.workspace.jar() else {
+            self.toasts.warning(t!("layout.export_no_jar"));
+            return;
+        };
+        if self.exporting.is_some() {
+            self.toasts.warning(t!("layout.export_in_progress"));
+            return;
+        }
+        let unsaved = self.layout.editor.unsaved_paths();
+        if !unsaved.is_empty() {
+            self.toasts
+                .warning(t!("layout.export_unsaved", count = unsaved.len()));
+            return;
+        }
+        let default_name = jar
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "output.jar".to_owned());
+        let Some(dest) = rfd::FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter("JAR", &["jar"])
+            .save_file()
+        else {
+            return;
+        };
+        let snapshot = jar.snapshot_entries();
+        let modified_count = jar.modified_count();
+        let progress = Arc::new(LoadProgress::new());
+        let p = progress.clone();
+        let out = dest.clone();
+        let task = Task::spawn(move || {
+            pervius_java_bridge::jar::write_jar(&snapshot, &out, &p).map_err(|e| e.to_string())
+        });
+        self.exporting = Some(ExportingState {
+            dest,
+            modified_count,
+            progress,
+            task,
+        });
+    }
+
+    /// 轮询后台 JAR 导出是否完成
+    pub(crate) fn poll_export_jar(&mut self) {
+        let Some(state) = &self.exporting else {
+            return;
+        };
+        let result = match state.task.poll() {
+            Poll::Ready(r) => r,
+            Poll::Pending => return,
+            Poll::Lost => {
+                self.exporting = None;
+                return;
+            }
+        };
+        let dest = self.exporting.as_ref().unwrap().dest.clone();
+        let modified = self.exporting.as_ref().unwrap().modified_count;
+        self.exporting = None;
+        match result {
+            Ok(count) => {
+                let display = dest.to_string_lossy();
+                self.toasts.info(t!(
+                    "layout.export_jar_complete",
+                    path = display,
+                    count = count,
+                    modified = modified
+                ));
+                log::info!("Exported JAR ({count} entries, {modified} modified) to {display}");
+            }
+            Err(e) => {
+                self.toasts.error(t!("layout.export_failed", error = e));
+                log::error!("Export JAR failed: {e}");
+            }
+        }
+    }
+
     /// 导出反编译源码到用户选择的目录
     ///
     /// 将 Vineflower 缓存目录中的 `.java` / `.kt` 文件复制到目标目录，
     /// 保持原始包结构。
     pub fn export_decompiled(&mut self) {
-        let Some(jar) = &self.jar else {
+        let Some(jar) = self.workspace.jar() else {
             self.toasts.warning(t!("layout.export_no_jar"));
             return;
         };
-        if self.decompiling.is_some() {
+        if self.workspace.is_decompiling() {
             self.toasts.warning(t!("layout.decompile_in_progress"));
             return;
         }

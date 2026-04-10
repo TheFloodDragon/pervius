@@ -2,35 +2,26 @@
 //!
 //! @author sky
 
-/// 轮询 `mpsc::Receiver`：有数据则返回，空或断开时执行对应分支
-macro_rules! poll_recv {
-    ($rx:expr, miss => $miss:expr, disconnect => $dc:expr) => {
-        match $rx.try_recv() {
-            Ok(r) => r,
-            Err(std::sync::mpsc::TryRecvError::Empty) => $miss,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => $dc,
-        }
-    };
-}
-
-mod confirm;
 mod decompile;
 mod export;
-mod handler;
+mod open;
 mod platform;
+mod search;
 mod tab;
+pub(crate) mod workspace;
 
-pub use confirm::ConfirmAction;
+pub use crate::ui::confirm::ConfirmAction;
 
 use crate::settings::Settings;
+use crate::task::Task;
 use crate::ui::layout::Layout;
 use egui_notify::Toasts;
 use egui_shell::components::SettingsFile;
-use pervius_java_bridge::decompiler::{CachedSource, DecompileTask};
+use pervius_java_bridge::decompiler::CachedSource;
 use pervius_java_bridge::error::BridgeError;
-use pervius_java_bridge::jar::JarArchive;
-use std::collections::HashSet;
-use std::sync::mpsc;
+use workspace::Workspace;
+
+pub(crate) use export::ExportingState;
 
 /// 应用核心业务状态
 pub struct App {
@@ -40,21 +31,14 @@ pub struct App {
     pub settings: Settings,
     /// 通知提示
     pub toasts: Toasts,
-    /// 当前打开的 JAR 归档
-    pub(crate) jar: Option<JarArchive>,
-    /// 后台加载中的 JAR
-    pub(crate) loading: Option<handler::LoadingState>,
-    /// 后台反编译任务
-    pub(crate) decompiling: Option<DecompileTask>,
-    /// 已反编译的类集合（None = 全部已反编译，Some = 仅集合内的类已完成）
-    pub(crate) decompiled_classes: Option<HashSet<String>>,
     /// 待确认的破坏性动作
     pub pending_confirm: Option<ConfirmAction>,
-    /// 单文件反编译结果接收队列（支持并发多个）
-    pub(crate) pending_decompiles: Vec<(String, mpsc::Receiver<Result<CachedSource, BridgeError>>)>,
-    /// 后台重反编译启动中（清缓存 + start 在子线程）
-    pub(crate) pending_re_decompile:
-        Option<(String, mpsc::Receiver<Result<DecompileTask, BridgeError>>)>,
+    /// 工作区状态（Empty / Loading / Loaded）
+    pub(crate) workspace: Workspace,
+    /// 单文件反编译结果队列（支持并发，独立文件不依赖 JAR）
+    pub(crate) pending_decompiles: Vec<(String, Task<Result<CachedSource, BridgeError>>)>,
+    /// 后台 JAR 导出任务（快照已取，可跨 JAR 切换存活）
+    pub(crate) exporting: Option<ExportingState>,
 }
 
 impl App {
@@ -64,13 +48,10 @@ impl App {
             layout: Layout::new(&settings),
             settings,
             toasts: Toasts::default(),
-            jar: None,
-            loading: None,
-            decompiling: None,
-            decompiled_classes: None,
             pending_confirm: None,
+            workspace: Workspace::Empty,
             pending_decompiles: Vec::new(),
-            pending_re_decompile: None,
+            exporting: None,
         }
     }
 

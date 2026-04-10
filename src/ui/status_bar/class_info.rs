@@ -3,54 +3,29 @@
 //! @author sky
 
 use crate::appearance::theme;
-use eframe::egui;
-use egui_shell::components::status_bar::{Alignment, StatusItem};
+use egui_shell::components::panel::status_bar::{Alignment, ProgressItem};
 
-/// 动态显示当前聚焦 .class 文件的版本信息
-pub struct ClassInfoItem {
-    text: Option<String>,
+egui_shell::define_progress_item! {
+    /// 动态显示当前聚焦 .class 文件的版本信息
+    pub struct ClassInfoItem;
 }
 
 impl ClassInfoItem {
+    /// 创建 class 信息 item
     pub fn new() -> Self {
-        Self { text: None }
+        Self::from_progress(ProgressItem::new(theme::TEXT_SECONDARY, Alignment::Left))
     }
 
+    /// 设置版本信息，None 表示无 class 聚焦
     pub fn set_info(&mut self, info: Option<&str>) {
         match info {
             Some(s) => {
-                if self.text.as_deref() != Some(s) {
-                    self.text = Some(s.to_string());
+                if self.text() != s {
+                    self.set_text(s);
                 }
+                self.set_visible(true);
             }
-            None => self.text = None,
+            None => self.set_visible(false),
         }
-    }
-}
-
-impl StatusItem for ClassInfoItem {
-    fn alignment(&self) -> Alignment {
-        Alignment::Left
-    }
-
-    fn visible(&self) -> bool {
-        self.text.is_some()
-    }
-
-    fn render(&mut self, ui: &mut egui::Ui, x: f32, center_y: f32) -> f32 {
-        let text = tabookit::or!(&self.text, return 0.0);
-        let painter = ui.painter();
-        let galley = painter.layout_no_wrap(
-            text.clone(),
-            egui::FontId::proportional(11.0),
-            theme::TEXT_SECONDARY,
-        );
-        let w = galley.size().x;
-        painter.galley(
-            egui::pos2(x, center_y - galley.size().y / 2.0),
-            galley,
-            theme::TEXT_SECONDARY,
-        );
-        w
     }
 }

@@ -1,26 +1,21 @@
-//! 可复用 UI 组件：浮动窗口、设置面板
+//! 可复用 UI 组件：浮动窗口、设置面板、基础控件
 //!
 //! @author sky
 
-pub mod confirm;
-pub mod flat_button;
-pub mod menu;
-pub mod settings;
-pub mod status_bar;
-pub mod window;
+pub mod overlay;
+pub mod panel;
+pub mod widget;
 
 use eframe::egui;
 
-pub use confirm::{ConfirmDialog, ConfirmResult, ConfirmTheme};
-pub use flat_button::{FlatButton, FlatButtonTheme};
-pub use menu::{menu_item, menu_item_raw, menu_submenu, MenuTheme};
-pub use settings::{
-    dropdown, is_recording_keybind, keybind_row, keybind_row_with, path_picker, path_picker_with,
-    section_header, sidebar_item, slider, toggle, SectionDef, SettingsFile, SettingsPanel,
-    SettingsTheme,
+pub use overlay::{ConfirmDialog, ConfirmResult, ConfirmTheme, FloatingWindow};
+pub use panel::{
+    dropdown, is_recording_keybind, keybind_row, keybind_row_with, menu_item, menu_item_if,
+    menu_item_raw, menu_item_raw_if, menu_submenu, path_picker, path_picker_with, section_header,
+    sidebar_item, slider, toggle, Alignment, MenuTheme, ProgressItem, SectionDef, SettingsFile,
+    SettingsPanel, SettingsTheme, StatusBarTheme, StatusBarWidget, StatusItem, TextItem,
 };
-pub use status_bar::{Alignment, StatusBarTheme, StatusBarWidget, StatusItem, TextItem};
-pub use window::FloatingWindow;
+pub use widget::{FlatButton, FlatButtonTheme, IslandStyle};
 
 /// 浮动窗口专属配置（ShellTheme.window）
 #[derive(Clone)]
