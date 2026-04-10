@@ -304,6 +304,62 @@ pub fn build_layout_job(source: &str, spans: &[Span]) -> LayoutJob {
     job
 }
 
+/// 构建全文 LayoutJob：语法高亮 + 搜索匹配背景
+///
+/// `match_ranges` 为搜索匹配的字节偏移范围，`current_match` 为当前选中的匹配索引。
+/// 无匹配时退化为 `build_layout_job`。
+pub fn build_layout_job_with_matches(
+    source: &str,
+    spans: &[Span],
+    match_ranges: &[(usize, usize)],
+    current_match: Option<usize>,
+) -> LayoutJob {
+    if match_ranges.is_empty() {
+        return build_layout_job(source, spans);
+    }
+    let mut breaks = std::collections::BTreeSet::new();
+    breaks.insert(0);
+    breaks.insert(source.len());
+    for &(s, e, _) in spans {
+        breaks.insert(s.min(source.len()));
+        breaks.insert(e.min(source.len()));
+    }
+    for &(s, e) in match_ranges {
+        breaks.insert(s.min(source.len()));
+        breaks.insert(e.min(source.len()));
+    }
+    let breaks: Vec<usize> = breaks.into_iter().collect();
+    let mut job = LayoutJob::default();
+    for w in breaks.windows(2) {
+        let (start, end) = (w[0], w[1]);
+        if start >= end || start >= source.len() {
+            continue;
+        }
+        let end = end.min(source.len());
+        let color = spans
+            .iter()
+            .find(|&&(s, e, _)| s <= start && end <= e)
+            .map(|&(_, _, k)| k.color())
+            .unwrap_or(TokenKind::Plain.color());
+        let match_idx = match_ranges
+            .iter()
+            .position(|&(s, e)| start >= s && end <= e);
+        let is_current = matches!((match_idx, current_match), (Some(mi), Some(cm)) if mi == cm);
+        let mut format = egui::TextFormat {
+            font_id: CODE_FONT,
+            color,
+            ..Default::default()
+        };
+        if is_current {
+            format.background = theme::verdigris_alpha(60);
+        } else if match_idx.is_some() {
+            format.background = theme::verdigris_alpha(25);
+        }
+        job.append(&source[start..end], 0.0, format);
+    }
+    job
+}
+
 fn append_section(job: &mut LayoutJob, text: &str, kind: TokenKind) {
     job.append(
         text,
