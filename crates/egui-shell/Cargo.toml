@@ -9,3 +9,9 @@ license = "MIT"
 eframe = { version = "0.34.1", default-features = false, features = ["glow"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 resvg = "0.47"
+egui-animation = { path = "../egui-animation" }
+egui-keybind = { path = "../egui-keybind" }
+serde = "1"
+toml = "0.8"
+dirs = "6"
+log = "0.4"

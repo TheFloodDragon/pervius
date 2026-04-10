@@ -1,15 +1,16 @@
-//! 主题化浮动窗口：Area + Frame 自绘，内置 pin/unpin 逻辑
-//!
-//! 不使用 egui::Window（其边缘 resize 存在帧同步缺陷），
-//! 改为 egui::Area + egui::Frame 手动控制窗口尺寸和位置。
-//! Area 设为 movable(false)，移动和 resize 完全由本层代码控制，互不冲突。
+//! 可复用 UI 组件：浮动窗口、设置面板
 //!
 //! @author sky
 
-mod window;
+pub mod settings;
+pub mod window;
 
 use eframe::egui;
 
+pub use settings::{
+    dropdown, is_recording_keybind, keybind_row, keybind_row_with, path_picker, path_picker_with,
+    section_header, sidebar_item, slider, toggle, SettingsFile, SettingsPanel, SettingsTheme,
+};
 pub use window::FloatingWindow;
 
 /// 浮动窗口主题配色

@@ -2,9 +2,10 @@
 //!
 //! @author sky
 
-use crate::SettingsTheme;
+use super::SettingsTheme;
+use crate::components::window::FloatingWindow;
+use crate::components::WindowTheme;
 use eframe::egui;
-use egui_window::{FloatingWindow, WindowTheme};
 
 /// 侧栏宽度
 const SIDEBAR_W: f32 = 130.0;

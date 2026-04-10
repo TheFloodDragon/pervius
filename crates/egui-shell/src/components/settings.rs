@@ -30,7 +30,7 @@ macro_rules! keybind_rows {
     ($ui:expr, $st:expr, $hint:expr, $km:expr, $defaults:expr, $( $label:expr => $field:ident ),* $(,)?) => {{
         let mut _changed = false;
         $(
-            _changed |= $crate::keybind_row_with($ui, $st, &$label, &mut $km.$field, $defaults.$field, &$hint);
+            _changed |= $crate::components::settings::keybind_row_with($ui, $st, &$label, &mut $km.$field, $defaults.$field, &$hint);
         )*
         _changed
     }};

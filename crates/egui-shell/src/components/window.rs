@@ -5,7 +5,7 @@
 mod header;
 mod resize;
 
-use crate::WindowTheme;
+use super::WindowTheme;
 use eframe::egui;
 
 /// 边缘 resize 抓取宽度
@@ -128,7 +128,7 @@ impl FloatingWindow {
             return;
         }
         let size = self.size.unwrap_or(self.default_size);
-        let screen = ctx.screen_rect();
+        let screen = ctx.content_rect();
         // 首次打开居中，之后保持位置
         let pos = self.pos.unwrap_or_else(|| {
             egui::pos2(
@@ -155,7 +155,7 @@ impl FloatingWindow {
                     child.set_clip_rect(rect);
                     header::apply_style(&mut child, theme);
                     self.render_header(&mut child, theme, header_right);
-                    crate::separator(&mut child, theme.separator);
+                    super::separator(&mut child, theme.separator);
                     content(&mut child);
                     ui.allocate_rect(rect, egui::Sense::hover());
                 });

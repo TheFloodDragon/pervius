@@ -5,7 +5,7 @@
 //!
 //! @author sky
 
-use crate::SettingsTheme;
+use super::SettingsTheme;
 use eframe::egui;
 use egui_keybind::KeyBind;
 
@@ -34,14 +34,13 @@ pub fn sidebar_item(
     let painter = ui.painter();
     // 选中 / hover 背景动画
     let anim = egui_animation::Anim::new(ui, 0.1).with(label);
-    let target_bg = if active {
-        theme.bg_hover
-    } else if resp.hovered() {
-        theme.bg_light
-    } else {
-        egui::Color32::TRANSPARENT
-    };
-    let bg = anim.color("bg", target_bg);
+    let bg = anim.select_bg(
+        active,
+        resp.hovered(),
+        resp.clicked(),
+        theme.bg_hover,
+        theme.bg_light,
+    );
     if bg.a() > 0 {
         painter.rect_filled(rect, 0.0, bg);
     }

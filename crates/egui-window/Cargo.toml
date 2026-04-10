@@ -1,9 +1,0 @@
-[package]
-name = "egui-window"
-version = "0.1.0"
-edition = "2024"
-description = "Themed floating window with pin support for egui"
-license = "MIT"
-
-[dependencies]
-eframe = { version = "0.34.1", default-features = false, features = ["glow"] }

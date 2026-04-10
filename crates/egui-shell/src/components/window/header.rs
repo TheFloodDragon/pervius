@@ -3,7 +3,7 @@
 //! @author sky
 
 use super::FloatingWindow;
-use crate::WindowTheme;
+use crate::components::WindowTheme;
 use eframe::egui;
 
 /// 将窗口内 Ui 的 visuals 设置为匹配 WindowTheme 的风格
