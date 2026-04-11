@@ -83,11 +83,32 @@ impl TabViewer for EditorTabViewer<'_> {
         } else {
             (vec![], None)
         };
-        // hex 视图滚动到当前匹配项
-        if tab.active_view == ActiveView::Hex && self.find_bar.take_scroll_request() {
+        // 滚动到当前匹配项
+        if self.find_bar.take_scroll_request() {
             if let Some(idx) = current {
                 if let Some(m) = matches.get(idx) {
-                    tab.hex_state.scroll_to_byte = Some(m.start);
+                    match tab.active_view {
+                        ActiveView::Hex => {
+                            tab.hex_state.scroll_to_byte = Some(m.start);
+                        }
+                        ActiveView::Decompiled => {
+                            let line = tab.decompiled[..m.start.min(tab.decompiled.len())]
+                                .as_bytes()
+                                .iter()
+                                .filter(|&&b| b == b'\n')
+                                .count();
+                            tab.pending_scroll_to_line = Some(line);
+                        }
+                        ActiveView::Bytecode => {
+                            let text = tab.selected_bytecode_text();
+                            let line = text[..m.start.min(text.len())]
+                                .as_bytes()
+                                .iter()
+                                .filter(|&&b| b == b'\n')
+                                .count();
+                            tab.pending_scroll_to_line = Some(line);
+                        }
+                    }
                 }
             }
         }

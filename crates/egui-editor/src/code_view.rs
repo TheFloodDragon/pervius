@@ -221,6 +221,7 @@ pub fn code_view(
             galley
         };
     let mut galley_y = 0.0f32;
+    let mut x_origin = 0.0f32;
     let mut edge_scroll_delta = 0.0f32;
     let mut wheel_delta = 0.0f32;
     // 滚动到指定行时记录触发时间
@@ -235,8 +236,8 @@ pub fn code_view(
         });
     }
     ui.horizontal_top(|ui| {
+        x_origin = ui.cursor().left();
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
-        // 行高亮背景（在 TextEdit 之前绘制，避免遮盖文字）
         const HOLD: f64 = 0.5;
         const FADE: f64 = 0.8;
         let hl_time: Option<f64> = ui.ctx().data(|d| d.get_temp(hl_time_id));
@@ -304,12 +305,13 @@ pub fn code_view(
         gutter_w,
         &code_font,
         theme,
+        x_origin,
     );
 }
 
 /// 可编辑代码视图（TextEdit + 语法高亮 + 搜索高亮 + 行号）
 ///
-/// 返回 `true` 表示文本已被修改，调用方负责刷新高亮数据和标记 tab 状态。
+/// 返回 `true` 表示文本已被修改，调用方負责刷新高亮数据和标记 tab 状态。
 pub fn code_view_editable(
     ui: &mut egui::Ui,
     id: egui::Id,
@@ -320,6 +322,7 @@ pub fn code_view_editable(
     theme: &CodeViewTheme,
     cache: &mut Option<EditableLayoutCache>,
     viewport_override: Option<bool>,
+    scroll_to_line: &mut Option<usize>,
 ) -> bool {
     // 视窗模式判断：优先用手动覆盖，否则自动检测
     let is_viewport = match viewport_override {
@@ -335,7 +338,15 @@ pub fn code_view_editable(
         if let Some(c) = cache.as_ref() {
             if c.is_viewport {
                 viewport::code_view_editable_viewport(
-                    ui, id, text, lang, matches, current, theme, cache,
+                    ui,
+                    id,
+                    text,
+                    lang,
+                    matches,
+                    current,
+                    theme,
+                    cache,
+                    scroll_to_line,
                 );
                 // viewport 函数内部会把 is_viewport 写回 true，必须在之后强制覆盖
                 if let Some(c) = cache.as_mut() {
@@ -349,7 +360,15 @@ pub fn code_view_editable(
     }
     if is_viewport {
         return viewport::code_view_editable_viewport(
-            ui, id, text, lang, matches, current, theme, cache,
+            ui,
+            id,
+            text,
+            lang,
+            matches,
+            current,
+            theme,
+            cache,
+            scroll_to_line,
         );
     }
     let line_count = text.split('\n').count().max(1);
@@ -398,14 +417,77 @@ pub fn code_view_editable(
             .unwrap()
         };
     let mut galley_y = 0.0f32;
+    let mut x_origin = 0.0f32;
     let mut edge_scroll_delta = 0.0f32;
     let mut wheel_delta = 0.0f32;
     let mut changed = false;
+    // 滚动到指定行时记录触发时间
+    let hl_time_id = id.with("__hl_time");
+    let hl_line_id = id.with("__hl_line");
+    if scroll_to_line.is_some() {
+        let line = scroll_to_line.unwrap();
+        let now = ui.input(|i| i.time);
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(hl_time_id, now);
+            d.insert_temp(hl_line_id, line);
+        });
+    }
     ui.horizontal_top(|ui| {
+        x_origin = ui.cursor().left();
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
+        // 行高亮动画（TextEdit 之前绘制，避免遮盖文字）
+        const HOLD: f64 = 0.5;
+        const FADE: f64 = 0.8;
+        let hl_time: Option<f64> = ui.ctx().data(|d| d.get_temp(hl_time_id));
+        if let Some(start) = hl_time {
+            let elapsed = ui.input(|i| i.time) - start;
+            let alpha = if elapsed < HOLD {
+                1.0
+            } else {
+                (1.0 - ((elapsed - HOLD) / FADE)).max(0.0)
+            };
+            if alpha > 0.001 {
+                let hl_line: usize = ui.ctx().data(|d| d.get_temp(hl_line_id).unwrap_or(0));
+                let row_h = ui.fonts_mut(|f| {
+                    f.layout_no_wrap("M".into(), code_font.clone(), egui::Color32::WHITE)
+                        .size()
+                        .y
+                });
+                let top_y = ui.min_rect().top();
+                let y = top_y + hl_line as f32 * row_h;
+                let full_width = ui.max_rect().width();
+                let rect = egui::Rect::from_min_size(
+                    egui::pos2(ui.max_rect().left(), y),
+                    egui::vec2(full_width, row_h),
+                );
+                let [r, g, b, _] = theme.line_highlight.to_array();
+                let a = (alpha as f32 * 255.0) as u8;
+                ui.painter().rect_filled(
+                    rect,
+                    0.0,
+                    egui::Color32::from_rgba_unmultiplied(r, g, b, a),
+                );
+                ui.ctx().request_repaint_after_secs(0.016);
+            } else {
+                ui.ctx().data_mut(|d| {
+                    d.remove_temp::<f64>(hl_time_id);
+                    d.remove_temp::<usize>(hl_line_id);
+                });
+            }
+        }
         let output = code_text_edit(text, id, code_font.clone(), &mut layouter).show(ui);
         galley_y = output.galley_pos.y;
         changed = output.response.changed();
+        // 滚动到指定行
+        if let Some(line) = scroll_to_line.take() {
+            let row_h = output.galley.size().y / line_count.max(1) as f32;
+            let target_y = galley_y + line as f32 * row_h;
+            let line_rect = egui::Rect::from_min_size(
+                egui::pos2(output.galley_pos.x, target_y),
+                egui::vec2(1.0, row_h),
+            );
+            ui.scroll_to_rect(line_rect, Some(egui::Align::Center));
+        }
         if output.response.dragged() {
             let (ed, wd) = detect_edge_scroll(&output.response, ui);
             edge_scroll_delta = ed;
@@ -422,11 +504,15 @@ pub fn code_view_editable(
         gutter_w,
         &code_font,
         theme,
+        x_origin,
     );
     changed
 }
 
 /// 行号 overlay
+///
+/// `x_origin` 是行号区域的左边缘绝对 X 坐标（从 `horizontal_top` 内部捕获），
+/// 不依赖 `clip_rect().left()` 以兼容嵌套 ScrollArea 等场景。
 pub(crate) fn paint_line_numbers(
     ui: &egui::Ui,
     galley_y: f32,
@@ -435,6 +521,7 @@ pub(crate) fn paint_line_numbers(
     gutter_w: f32,
     font: &egui::FontId,
     theme: &CodeViewTheme,
+    x_origin: f32,
 ) {
     let clip = ui.clip_rect();
     let painter = ui.painter();
@@ -448,14 +535,14 @@ pub(crate) fn paint_line_numbers(
     if gutter_bottom > gutter_top {
         painter.rect_filled(
             egui::Rect::from_min_max(
-                egui::pos2(clip.left(), gutter_top),
-                egui::pos2(clip.left() + gutter_w + GUTTER_PAD, gutter_bottom),
+                egui::pos2(x_origin, gutter_top),
+                egui::pos2(x_origin + gutter_w + GUTTER_PAD, gutter_bottom),
             ),
             0.0,
             theme.gutter_bg,
         );
     }
-    let gutter_right_x = clip.left() + gutter_w;
+    let gutter_right_x = x_origin + gutter_w;
     let first = ((clip.top() - galley_y) / line_height).max(0.0) as usize;
     let last = ((clip.bottom() - galley_y) / line_height + 1.0)
         .ceil()

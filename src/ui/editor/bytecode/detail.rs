@@ -47,8 +47,14 @@ pub fn render_class_info_editable(ui: &mut egui::Ui, cs: &mut ClassStructure) ->
                     &mut cs.info.super_class,
                     theme::TEXT_PRIMARY,
                 );
-                if !cs.info.interfaces.is_empty() {
-                    render_kv(ui, "Implements", &cs.info.interfaces.join(", "));
+                let mut ifaces_str = cs.info.interfaces.join(", ");
+                if render_editable_kv(ui, "Implements", &mut ifaces_str, theme::TEXT_PRIMARY) {
+                    cs.info.interfaces = ifaces_str
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    changed = true;
                 }
                 ui.add_space(8.0);
                 changed |= render_annotations(ui, &mut cs.info.annotations);
@@ -116,6 +122,7 @@ pub fn render_method_editable(
     idx: usize,
     matches: &[FindMatch],
     current: Option<usize>,
+    scroll_to_line: &mut Option<usize>,
 ) -> bool {
     let mut changed = false;
     egui::ScrollArea::both()
@@ -161,6 +168,7 @@ pub fn render_method_editable(
                         &t,
                         &mut bc_cache,
                         None,
+                        scroll_to_line,
                     );
                 } else {
                     ui.add_space(12.0);

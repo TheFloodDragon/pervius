@@ -52,10 +52,10 @@ pub fn render(
 ) {
     let ctx = ui.ctx().clone();
     egui::Panel::top("title_bar")
+        .exact_size(theme.title_bar_height)
         .frame(egui::Frame::NONE.fill(theme.bg))
         .show_separator_line(false)
         .show_inside(ui, |ui| {
-            ui.set_height(theme.title_bar_height);
             let bar = ui.max_rect();
             // 底层：拖拽区域（先注册 = 优先级最低）
             let drag = ui.interact(bar, ui.id().with("drag"), egui::Sense::click_and_drag());

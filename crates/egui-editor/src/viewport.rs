@@ -122,6 +122,7 @@ pub(crate) fn code_view_editable_viewport(
     current: Option<usize>,
     theme: &CodeViewTheme,
     cache: &mut Option<EditableLayoutCache>,
+    _scroll_to_line: &mut Option<usize>,
 ) -> bool {
     let code_font = egui::FontId::monospace(theme.code_font_size);
     // 全文统计信息缓存：仅在文本长度变更时重新计算（避免每帧 O(n)）
@@ -214,12 +215,14 @@ pub(crate) fn code_view_editable_viewport(
         };
 
     let mut galley_y = 0.0f32;
+    let mut x_origin = 0.0f32;
     let mut edge_scroll_delta = 0.0f32;
     let mut wheel_delta = 0.0f32;
     let mut changed = false;
     let mut new_cursor_char = cursor_char;
 
     ui.horizontal_top(|ui| {
+        x_origin = ui.cursor().left();
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
         let output = crate::code_view::code_text_edit(
             &mut viewport_buf,
@@ -285,6 +288,7 @@ pub(crate) fn code_view_editable_viewport(
         gutter_w,
         &code_font,
         theme,
+        x_origin,
     );
     paint_viewport_indicator(ui, win_start_char, win_end_char, total_chars, theme);
     changed

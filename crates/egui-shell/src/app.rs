@@ -106,7 +106,7 @@ where
                 content,
                 #[cfg(target_os = "windows")]
                 corners_set: false,
-                startup_frames: 0,
+                visible: false,
             }))
         }),
     )
@@ -122,23 +122,20 @@ struct ShellApp {
     /// DWM 圆角是否已设置
     #[cfg(target_os = "windows")]
     corners_set: bool,
-    /// 启动帧计数
-    ///
-    /// 无框窗口创建后首帧内容为黑色，
-    /// 渲染一帧后再发送 Visible(true) 避免闪烁。
-    startup_frames: u8,
+    /// 窗口是否已显示
+    visible: bool,
 }
 
 impl eframe::App for ShellApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        // 渲染一帧后再显示窗口，避免无框窗口出现黑色闪烁
-        if self.startup_frames < 2 {
-            self.startup_frames += 1;
-            if self.startup_frames == 2 {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-            }
+        // 先填充整个窗口背景，避免面板间隙露出原生窗口黑色底色
+        ui.painter().rect_filled(ui.max_rect(), 0.0, self.theme.bg);
+        if !self.visible {
+            self.visible = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         }
+
         #[cfg(target_os = "windows")]
         if !self.corners_set {
             platform::enable_rounded_corners(&self.title);

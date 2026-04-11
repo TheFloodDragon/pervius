@@ -59,6 +59,7 @@ pub fn render_editable(
         &t,
         &mut tab.editable_layout_cache,
         tab.viewport_override,
+        &mut tab.pending_scroll_to_line,
     );
     if changed {
         tab.refresh_decompiled_data();

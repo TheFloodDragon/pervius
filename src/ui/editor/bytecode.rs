@@ -105,8 +105,10 @@ pub fn render_bytecode_panel(
         }
         BytecodeSelection::Method(idx) => {
             let cs = tab.class_structure.as_mut().unwrap();
+            let scroll = &mut tab.pending_scroll_to_line;
             cs.methods.get_mut(idx).map_or(false, |method| {
-                let c = render_method_editable(&mut content_ui, method, idx, matches, current);
+                let c =
+                    render_method_editable(&mut content_ui, method, idx, matches, current, scroll);
                 if c {
                     method.modified = true;
                 }
