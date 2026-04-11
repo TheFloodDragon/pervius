@@ -69,7 +69,6 @@ impl TabViewer for EditorTabViewer<'_> {
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
         ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-        let content_rect = ui.max_rect();
         // 更新搜索（先于内容渲染，提供高亮数据）
         if self.find_bar.open {
             match tab.active_view {
@@ -121,10 +120,10 @@ impl TabViewer for EditorTabViewer<'_> {
             ActiveView::Bytecode => bytecode::render_bytecode_panel(ui, tab, &matches, current),
             ActiveView::Hex => render::render_hex(ui, tab, &matches, current),
         }
-        // 浮动查找栏（overlay）
+        // 浮动查找栏（overlay，用 clip_rect 定位到可见区域，不随 ScrollArea 滚动）
         if self.find_bar.open {
             let fbt = theme::find_bar_theme();
-            self.find_bar.render_overlay(ui, content_rect, &fbt);
+            self.find_bar.render_overlay(ui, ui.clip_rect(), &fbt);
         }
     }
 
