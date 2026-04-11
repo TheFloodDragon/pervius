@@ -22,7 +22,7 @@ jobs:
             asset_name: pervius-linux-x86_64
           - os: macos-latest
             artifact_name: pervius
-            asset_name: Pervius-macos-aarch64.zip
+            asset_name: pervius-macos-aarch64.zip
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -114,7 +114,7 @@ jobs:
             |----------|------|
             | Windows | `pervius-windows-x86_64.exe` |
             | Linux | `pervius-linux-x86_64` |
-            | macOS | `Pervius-macos-aarch64.zip` |
+            | macOS | `pervius-macos-aarch64.zip` |
 
             ### macOS 首次运行
 
