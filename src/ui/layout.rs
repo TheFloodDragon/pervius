@@ -179,6 +179,9 @@ impl App {
         if new_settings.language != self.settings.language {
             rust_i18n::set_locale(new_settings.language.code());
         }
+        if new_settings.java.java_home != self.settings.java.java_home {
+            pervius_java_bridge::process::set_java_home(&new_settings.java.java_home);
+        }
         self.settings = new_settings;
         if let Err(e) = self.settings.save() {
             log::warn!("配置保存失败: {e}");

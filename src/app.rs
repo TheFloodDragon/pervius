@@ -44,6 +44,8 @@ pub struct App {
 impl App {
     pub fn new() -> Self {
         let settings = Settings::load();
+        // 传递用户配置的 java_home 给 bridge 层
+        pervius_java_bridge::process::set_java_home(&settings.java.java_home);
         Self {
             layout: Layout::new(&settings),
             settings,

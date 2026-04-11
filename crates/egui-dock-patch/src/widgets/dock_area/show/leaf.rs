@@ -1032,7 +1032,6 @@ impl<Tab> DockArea<'_, Tab> {
             rect_set_size_centered(&mut x_rect, Vec2::splat(Style::TAB_CLOSE_X_SIZE));
             let dot_anim = Anim::new(ui, 0.35).with(id);
             if let Some(dot_color) = modified {
-                // 已修改：用实心圆替代 X，颜色由调用方决定
                 let center = x_rect.center();
                 let radius = Style::TAB_CLOSE_X_SIZE * 0.35;
                 let animated_dot = dot_anim.color("dot", dot_color);

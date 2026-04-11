@@ -39,7 +39,10 @@ pub enum BridgeError {
 impl std::fmt::Display for BridgeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::JavaHomeNotSet => write!(f, "JAVA_HOME environment variable is not set"),
+            Self::JavaHomeNotSet => write!(
+                f,
+                "Cannot find Java: set JAVA_HOME, configure in settings, or add java to PATH"
+            ),
             Self::JavaNotFound(path) => {
                 write!(f, "Java executable not found at {}", path.display())
             }

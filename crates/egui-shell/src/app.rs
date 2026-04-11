@@ -97,7 +97,11 @@ where
         &options.title,
         native,
         Box::new(move |cc| {
-            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            // 锁定 dark 主题，接管所有 widget/菜单/弹窗的配色
+            cc.egui_ctx.set_theme(egui::Theme::Dark);
+            cc.egui_ctx.all_styles_mut(|style| {
+                style.visuals = egui::Visuals::dark();
+            });
             fonts::setup(&cc.egui_ctx);
             let content = create(cc);
             Ok(Box::new(ShellApp {

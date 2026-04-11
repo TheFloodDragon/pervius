@@ -4,16 +4,17 @@
 
 # Pervius
 
-**Java 反编译器与字节码编辑器。**
+**现代化的 Java 反编译与字节码编辑工具。**
 
 [Vineflower](https://github.com/Vineflower/vineflower) 反编译 · [ClassForge](classforge/) 字节码重写 · Rust 原生界面
 
 [![Rust](https://img.shields.io/badge/Rust-2024_Edition-f74c00?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![egui](https://img.shields.io/badge/egui-0.34-1ba7f5)](https://github.com/emilk/egui)
 [![Platform](https://img.shields.io/badge/Platform-Windows_·_macOS_·_Linux-8957e5)](#运行要求)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 [![Decompiler](https://img.shields.io/badge/Decompiler-Vineflower_1.11.1-e76f00?logo=openjdk&logoColor=white)](https://github.com/Vineflower/vineflower)
 [![Assembler](https://img.shields.io/badge/Assembler-ClassForge_1.0-b07219)](classforge/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 [特性](#特性) · [运行要求](#运行要求) · [构建](#构建) · [快捷键](#快捷键) · [项目结构](#项目结构)
 

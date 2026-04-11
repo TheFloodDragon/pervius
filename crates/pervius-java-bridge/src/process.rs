@@ -10,20 +10,100 @@ use crate::error::BridgeError;
 use std::os::windows::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::Mutex;
 
-/// 从 JAVA_HOME 环境变量定位 java 可执行文件
-pub fn find_java() -> Result<PathBuf, BridgeError> {
-    let java_home = std::env::var("JAVA_HOME").map_err(|_| BridgeError::JavaHomeNotSet)?;
-    let java_home = PathBuf::from(java_home);
-    let java = if cfg!(windows) {
-        java_home.join("bin").join("java.exe")
+/// 用户设置的自定义 java_home（优先于环境变量）
+static CUSTOM_JAVA_HOME: Mutex<Option<String>> = Mutex::new(None);
+
+/// 设置自定义 JAVA_HOME 路径（由应用启动时调用）
+pub fn set_java_home(path: &str) {
+    let mut lock = CUSTOM_JAVA_HOME.lock().unwrap_or_else(|p| p.into_inner());
+    *lock = if path.is_empty() {
+        None
     } else {
-        java_home.join("bin").join("java")
+        Some(path.to_owned())
     };
-    if !java.exists() {
+}
+
+/// 将用户输入的路径解析为 java 可执行文件
+///
+/// 支持三种输入：
+/// - JDK 根目录（如 `C:\Program Files\Java\jdk-21`）→ 追加 `bin/java`
+/// - bin 目录（如 `C:\Program Files\Java\jdk-21\bin`）→ 追加 `java`
+/// - 直接指向 java 可执行文件（如 `.../bin/java.exe`）→ 直接使用
+fn resolve_java_exe(root: &Path) -> PathBuf {
+    let exe_name = if cfg!(windows) { "java.exe" } else { "java" };
+    // 用户直接指向了 java 可执行文件
+    if root
+        .file_name()
+        .is_some_and(|n| n == "java" || n == "java.exe")
+        && root.is_file()
+    {
+        return root.to_path_buf();
+    }
+    // 指向 bin 目录（不含 bin 后缀的子目录拼接）
+    if root
+        .file_name()
+        .is_some_and(|n| n.eq_ignore_ascii_case("bin"))
+    {
+        return root.join(exe_name);
+    }
+    // JDK 根目录
+    root.join("bin").join(exe_name)
+}
+
+/// 定位 java 可执行文件
+///
+/// 查找顺序：
+/// 1. 用户设置的自定义路径
+/// 2. 系统 JAVA_HOME 环境变量
+/// 3. PATH 中探测（`where java` / `which java`）
+pub fn find_java() -> Result<PathBuf, BridgeError> {
+    // 1. 自定义路径
+    let custom = CUSTOM_JAVA_HOME
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    if let Some(ref path) = custom {
+        let java = resolve_java_exe(Path::new(path));
+        if java.exists() {
+            return Ok(java);
+        }
         return Err(BridgeError::JavaNotFound(java));
     }
-    Ok(java)
+    // 2. 系统环境变量
+    if let Ok(java_home) = std::env::var("JAVA_HOME") {
+        let java = resolve_java_exe(Path::new(&java_home));
+        if java.exists() {
+            return Ok(java);
+        }
+    }
+    // 3. PATH 中探测
+    find_java_in_path()
+}
+
+/// 通过 PATH 环境变量查找 java
+fn find_java_in_path() -> Result<PathBuf, BridgeError> {
+    let cmd = if cfg!(windows) { "where" } else { "which" };
+    let mut command = Command::new(cmd);
+    command.arg("java");
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::null());
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let output = command.output();
+    if let Ok(out) = output {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if let Some(first) = stdout.lines().next() {
+                let path = PathBuf::from(first.trim());
+                if path.exists() {
+                    return Ok(path);
+                }
+            }
+        }
+    }
+    Err(BridgeError::JavaHomeNotSet)
 }
 
 tabookit::class! {
