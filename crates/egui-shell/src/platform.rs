@@ -44,6 +44,37 @@ pub fn viewport(title: &str, size: [f32; 2]) -> egui::ViewportBuilder {
     vp
 }
 
+/// macOS 交通灯按钮微调位置（默认 {7, 13}，增加边距）
+#[cfg(target_os = "macos")]
+pub fn set_traffic_lights() {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyObject, Bool};
+
+    #[repr(C)]
+    struct NSPoint {
+        x: f64,
+        y: f64,
+    }
+
+    unsafe impl objc2::Encode for NSPoint {
+        const ENCODING: objc2::Encoding =
+            objc2::Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+
+    unsafe {
+        let app: *const AnyObject = msg_send![objc2::class!(NSApplication), sharedApplication];
+        if app.is_null() {
+            return;
+        }
+        let window: *const AnyObject = msg_send![app, keyWindow];
+        if window.is_null() {
+            return;
+        }
+        let point = NSPoint { x: 12.0, y: 10.0 };
+        let _: () = msg_send![window, setTrafficLightPosition: point];
+    }
+}
+
 /// Windows 11 圆角（Build 22000+），旧版静默忽略
 #[cfg(target_os = "windows")]
 pub fn enable_rounded_corners(title: &str) {

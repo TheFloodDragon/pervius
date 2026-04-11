@@ -110,6 +110,8 @@ where
                 content,
                 #[cfg(target_os = "windows")]
                 corners_set: false,
+                #[cfg(target_os = "macos")]
+                traffic_lights_set: false,
                 visible: false,
             }))
         }),
@@ -126,6 +128,9 @@ struct ShellApp {
     /// DWM 圆角是否已设置
     #[cfg(target_os = "windows")]
     corners_set: bool,
+    /// macOS 交通灯位置是否已设置
+    #[cfg(target_os = "macos")]
+    traffic_lights_set: bool,
     /// 窗口是否已显示
     visible: bool,
 }
@@ -144,6 +149,11 @@ impl eframe::App for ShellApp {
         if !self.corners_set {
             platform::enable_rounded_corners(&self.title);
             self.corners_set = true;
+        }
+        #[cfg(target_os = "macos")]
+        if !self.traffic_lights_set {
+            platform::set_traffic_lights();
+            self.traffic_lights_set = true;
         }
         // 保存完整窗口 rect（titlebar Panel 会缩小 max_rect）
         #[cfg(not(target_os = "macos"))]
