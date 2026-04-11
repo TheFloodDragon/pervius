@@ -30,7 +30,16 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/cache
+            ~/.cargo/registry/src
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -123,8 +132,6 @@ jobs:
             ```bash
             xattr -cr Pervius.app
             ```
-
-            或者右键 Pervius.app → 打开。
           files: ${{ matrix.asset_name }}
         if: matrix.os == 'windows-latest'
 
