@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: pervius.exe
+            asset_name: pervius-windows-x86_64.exe
+          - os: ubuntu-latest
+            artifact_name: pervius
+            asset_name: pervius-linux-x86_64
+          - os: macos-latest
+            artifact_name: pervius
+            asset_name: pervius-macos-aarch64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libwayland-cursor-dev \
+            libwayland-egl-backend-dev \
+            libasound2-dev
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Rename artifact
+        shell: bash
+        run: cp target/release/${{ matrix.artifact_name }} ${{ matrix.asset_name }}
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset_name }}
