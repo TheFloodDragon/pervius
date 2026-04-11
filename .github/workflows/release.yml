@@ -45,16 +45,25 @@ jobs:
       - name: Build
         run: cargo build --release
 
-      - name: Ad-hoc sign macOS binary
-        if: runner.os == 'macOS'
-        run: codesign --force --sign - target/release/${{ matrix.artifact_name }}
-
       - name: Create macOS .app bundle
         if: runner.os == 'macOS'
         run: |
-          mkdir -p Pervius.app/Contents/MacOS
+          # Convert .png to .icns
+          mkdir -p icon.iconset
+          sips -s format png -z 1024 1024 crates/egui-shell/icon.png --out icon.iconset/icon_512x512@2x.png
+          sips -s format png -z 512 512 crates/egui-shell/icon.png --out icon.iconset/icon_512x512.png
+          sips -s format png -z 256 256 crates/egui-shell/icon.png --out icon.iconset/icon_256x256@2x.png
+          sips -s format png -z 256 256 crates/egui-shell/icon.png --out icon.iconset/icon_256x256.png
+          sips -s format png -z 128 128 crates/egui-shell/icon.png --out icon.iconset/icon_128x128@2x.png
+          sips -s format png -z 128 128 crates/egui-shell/icon.png --out icon.iconset/icon_128x128.png
+          iconutil -c icns icon.iconset -o Pervius.icns
+
+          # Build .app bundle
+          mkdir -p Pervius.app/Contents/{MacOS,Resources}
           cp target/release/${{ matrix.artifact_name }} Pervius.app/Contents/MacOS/pervius
           chmod +x Pervius.app/Contents/MacOS/pervius
+          cp Pervius.icns Pervius.app/Contents/Resources/Pervius.icns
+
           cat > Pervius.app/Contents/Info.plist <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -74,6 +83,8 @@ jobs:
             <string>0.1.0</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
+            <key>CFBundleIconFile</key>
+            <string>Pervius</string>
             <key>CFBundleInfoDictionaryVersion</key>
             <string>6.0</string>
             <key>NSHighResolutionCapable</key>
@@ -81,7 +92,8 @@ jobs:
           </dict>
           </plist>
           EOF
-          codesign --force --sign - Pervius.app
+
+          codesign --deep --force --sign - --options runtime Pervius.app
 
       - name: Rename artifact
         shell: bash
@@ -95,4 +107,29 @@ jobs:
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
+          body: |
+            ## Download
+
+            | Platform | File |
+            |----------|------|
+            | Windows | `pervius-windows-x86_64.exe` |
+            | Linux | `pervius-linux-x86_64` |
+            | macOS | `Pervius-macos-aarch64.zip` |
+
+            ### macOS 首次运行
+
+            macOS Gatekeeper 会拦截未公证的应用，首次打开请执行：
+
+            ```bash
+            xattr -cr Pervius.app
+            ```
+
+            或者右键 Pervius.app → 打开。
           files: ${{ matrix.asset_name }}
+        if: matrix.os == 'windows-latest'
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset_name }}
+        if: matrix.os != 'windows-latest'
