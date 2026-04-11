@@ -55,6 +55,8 @@
 
 左侧资源树展示 JAR 内容，支持 `jar` `zip` `war` `ear`。键入即过滤（Speed Search），过滤计算在后台线程完成。修改状态实时标记，反编译状态实时可见。支持拖拽打开和最近文件列表。
 
+<img src="screenshots/5.png" width="600" alt="截图" />
+
 ### 导出
 
 - **导出 JAR**（`Ctrl+Shift+S`）— 修改写回 JAR，生成新归档
