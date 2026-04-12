@@ -100,6 +100,7 @@ impl Workspace {
         }
     }
 
+    #[allow(dead_code)]
     /// 获取加载中状态引用
     pub fn loading(&self) -> Option<&LoadingState> {
         match self {

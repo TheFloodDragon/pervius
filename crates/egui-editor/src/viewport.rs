@@ -7,9 +7,9 @@
 //! @author sky
 
 use crate::code_view::{
-    apply_scroll_delta, byte_offset_at_char, detect_edge_scroll, find_word_occurrences, hash_text,
-    line_number_width, paint_line_numbers, paint_word_highlights, rebuild_galley,
-    EditableLayoutCache, GUTTER_PAD, TEXT_PAD_LEFT,
+    apply_scroll_delta, byte_offset_at_char, code_text_edit, detect_edge_scroll,
+    extract_highlight_word, hash_text, line_number_width, paint_line_numbers,
+    paint_word_highlight_overlay, rebuild_galley, EditableLayoutCache, GUTTER_PAD, TEXT_PAD_LEFT,
 };
 use crate::highlight::Language;
 use crate::search::FindMatch;
@@ -237,8 +237,8 @@ pub(crate) fn code_view_editable_viewport(
         };
 
     let mut galley_y = 0.0f32;
-    let mut edge_scroll_delta = 0.0f32;
-    let mut wheel_delta = 0.0f32;
+    let mut edge_scroll_delta = egui::Vec2::ZERO;
+    let mut wheel_delta = egui::Vec2::ZERO;
     let mut changed = false;
     let mut new_cursor_char = cursor_char;
     let mut selection_secondary_global = cursor_char;
@@ -247,13 +247,8 @@ pub(crate) fn code_view_editable_viewport(
 
     ui.horizontal_top(|ui| {
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
-        let output = crate::code_view::code_text_edit(
-            &mut viewport_buf,
-            id,
-            code_font.clone(),
-            &mut layouter,
-        )
-        .show(ui);
+        let output =
+            code_text_edit(&mut viewport_buf, id, code_font.clone(), &mut layouter).show(ui);
         galley_y = output.galley_pos.y;
         out_galley = Some(output.galley.clone());
         out_galley_pos = output.galley_pos;
@@ -270,33 +265,19 @@ pub(crate) fn code_view_editable_viewport(
     });
     apply_scroll_delta(ui, edge_scroll_delta, wheel_delta);
 
-    // 释放 layouter 对 cache 的借用
-    drop(layouter);
-
     // 绘制选中同名高亮（跳过选区自身）
     // viewport 使用窗口本地偏移 + 窗口文本
     if let Some(g) = out_galley.as_ref() {
         let win_text =
             &viewport_buf.full_text[win_start_byte..win_end_byte.min(viewport_buf.full_text.len())];
-        let sel = if new_cursor_char != selection_secondary_global {
-            let (a, b) = if new_cursor_char < selection_secondary_global {
-                (new_cursor_char, selection_secondary_global)
-            } else {
-                (selection_secondary_global, new_cursor_char)
-            };
-            let sa = byte_offset_at_char(viewport_buf.full_text, a).saturating_sub(win_start_byte);
-            let sb = byte_offset_at_char(viewport_buf.full_text, b).saturating_sub(win_start_byte);
-            (sa, sb)
-        } else {
-            (0, 0)
-        };
-        paint_word_highlights(
+        paint_word_highlight_overlay(
             ui,
             g,
             out_galley_pos,
             win_text,
             &local_word_ranges,
-            sel,
+            new_cursor_char.saturating_sub(win_start_char),
+            selection_secondary_global.saturating_sub(win_start_char),
             theme.word_highlight_bg,
         );
     }
@@ -307,42 +288,8 @@ pub(crate) fn code_view_editable_viewport(
     drop(viewport_buf);
 
     // 选中同名字段高亮：从选区提取词，查找全文匹配
-    let new_word = if new_cursor_char != selection_secondary_global {
-        let (start_char, end_char) = if new_cursor_char < selection_secondary_global {
-            (new_cursor_char, selection_secondary_global)
-        } else {
-            (selection_secondary_global, new_cursor_char)
-        };
-        let sb = byte_offset_at_char(text, start_char);
-        let eb = byte_offset_at_char(text, end_char);
-        if sb < eb && eb <= text.len() {
-            let selected = &text[sb..eb];
-            if selected.len() >= 2
-                && selected.len() <= 100
-                && !selected.contains(char::is_whitespace)
-            {
-                Some(selected.to_string())
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    let prev_word = cache.as_ref().and_then(|c| c.highlight_word.clone());
-    if new_word != prev_word {
-        let new_ranges = new_word
-            .as_ref()
-            .map(|w| find_word_occurrences(text, w))
-            .unwrap_or_default();
-        if let Some(c) = cache.as_mut() {
-            c.highlight_word = new_word;
-            c.word_highlight_ranges = new_ranges;
-            c.word_gen = c.word_gen.wrapping_add(1);
-        }
-    }
+    let new_word = extract_highlight_word(text, new_cursor_char, selection_secondary_global);
+    EditableLayoutCache::update_highlight_word(cache, text, new_word);
 
     if let Some(c) = cache.as_mut() {
         c.viewport_cursor_char = new_cursor_char;

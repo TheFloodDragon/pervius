@@ -34,6 +34,7 @@ impl App {
         log::info!("Search index built: {count} classes");
     }
 
+    #[allow(dead_code)]
     /// 标记搜索索引需要重建
     pub(crate) fn invalidate_search_index(&mut self) {
         if let Workspace::Loaded(loaded) = &mut self.workspace {

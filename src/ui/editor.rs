@@ -12,4 +12,4 @@ mod viewer;
 
 pub use area::EditorArea;
 pub use tab::EditorTab;
-pub use viewer::{PendingNavigate, TabAction};
+pub use viewer::TabAction;

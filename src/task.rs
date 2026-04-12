@@ -57,6 +57,7 @@ impl<T> Pollable<T> for Task<T> {
     }
 }
 
+#[allow(dead_code)]
 /// 可取消的后台任务
 ///
 /// 闭包接收 `&AtomicBool` 取消标志，外部调用 `cancel()` 或
@@ -68,6 +69,7 @@ pub struct CancellableTask<T> {
     cancel: Arc<AtomicBool>,
 }
 
+#[allow(dead_code)]
 impl<T: Send + 'static> CancellableTask<T> {
     /// 在后台线程执行闭包（带取消标志），返回任务句柄
     pub fn spawn(f: impl FnOnce(&AtomicBool) -> T + Send + 'static) -> Self {

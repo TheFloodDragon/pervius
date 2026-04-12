@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+#[allow(dead_code)]
 /// 导航跳转的完整请求（App 层消费）
 pub struct NavigateRequest {
     /// 目标 entry_path（如 "com/example/MyClass.class"）
