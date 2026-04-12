@@ -277,6 +277,7 @@ pub fn editor_theme() -> egui_editor::CodeViewTheme {
         search_current_bg: verdigris_alpha(100),
         code_font_size: 13.0,
         line_highlight: verdigris_alpha(50),
+        word_highlight_bg: verdigris_alpha(80),
     }
 }
 

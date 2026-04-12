@@ -256,19 +256,21 @@ pub fn build_layout_job(
     job
 }
 
-/// 构建全文 LayoutJob：语法高亮 + 搜索匹配背景
+/// 构建全文 LayoutJob：语法高亮 + 搜索匹配背景 + 选中同名高亮
 ///
 /// `match_ranges` 为搜索匹配的字节偏移范围，`current_match` 为当前选中的匹配索引。
+/// `word_ranges` 为选中同名字段的字节偏移范围（优先级低于搜索匹配）。
 /// 无匹配时退化为 `build_layout_job`。
 pub fn build_layout_job_with_matches(
     source: &str,
     spans: &[Span],
     match_ranges: &[(usize, usize)],
     current_match: Option<usize>,
+    word_ranges: &[(usize, usize)],
     theme: &CodeViewTheme,
 ) -> LayoutJob {
     let font = egui::FontId::monospace(theme.code_font_size);
-    if match_ranges.is_empty() {
+    if match_ranges.is_empty() && word_ranges.is_empty() {
         return build_layout_job(source, spans, &font, &theme.syntax);
     }
     let mut breaks = std::collections::BTreeSet::new();
@@ -279,6 +281,10 @@ pub fn build_layout_job_with_matches(
         breaks.insert(snap_char(source, e));
     }
     for &(s, e) in match_ranges {
+        breaks.insert(snap_char(source, s));
+        breaks.insert(snap_char(source, e));
+    }
+    for &(s, e) in word_ranges {
         breaks.insert(snap_char(source, s));
         breaks.insert(snap_char(source, e));
     }
@@ -304,6 +310,7 @@ pub fn build_layout_job_with_matches(
             color,
             ..Default::default()
         };
+        // 搜索匹配优先级高于选中同名高亮
         if is_current {
             format.background = theme.search_current_bg;
         } else if match_idx.is_some() {

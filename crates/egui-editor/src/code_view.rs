@@ -27,6 +27,10 @@ pub struct LayoutCache {
     highlight_word: Option<String>,
     /// 选中同名字段高亮范围（字节偏移）
     word_highlight_ranges: Vec<(usize, usize)>,
+    /// 选中同名高亮版本号（word extraction 每次变更时递增）
+    word_gen: u64,
+    /// galley 构建时的高亮版本号（用于缓存命中判断）
+    galley_word_gen: u64,
     /// 缓存的 galley
     galley: Arc<egui::Galley>,
 }
@@ -70,6 +74,10 @@ pub struct EditableLayoutCache {
     pub(crate) highlight_word: Option<String>,
     /// 选中同名字段高亮范围（字节偏移）
     pub(crate) word_highlight_ranges: Vec<(usize, usize)>,
+    /// 选中同名高亮版本号（word extraction 每次变更时递增）
+    pub(crate) word_gen: u64,
+    /// galley 构建时的高亮版本号（用于缓存命中判断）
+    pub(crate) galley_word_gen: u64,
 }
 
 impl EditableLayoutCache {
@@ -131,6 +139,42 @@ pub(crate) fn find_word_occurrences(text: &str, word: &str) -> Vec<(usize, usize
     ranges
 }
 
+/// 选中同名字段高亮绘制（painter overlay，带垂直内缩避免行间重叠）
+///
+/// `selection_byte_range` 为当前选区的字节范围，该范围内的匹配不绘制。
+pub(crate) fn paint_word_highlights(
+    ui: &egui::Ui,
+    galley: &egui::Galley,
+    galley_pos: egui::Pos2,
+    text: &str,
+    word_ranges: &[(usize, usize)],
+    selection_byte_range: (usize, usize),
+    color: egui::Color32,
+) {
+    if word_ranges.is_empty() {
+        return;
+    }
+    let clip = ui.clip_rect();
+    let painter = ui.painter();
+    for &(sb, eb) in word_ranges {
+        // 跳过选区自身
+        if sb == selection_byte_range.0 && eb == selection_byte_range.1 {
+            continue;
+        }
+        let sc = text[..sb.min(text.len())].chars().count();
+        let ec = text[..eb.min(text.len())].chars().count();
+        let sr = galley.pos_from_cursor(egui::text::CCursor::new(sc));
+        let er = galley.pos_from_cursor(egui::text::CCursor::new(ec));
+        let rect = egui::Rect::from_min_max(
+            egui::pos2(galley_pos.x + sr.min.x, galley_pos.y + sr.min.y + 1.0),
+            egui::pos2(galley_pos.x + er.min.x, galley_pos.y + sr.max.y - 1.0),
+        );
+        if rect.intersects(clip) {
+            painter.rect_filled(rect, 0.0, color);
+        }
+    }
+}
+
 /// 行号栏右侧到文本的间距
 pub(crate) const GUTTER_PAD: f32 = 8.0;
 /// 行内左侧 padding
@@ -171,6 +215,7 @@ pub(crate) fn rebuild_galley(
     match_ranges: &[(usize, usize)],
     current_match: Option<usize>,
     word_ranges: &[(usize, usize)],
+    word_gen: u64,
     theme: &CodeViewTheme,
     cache: &mut Option<EditableLayoutCache>,
     is_viewport: bool,
@@ -178,18 +223,24 @@ pub(crate) fn rebuild_galley(
     viewport_window_start: usize,
 ) -> Option<Arc<egui::Galley>> {
     let mc = match_ranges.len();
-    let wc = word_ranges.len();
     // 缓存命中
     if let Some(c) = cache.as_ref() {
         if c.text_hash == text_hash
             && !c.stale
             && c.match_count == mc
             && c.current_match == current_match
-            && c.word_highlight_ranges.len() == wc
+            && c.galley_word_gen == word_gen
         {
             return Some(c.galley.clone());
         }
     }
+    // 保留旧缓存的 word 状态（word extraction 在 show() 之后更新，不能丢失）
+    let old_highlight_word = cache.as_ref().and_then(|c| c.highlight_word.clone());
+    let old_word_ranges = cache
+        .as_ref()
+        .map(|c| c.word_highlight_ranges.clone())
+        .unwrap_or_default();
+    let old_word_gen = cache.as_ref().map_or(0, |c| c.word_gen);
     // 全量重建
     let old = cache.take();
     let text_changed = old.as_ref().map_or(true, |c| c.text_hash != text_hash);
@@ -221,8 +272,10 @@ pub(crate) fn rebuild_galley(
         full_text_chars: 0,
         full_text_lines: 0,
         full_text_len: 0,
-        highlight_word: None,
-        word_highlight_ranges: word_ranges.to_vec(),
+        highlight_word: old_highlight_word,
+        word_highlight_ranges: old_word_ranges,
+        word_gen: old_word_gen,
+        galley_word_gen: word_gen,
     });
     Some(galley)
 }
@@ -263,37 +316,45 @@ pub fn code_view(
         .map(|c| c.word_highlight_ranges.clone())
         .unwrap_or_default();
     let word_ref = prev_word_ranges.as_slice();
+    let word_gen = cache.as_ref().map_or(0, |c| c.word_gen);
     // layouter: 语法高亮 + 搜索匹配背景 + 选中同名高亮（带缓存）
-    let mut layouter = |ui: &egui::Ui,
-                        text_buf: &dyn egui::TextBuffer,
-                        _wrap_width: f32|
-     -> Arc<egui::Galley> {
-        let mc = match_ref.len();
-        let wc = word_ref.len();
-        let cm = current;
-        if let Some(c) = cache.as_ref() {
-            if c.match_count == mc && c.current_match == cm && c.word_highlight_ranges.len() == wc {
-                return c.galley.clone();
+    let mut layouter =
+        |ui: &egui::Ui, text_buf: &dyn egui::TextBuffer, _wrap_width: f32| -> Arc<egui::Galley> {
+            let mc = match_ref.len();
+            let cm = current;
+            if let Some(c) = cache.as_ref() {
+                if c.match_count == mc && c.current_match == cm && c.galley_word_gen == word_gen {
+                    return c.galley.clone();
+                }
             }
-        }
-        let s = text_buf.as_str();
-        let job =
-            highlight::build_layout_job_with_matches(s, spans, match_ref, cm, word_ref, theme);
-        let galley = ui.fonts_mut(|f| f.layout_job(job));
-        *cache = Some(LayoutCache {
-            match_count: mc,
-            current_match: cm,
-            highlight_word: None,
-            word_highlight_ranges: word_ref.to_vec(),
-            galley: galley.clone(),
-        });
-        galley
-    };
+            let s = text_buf.as_str();
+            let job =
+                highlight::build_layout_job_with_matches(s, spans, match_ref, cm, word_ref, theme);
+            let galley = ui.fonts_mut(|f| f.layout_job(job));
+            let old_hw = cache.as_ref().and_then(|c| c.highlight_word.clone());
+            let old_wr = cache
+                .as_ref()
+                .map(|c| c.word_highlight_ranges.clone())
+                .unwrap_or_default();
+            let old_wg = cache.as_ref().map_or(0, |c| c.word_gen);
+            *cache = Some(LayoutCache {
+                match_count: mc,
+                current_match: cm,
+                highlight_word: old_hw,
+                word_highlight_ranges: old_wr,
+                word_gen: old_wg,
+                galley_word_gen: word_gen,
+                galley: galley.clone(),
+            });
+            galley
+        };
     let mut galley_y = 0.0f32;
     let mut edge_scroll_delta = 0.0f32;
     let mut wheel_delta = 0.0f32;
     let mut cursor_primary: usize = 0;
     let mut cursor_secondary: usize = 0;
+    let mut out_galley: Option<std::sync::Arc<egui::Galley>> = None;
+    let mut out_galley_pos = egui::Pos2::ZERO;
     // 滚动到指定行时记录触发时间
     let hl_time_id = id.with("__hl_time");
     let hl_line_id = id.with("__hl_line");
@@ -349,6 +410,8 @@ pub fn code_view(
         let mut buf: &str = text;
         let output = code_text_edit(&mut buf, id, code_font.clone(), &mut layouter).show(ui);
         galley_y = output.galley_pos.y;
+        out_galley = Some(output.galley.clone());
+        out_galley_pos = output.galley_pos;
         if let Some(cr) = output.cursor_range.as_ref() {
             cursor_primary = cr.primary.index;
             cursor_secondary = cr.secondary.index;
@@ -369,8 +432,30 @@ pub fn code_view(
             wheel_delta = wd;
         }
     });
-    // 释放 layouter 对 cache 的借用
+    // 释放 layouter 对 cache / word_ref 的借用
     drop(layouter);
+    // 绘制选中同名高亮（跳过选区自身）
+    if let Some(g) = out_galley.as_ref() {
+        let sel = if cursor_primary != cursor_secondary {
+            let (a, b) = if cursor_primary < cursor_secondary {
+                (cursor_primary, cursor_secondary)
+            } else {
+                (cursor_secondary, cursor_primary)
+            };
+            (byte_offset_at_char(text, a), byte_offset_at_char(text, b))
+        } else {
+            (0, 0)
+        };
+        paint_word_highlights(
+            ui,
+            g,
+            out_galley_pos,
+            text,
+            &prev_word_ranges,
+            sel,
+            theme.word_highlight_bg,
+        );
+    }
     // 选中同名字段高亮：提取选区文本，计算所有匹配范围写入缓存（下一帧生效）
     let new_word = extract_highlight_word(text, cursor_primary, cursor_secondary);
     let prev_word = cache.as_ref().and_then(|c| c.highlight_word.clone());
@@ -382,6 +467,7 @@ pub fn code_view(
         if let Some(c) = cache.as_mut() {
             c.highlight_word = new_word;
             c.word_highlight_ranges = new_ranges;
+            c.word_gen = c.word_gen.wrapping_add(1);
         }
     }
     apply_scroll_delta(ui, edge_scroll_delta, wheel_delta);
@@ -469,6 +555,7 @@ pub fn code_view_editable(
         .map(|c| c.word_highlight_ranges.clone())
         .unwrap_or_default();
     let word_ref = prev_word_ranges.as_slice();
+    let word_gen = cache.as_ref().map_or(0, |c| c.word_gen);
     // layouter: 语法高亮 + 搜索匹配背景 + 选中同名高亮（带缓存，避免每帧重建 LayoutJob 和重跑 tree-sitter）
     let mut layouter =
         |ui: &egui::Ui, text_buf: &dyn egui::TextBuffer, _wrap_width: f32| -> Arc<egui::Galley> {
@@ -505,7 +592,7 @@ pub fn code_view_editable(
                 }
             }
             rebuild_galley(
-                ui, s, th, lang, match_ref, current, word_ref, theme, cache, false, 0, 0,
+                ui, s, th, lang, match_ref, current, word_ref, word_gen, theme, cache, false, 0, 0,
             )
             .unwrap()
         };
@@ -515,6 +602,8 @@ pub fn code_view_editable(
     let mut changed = false;
     let mut cursor_primary: usize = 0;
     let mut cursor_secondary: usize = 0;
+    let mut out_galley: Option<std::sync::Arc<egui::Galley>> = None;
+    let mut out_galley_pos = egui::Pos2::ZERO;
     // 滚动到指定行时记录触发时间
     let hl_time_id = id.with("__hl_time");
     let hl_line_id = id.with("__hl_line");
@@ -570,6 +659,8 @@ pub fn code_view_editable(
         }
         let output = code_text_edit(text, id, code_font.clone(), &mut layouter).show(ui);
         galley_y = output.galley_pos.y;
+        out_galley = Some(output.galley.clone());
+        out_galley_pos = output.galley_pos;
         changed = output.response.changed();
         if let Some(cr) = output.cursor_range.as_ref() {
             cursor_primary = cr.primary.index;
@@ -591,8 +682,30 @@ pub fn code_view_editable(
             wheel_delta = wd;
         }
     });
-    // 释放 layouter 对 cache 的借用
+    // 释放 layouter 对 cache / word_ref 的借用
     drop(layouter);
+    // 绘制选中同名高亮（跳过选区自身）
+    if let Some(g) = out_galley.as_ref() {
+        let sel = if cursor_primary != cursor_secondary {
+            let (a, b) = if cursor_primary < cursor_secondary {
+                (cursor_primary, cursor_secondary)
+            } else {
+                (cursor_secondary, cursor_primary)
+            };
+            (byte_offset_at_char(text, a), byte_offset_at_char(text, b))
+        } else {
+            (0, 0)
+        };
+        paint_word_highlights(
+            ui,
+            g,
+            out_galley_pos,
+            text,
+            &prev_word_ranges,
+            sel,
+            theme.word_highlight_bg,
+        );
+    }
     // 选中同名字段高亮：提取选区文本，计算所有匹配范围写入缓存（下一帧生效）
     let new_word = extract_highlight_word(text, cursor_primary, cursor_secondary);
     let prev_word = cache.as_ref().and_then(|c| c.highlight_word.clone());
@@ -604,6 +717,7 @@ pub fn code_view_editable(
         if let Some(c) = cache.as_mut() {
             c.highlight_word = new_word;
             c.word_highlight_ranges = new_ranges;
+            c.word_gen = c.word_gen.wrapping_add(1);
         }
     }
     apply_scroll_delta(ui, edge_scroll_delta, wheel_delta);
