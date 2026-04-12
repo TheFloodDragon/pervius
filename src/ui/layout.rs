@@ -75,6 +75,7 @@ impl App {
         self.handle_dropped_files(ui.ctx());
         self.handle_pending_open();
         self.handle_pending_reveal();
+        self.handle_pending_navigation();
         self.poll_tasks();
         self.dispatch_keybinds(ui.ctx());
         self.render_panels(ui);
@@ -255,6 +256,11 @@ impl App {
                 .jar()
                 .map(|j| j.modified_paths().map(|s| s.to_string()).collect())
                 .unwrap_or_default();
+            let known_classes = self
+                .workspace
+                .loaded()
+                .map(|s| s.class_resolver.known_names().clone())
+                .unwrap_or_default();
             self.layout.editor.render(
                 &mut ui.new_child(
                     egui::UiBuilder::new()
@@ -262,6 +268,7 @@ impl App {
                         .max_rect(rect),
                 ),
                 &jar_modified,
+                &known_classes,
             );
         }
         egui_shell::components::widget::island::paint_corner_mask(ui, rect, &theme::ISLAND);

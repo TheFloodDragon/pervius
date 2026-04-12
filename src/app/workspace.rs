@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+use crate::app::navigate::ClassResolver;
 use crate::task::Task;
 use crate::ui::search::index::SearchIndex;
 use pervius_java_bridge::decompiler::DecompileTask;
@@ -47,6 +48,8 @@ pub(crate) struct LoadedState {
     pub search_index_progress: Option<Arc<AtomicU32>>,
     /// 搜索索引构建总数（class 文件数）
     pub search_index_total: u32,
+    /// 类名解析器（Shift+Click 导航用）
+    pub class_resolver: ClassResolver,
 }
 
 /// 反编译生命周期阶段
@@ -119,6 +122,8 @@ impl Workspace {
 impl LoadedState {
     /// 创建新的已加载状态
     pub fn new(jar: JarArchive, decompile: DecompilePhase) -> Self {
+        let paths = jar.paths();
+        let class_resolver = ClassResolver::build(&paths);
         Self {
             jar,
             decompile,
@@ -127,6 +132,7 @@ impl LoadedState {
             search_index_task: None,
             search_index_progress: None,
             search_index_total: 0,
+            class_resolver,
         }
     }
 }

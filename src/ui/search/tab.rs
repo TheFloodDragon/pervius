@@ -513,6 +513,7 @@ tabookit::class! {
                 &t,
                 &mut cache.layout_cache,
                 &mut hl_line,
+                None,
             );
         });
     }
