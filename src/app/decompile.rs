@@ -45,7 +45,9 @@ impl App {
             Some(Ok(())) => {
                 log::info!("Decompilation complete: {jar_name}");
                 let hash = loaded.jar.hash.as_str();
-                self.layout.editor.refresh_class_tabs(Some(hash));
+                self.layout
+                    .editor
+                    .refresh_class_tabs(Some(hash), &HashSet::new());
                 self.toasts
                     .info(t!("layout.decompile_complete", name = jar_name));
                 loaded.search_index = None;
@@ -122,6 +124,7 @@ impl App {
     /// 有 JAR 上下文时自动传入 `-e` 依赖解析；独立文件无上下文也能反编译。
     pub(super) fn decompile_class(&mut self, entry_path: &str, bytes: Vec<u8>, write_cache: bool) {
         let jar_path = self.workspace.jar().map(|j| j.path.clone());
+        let jar_name = self.workspace.jar().map(|j| j.name.clone());
         let hash = if write_cache {
             self.workspace.jar().map(|j| j.hash.clone())
         } else {
@@ -130,7 +133,13 @@ impl App {
         let class_path = entry_path.to_string();
         let cp = class_path.clone();
         let task = Task::spawn(move || {
-            decompiler::decompile_single_class(&bytes, &cp, jar_path.as_deref(), hash.as_deref())
+            decompiler::decompile_single_class(
+                &bytes,
+                &cp,
+                jar_path.as_deref(),
+                jar_name.as_deref(),
+                hash.as_deref(),
+            )
         });
         self.pending_decompiles.push((class_path, task));
     }

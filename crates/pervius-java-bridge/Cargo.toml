@@ -10,3 +10,5 @@ zip = "2"
 dirs = "6"
 ristretto_classfile = "0.30"
 tabookit = { path = "../tabookit" }
+serde = { version = "1", features = ["derive"] }
+toml = "1"

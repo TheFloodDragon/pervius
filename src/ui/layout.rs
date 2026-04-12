@@ -2,13 +2,15 @@
 //!
 //! @author sky
 
-use crate::app::workspace::Workspace;
-use crate::app::{App, ConfirmAction};
+use crate::app::workspace::{DecompilePhase, Workspace};
+use crate::app::{App, CacheDeleteResult, ConfirmAction};
 use crate::appearance::theme;
-use crate::settings::{self, Settings};
+use crate::settings::{self, Settings, SettingsAction, SettingsPanelState};
+use crate::task::{Poll, Pollable, Task};
 use eframe::egui;
 use egui_keybind::KeyMap;
 use egui_shell::components::{SettingsFile, SettingsPanel};
+use pervius_java_bridge::{decompiler, process};
 use rust_i18n::t;
 use std::sync::atomic::Ordering;
 
@@ -40,6 +42,8 @@ tabookit::class! {
         pub search: SearchDialog,
         /// 设置面板
         pub settings_panel: SettingsPanel<Settings>,
+        /// 设置面板附加状态
+        pub settings_state: SettingsPanelState,
         /// 快捷键映射
         keys: KeyMap<App>,
         /// Explorer 面板当前宽度（可拖拽调整）
@@ -52,12 +56,15 @@ tabookit::class! {
 
     pub fn new(settings: &Settings) -> Self {
         let keys = super::keybindings::build_keymap(&settings.keymap);
+        let mut settings_state = SettingsPanelState::default();
+        settings::refresh_cache_state(&mut settings_state);
         Self {
             file_panel: FilePanel::new(),
             editor: EditorArea::new(),
             status_bar: StatusBar::default(),
             search: SearchDialog::new(),
             settings_panel: settings::new_panel(),
+            settings_state,
             keys,
             explorer_width: theme::FILE_PANEL_WIDTH,
             explorer_visible: false,
@@ -96,6 +103,7 @@ impl App {
         self.poll_jar_decompile();
         self.poll_redecompile();
         self.poll_class_decompiles();
+        self.poll_cache_delete();
         self.poll_export_jar();
         self.poll_search_index();
         self.rebuild_search_index();
@@ -159,10 +167,17 @@ impl App {
                 self.layout.editor.focus_tab_at(&path, Some(req.line));
             }
         }
-        if let Some(new_settings) =
-            settings::show(&mut self.layout.settings_panel, ui.ctx(), shell_theme)
-        {
+        let output = settings::show(
+            &mut self.layout.settings_panel,
+            &mut self.layout.settings_state,
+            ui.ctx(),
+            shell_theme,
+        );
+        if let Some(new_settings) = output.settings {
             self.apply_settings(new_settings);
+        }
+        if let Some(action) = output.action {
+            self.handle_settings_action(action);
         }
         self.toasts.show(ui.ctx());
         if ui.input(|i| i.key_pressed(egui::Key::F12)) {
@@ -181,12 +196,118 @@ impl App {
             rust_i18n::set_locale(new_settings.language.code());
         }
         if new_settings.java.java_home != self.settings.java.java_home {
-            pervius_java_bridge::process::set_java_home(&new_settings.java.java_home);
+            process::set_java_home(&new_settings.java.java_home);
+        }
+        if new_settings.cache.decompiled_dir != self.settings.cache.decompiled_dir {
+            decompiler::set_cache_root(new_settings.cache.root_path());
+            settings::refresh_cache_state(&mut self.layout.settings_state);
+            self.sync_cache_state();
         }
         self.settings = new_settings;
         if let Err(e) = self.settings.save() {
             log::warn!("配置保存失败: {e}");
         }
+    }
+
+    fn handle_settings_action(&mut self, action: SettingsAction) {
+        if self.pending_cache_delete.is_some() {
+            return;
+        }
+        match action {
+            SettingsAction::DeleteCache { hash, label } => {
+                self.layout.settings_state.cache_busy = true;
+                self.pending_cache_delete = Some(Task::spawn(move || CacheDeleteResult::Single {
+                    deleted: decompiler::clear_cache_entry(&hash),
+                    hash,
+                    label,
+                }));
+            }
+            SettingsAction::DeleteAllCaches { count } => {
+                self.layout.settings_state.cache_busy = true;
+                self.pending_cache_delete = Some(Task::spawn(move || {
+                    decompiler::clear_all_cache();
+                    CacheDeleteResult::All { count }
+                }));
+            }
+        }
+    }
+
+    fn poll_cache_delete(&mut self) {
+        let Some(task) = &self.pending_cache_delete else {
+            return;
+        };
+        let result = match task.poll() {
+            Poll::Ready(result) => result,
+            Poll::Pending => return,
+            Poll::Lost => {
+                self.pending_cache_delete = None;
+                self.layout.settings_state.cache_busy = false;
+                self.toasts.error(t!("layout.cache_delete_task_failed"));
+                return;
+            }
+        };
+        self.pending_cache_delete = None;
+        self.layout.settings_state.cache_busy = false;
+        settings::refresh_cache_state(&mut self.layout.settings_state);
+        match result {
+            CacheDeleteResult::Single {
+                hash,
+                label,
+                deleted,
+            } => {
+                if deleted {
+                    self.toasts
+                        .info(t!("layout.cache_deleted", name = label.as_str()));
+                    if self
+                        .workspace
+                        .jar()
+                        .is_some_and(|jar| jar.hash == hash || jar.hash.starts_with(&hash))
+                    {
+                        self.sync_cache_state();
+                    }
+                } else {
+                    self.toasts
+                        .error(t!("layout.cache_delete_failed", name = label.as_str()));
+                }
+            }
+            CacheDeleteResult::All { count } => {
+                self.toasts
+                    .info(t!("layout.cache_deleted_all", count = count));
+                self.sync_cache_state();
+            }
+        }
+    }
+
+    fn sync_cache_state(&mut self) {
+        let Some(current_hash) = self.workspace.jar().map(|jar| jar.hash.clone()) else {
+            return;
+        };
+        let has_cache = decompiler::is_cached(&current_hash);
+        let modified_entries = self
+            .workspace
+            .jar()
+            .map(|jar| jar.modified_paths().map(|path| path.to_string()).collect())
+            .unwrap_or_default();
+        let Some(loaded) = self.workspace.loaded_mut() else {
+            return;
+        };
+        loaded.search_index = None;
+        loaded.search_index_task = None;
+        loaded.search_index_progress = None;
+        loaded.search_index_total = 0;
+        if !has_cache {
+            loaded.decompile = DecompilePhase::Pending;
+            loaded.pending_re_decompile = None;
+            self.layout
+                .editor
+                .refresh_class_tabs(None, &modified_entries);
+            return;
+        }
+        loaded.decompile = DecompilePhase::Done;
+        loaded.pending_re_decompile = None;
+        self.layout
+            .editor
+            .refresh_class_tabs(Some(&current_hash), &modified_entries);
     }
 
     /// 收集 egui_dock 渲染期间产生的 blocked_close 事件

@@ -3,6 +3,7 @@
 //! @author sky
 
 use crate::error::BridgeError;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
@@ -10,6 +11,14 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 
 use crate::process;
+
+/// 用户设置的反编译缓存根目录（优先于系统 cache_dir）
+static CUSTOM_CACHE_ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+/// 缓存完成标记文件名
+const CACHE_COMPLETE_MARKER: &str = ".complete";
+/// 缓存元数据文件名
+const CACHE_META_FILE: &str = ".pervius-cache.toml";
 
 /// 反编译进度（跨线程共享）
 pub struct DecompileProgress {
@@ -32,6 +41,39 @@ pub struct DecompileTask {
     child_pid: Arc<AtomicU32>,
 }
 
+/// 缓存目录元数据
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+struct CacheMeta {
+    /// JAR 文件名
+    pub jar_name: String,
+    /// JAR 绝对路径
+    pub jar_path: String,
+    /// 完整哈希
+    pub hash: String,
+    /// 已缓存的目录总大小（字节）
+    pub size_bytes: Option<u64>,
+}
+
+/// 缓存列表条目
+#[derive(Clone, Debug)]
+pub struct CacheEntry {
+    /// JAR 文件名
+    pub jar_name: String,
+    /// JAR 绝对路径
+    pub jar_path: String,
+    /// 完整哈希
+    pub hash: String,
+    /// 缓存目录路径
+    pub dir: PathBuf,
+    /// 最后修改时间（unix epoch 秒）
+    pub modified_at: u64,
+    /// 目录总大小（字节），旧缓存未知时为 None
+    pub size_bytes: Option<u64>,
+    /// 是否为完整缓存
+    pub complete: bool,
+}
+
 impl Drop for DecompileTask {
     fn drop(&mut self) {
         let pid = self.child_pid.load(Ordering::Relaxed);
@@ -52,6 +94,25 @@ pub fn vineflower_version() -> Option<String> {
     crate::jar_version("vineflower", &path)
 }
 
+/// 设置缓存根目录（空值表示回退到系统默认目录）
+pub fn set_cache_root(path: Option<&Path>) {
+    let mut lock = CUSTOM_CACHE_ROOT.lock().unwrap_or_else(|p| p.into_inner());
+    *lock = path.map(Path::to_path_buf);
+}
+
+/// 获取当前生效的缓存根目录
+pub fn current_cache_root() -> Result<PathBuf, BridgeError> {
+    let custom = CUSTOM_CACHE_ROOT
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    if let Some(path) = custom {
+        return Ok(path);
+    }
+    let base = dirs::cache_dir().ok_or(BridgeError::NoCacheDir)?;
+    Ok(base.join("pervius").join("decompiled"))
+}
+
 /// 定位 vineflower JAR
 ///
 /// 搜索顺序：exe 同目录 → 数据目录 → 释放内置 JAR
@@ -65,21 +126,19 @@ pub fn find_vineflower() -> Result<PathBuf, BridgeError> {
 
 /// 获取缓存根目录
 fn cache_root() -> Result<PathBuf, BridgeError> {
-    let base = dirs::cache_dir().ok_or(BridgeError::NoCacheDir)?;
-    Ok(base.join("pervius").join("decompiled"))
+    current_cache_root()
 }
 
 /// 获取指定 JAR 哈希的缓存目录
 pub fn cache_dir(hash: &str) -> Result<PathBuf, BridgeError> {
-    let prefix = &hash[..16.min(hash.len())];
-    Ok(cache_root()?.join(prefix))
+    Ok(cache_root()?.join(hash_prefix(hash)))
 }
 
 /// 检查缓存是否完整（存在 .complete 标记文件）
 pub fn is_cached(hash: &str) -> bool {
     cache_dir(hash)
         .ok()
-        .map(|d| d.join(".complete").exists())
+        .map(|d| d.join(CACHE_COMPLETE_MARKER).exists())
         .unwrap_or(false)
 }
 
@@ -88,6 +147,75 @@ pub fn clear_cache(hash: &str) {
     if let Ok(dir) = cache_dir(hash) {
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// 清除全部反编译缓存
+pub fn clear_all_cache() {
+    let Ok(entries) = list_cache_entries() else {
+        return;
+    };
+    for entry in entries {
+        let _ = std::fs::remove_dir_all(entry.dir);
+    }
+}
+
+/// 枚举当前缓存目录下的所有缓存
+pub fn list_cache_entries() -> Result<Vec<CacheEntry>, BridgeError> {
+    let root = cache_root()?;
+    if !root.exists() {
+        return Ok(Vec::new());
+    }
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(&root)? {
+        let entry = entry?;
+        let dir = entry.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        let meta = read_cache_meta(&dir).unwrap_or_default();
+        let complete = dir.join(CACHE_COMPLETE_MARKER).exists();
+        let hash = if meta.hash.is_empty() {
+            dir.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .to_string()
+        } else {
+            meta.hash.clone()
+        };
+        let jar_name = if meta.jar_name.is_empty() {
+            hash_prefix(&hash).to_string()
+        } else {
+            meta.jar_name.clone()
+        };
+        entries.push(CacheEntry {
+            jar_name,
+            jar_path: meta.jar_path,
+            hash,
+            dir,
+            modified_at: file_modified_at(&entry.path()),
+            size_bytes: meta.size_bytes,
+            complete,
+        });
+    }
+    entries.sort_by(|a, b| {
+        b.modified_at
+            .cmp(&a.modified_at)
+            .then_with(|| a.jar_name.cmp(&b.jar_name))
+    });
+    Ok(entries)
+}
+
+/// 根据完整 hash 删除指定缓存目录
+pub fn clear_cache_entry(hash: &str) -> bool {
+    let Ok(entries) = list_cache_entries() else {
+        return false;
+    };
+    let Some(entry) = entries.into_iter().find(|entry| {
+        entry.hash == hash || entry.dir.file_name().and_then(|name| name.to_str()) == Some(hash)
+    }) else {
+        return false;
+    };
+    std::fs::remove_dir_all(&entry.dir).is_ok()
 }
 
 /// 缓存查找结果
@@ -206,6 +334,81 @@ fn try_read_source(dir: &Path, base: &str) -> Option<CachedSource> {
     None
 }
 
+/// 递归统计缓存目录大小
+fn dir_size_bytes(dir: &Path) -> Result<u64, BridgeError> {
+    let mut size_bytes = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        for entry in std::fs::read_dir(&current)? {
+            let entry = entry?;
+            let path = entry.path();
+            let meta = entry.metadata()?;
+            if meta.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            size_bytes += meta.len();
+        }
+    }
+    Ok(size_bytes)
+}
+
+/// 读取缓存元数据
+fn read_cache_meta(dir: &Path) -> Option<CacheMeta> {
+    let path = dir.join(CACHE_META_FILE);
+    let content = std::fs::read_to_string(path).ok()?;
+    toml::from_str(&content).ok()
+}
+
+/// 写入缓存元数据
+fn write_cache_meta(output_dir: &Path, jar_path: &Path, jar_name: &str, hash: &str) {
+    let meta = CacheMeta {
+        jar_name: jar_name.to_string(),
+        jar_path: jar_path.to_string_lossy().into_owned(),
+        hash: hash.to_string(),
+        size_bytes: None,
+    };
+    write_cache_meta_file(output_dir, &meta);
+}
+
+/// 更新缓存目录的已统计大小
+fn write_cache_size(dir: &Path, size_bytes: u64) {
+    let mut meta = read_cache_meta(dir).unwrap_or_default();
+    meta.size_bytes = Some(size_bytes);
+    write_cache_meta_file(dir, &meta);
+}
+
+/// 刷新缓存目录大小并写回 metadata
+fn update_cache_size(dir: &Path) {
+    let Ok(size_bytes) = dir_size_bytes(dir) else {
+        return;
+    };
+    write_cache_size(dir, size_bytes);
+}
+
+/// 写入缓存元数据文件
+fn write_cache_meta_file(output_dir: &Path, meta: &CacheMeta) {
+    let Ok(content) = toml::to_string(&meta) else {
+        return;
+    };
+    let _ = std::fs::write(output_dir.join(CACHE_META_FILE), content);
+}
+
+/// 文件修改时间转 unix epoch 秒
+fn file_modified_at(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
+/// 显示用 hash 前缀
+fn hash_prefix(hash: &str) -> &str {
+    &hash[..16.min(hash.len())]
+}
+
 /// 将子进程管道转发到 channel（在独立线程中运行）
 fn pipe_to_channel(
     stream: impl std::io::Read + Send + 'static,
@@ -235,6 +438,7 @@ pub fn start(
     let vineflower = find_vineflower()?;
     let output_dir = cache_dir(hash)?;
     std::fs::create_dir_all(&output_dir)?;
+    write_cache_meta(&output_dir, jar_path, jar_name, hash);
     let progress = Arc::new(DecompileProgress {
         current: AtomicU32::new(0),
         total: AtomicU32::new(0),
@@ -321,7 +525,8 @@ fn run_vineflower(
         return Err(BridgeError::ExitCode(status.code()));
     }
     // 写入完成标记
-    let _ = std::fs::write(output_dir.join(".complete"), "");
+    let _ = std::fs::write(output_dir.join(CACHE_COMPLETE_MARKER), "");
+    update_cache_size(output_dir);
     Ok(())
 }
 
@@ -375,6 +580,7 @@ pub fn decompile_single_class(
     bytes: &[u8],
     class_path: &str,
     jar_path: Option<&Path>,
+    jar_name: Option<&str>,
     cache_hash: Option<&str>,
 ) -> Result<CachedSource, BridgeError> {
     let vineflower = find_vineflower()?;
@@ -410,6 +616,14 @@ pub fn decompile_single_class(
         std::fs::create_dir_all(parent)?;
     }
     std::fs::create_dir_all(&output_guard.path)?;
+    if let Some(h) = cache_hash {
+        write_cache_meta(
+            &output_guard.path,
+            jar_path.unwrap_or_else(|| Path::new("")),
+            jar_name.unwrap_or(class_path),
+            h,
+        );
+    }
     std::fs::write(&class_file, bytes)?;
     let mut cmd = process::JavaCommand::new(&vineflower)?;
     cmd.arg("--bytecode-source-mapping=1")
@@ -425,5 +639,9 @@ pub fn decompile_single_class(
         return Err(BridgeError::ProcessFailed(stderr.into_owned()));
     }
     let base = class_to_base_path(effective_path);
-    try_read_source(&output_guard.path, base).ok_or(BridgeError::NoOutput)
+    let cached = try_read_source(&output_guard.path, base).ok_or(BridgeError::NoOutput)?;
+    if cache_hash.is_some() {
+        update_cache_size(&output_guard.path);
+    }
+    Ok(cached)
 }

@@ -2853,8 +2853,10 @@ dependencies = [
  "dirs",
  "log",
  "ristretto_classfile",
+ "serde",
  "sha2",
  "tabookit",
+ "toml 1.1.2+spec-1.1.0",
  "zip",
 ]
 

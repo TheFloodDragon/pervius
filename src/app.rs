@@ -24,6 +24,17 @@ use workspace::Workspace;
 
 pub(crate) use export::ExportingState;
 
+pub(crate) enum CacheDeleteResult {
+    Single {
+        hash: String,
+        label: String,
+        deleted: bool,
+    },
+    All {
+        count: usize,
+    },
+}
+
 /// 应用核心业务状态
 pub struct App {
     /// UI 布局状态
@@ -38,6 +49,8 @@ pub struct App {
     pub(crate) workspace: Workspace,
     /// 单文件反编译结果队列（支持并发，独立文件不依赖 JAR）
     pub(crate) pending_decompiles: Vec<(String, Task<Result<CachedSource, BridgeError>>)>,
+    /// 后台缓存删除任务
+    pub(crate) pending_cache_delete: Option<Task<CacheDeleteResult>>,
     /// 后台 JAR 导出任务（快照已取，可跨 JAR 切换存活）
     pub(crate) exporting: Option<ExportingState>,
 }
@@ -47,6 +60,7 @@ impl App {
         let settings = Settings::load();
         // 传递用户配置的 java_home 给 bridge 层
         pervius_java_bridge::process::set_java_home(&settings.java.java_home);
+        pervius_java_bridge::decompiler::set_cache_root(settings.cache.root_path());
         Self {
             layout: Layout::new(&settings),
             settings,
@@ -54,12 +68,14 @@ impl App {
             pending_confirm: None,
             workspace: Workspace::Empty,
             pending_decompiles: Vec::new(),
+            pending_cache_delete: None,
             exporting: None,
         }
     }
 
     /// 打开设置对话框
     pub fn open_settings(&mut self) {
+        crate::settings::refresh_cache_state(&mut self.layout.settings_state);
         self.layout.settings_panel.open(&self.settings);
     }
 }

@@ -290,12 +290,25 @@ tabookit::class! {
     }
 
     /// 反编译完成后，刷新所有已打开的 .class tab 的源码
-    pub fn refresh_class_tabs(&mut self, jar_hash: Option<&str>) {
-        let hash = tabookit::or!(jar_hash, return);
+    pub fn refresh_class_tabs(&mut self, jar_hash: Option<&str>, skip_entries: &HashSet<String>) {
         for (_, tab) in self.dock_state.iter_all_tabs_mut() {
             let entry = match &tab.entry_path {
                 Some(p) if p.ends_with(".class") => p.clone(),
                 _ => continue,
+            };
+            if skip_entries.contains(&entry) {
+                continue;
+            }
+            let Some(hash) = jar_hash else {
+                tab.set_decompiled(
+                    t!("editor.decompiler_placeholder").to_string(),
+                    egui_editor::Language::Java,
+                    Vec::new(),
+                );
+                if tab.active_view == ActiveView::Decompiled {
+                    tab.active_view = ActiveView::Hex;
+                }
+                continue;
             };
             if let Some(cached) = decompiler::cached_source(hash, &entry) {
                 let lang = if cached.is_kotlin {
@@ -306,6 +319,15 @@ tabookit::class! {
                 tab.set_decompiled(cached.source, lang, cached.line_mapping);
                 if tab.active_view == ActiveView::Hex {
                     tab.active_view = ActiveView::Decompiled;
+                }
+            } else {
+                tab.set_decompiled(
+                    t!("editor.decompiler_placeholder").to_string(),
+                    egui_editor::Language::Java,
+                    Vec::new(),
+                );
+                if tab.active_view == ActiveView::Decompiled {
+                    tab.active_view = ActiveView::Hex;
                 }
             }
         }
