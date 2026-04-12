@@ -45,6 +45,10 @@
 
 <img src="screenshots/4.png" width="600" alt="截图" />
 
+### 代码导航
+
+`Ctrl+Click`（macOS `Cmd+Click`）跳转到类、方法、字段的定义。支持 import 解析、同包推断和通配符匹配。在方法声明处 `Ctrl+Click` 触发 Find Usages，自动搜索所有引用。
+
 ### 全局搜索
 
 `Double Shift` 打开搜索面板，覆盖所有反编译源码，支持正则和大小写敏感。结果流式返回，按类分组，行级高亮预览，双击跳转。反编译完成后后台自动建索引，不阻塞 UI。
@@ -97,6 +101,7 @@ cargo run --release
 | `Ctrl+S` | 保存 |
 | `Ctrl+F` | 查找 |
 | `Double Shift` | 全局搜索 |
+| `Ctrl+Click` | 跳转到定义 / Find Usages |
 | `Tab` | 切换视图 |
 | `Alt+1` | 切换资源树 |
 | `Ctrl+Shift+S` | 导出 JAR |
