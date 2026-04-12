@@ -7,8 +7,9 @@
 //! @author sky
 
 use crate::code_view::{
-    apply_scroll_delta, byte_offset_at_char, detect_edge_scroll, hash_text, line_number_width,
-    paint_line_numbers, rebuild_galley, EditableLayoutCache, GUTTER_PAD, TEXT_PAD_LEFT,
+    apply_scroll_delta, byte_offset_at_char, detect_edge_scroll, find_word_occurrences, hash_text,
+    line_number_width, paint_line_numbers, rebuild_galley, EditableLayoutCache, GUTTER_PAD,
+    TEXT_PAD_LEFT,
 };
 use crate::highlight::Language;
 use crate::search::FindMatch;
@@ -187,6 +188,24 @@ pub(crate) fn code_view_editable_viewport(
         local_matches.iter().position(|lm| lm.0 == ls && lm.1 == le)
     });
 
+    // 选中同名高亮映射到窗口本地字节偏移
+    let local_word_ranges: Vec<(usize, usize)> = cache
+        .as_ref()
+        .map(|c| &c.word_highlight_ranges)
+        .unwrap_or(&Vec::new())
+        .iter()
+        .filter_map(|&(s, e)| {
+            if e <= win_start_byte || s >= win_end_byte {
+                return None;
+            }
+            Some((
+                s.saturating_sub(win_start_byte),
+                e.min(win_end_byte) - win_start_byte,
+            ))
+        })
+        .collect();
+    let word_ref = local_word_ranges.as_slice();
+
     let mut viewport_buf = ViewportTextBuffer {
         full_text: text,
         window_start_byte: win_start_byte,
@@ -205,6 +224,7 @@ pub(crate) fn code_view_editable_viewport(
                 lang,
                 match_ref,
                 local_current,
+                word_ref,
                 theme,
                 cache,
                 true,
@@ -215,14 +235,13 @@ pub(crate) fn code_view_editable_viewport(
         };
 
     let mut galley_y = 0.0f32;
-    let mut x_origin = 0.0f32;
     let mut edge_scroll_delta = 0.0f32;
     let mut wheel_delta = 0.0f32;
     let mut changed = false;
     let mut new_cursor_char = cursor_char;
+    let mut selection_secondary_global = cursor_char;
 
     ui.horizontal_top(|ui| {
-        x_origin = ui.cursor().left();
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
         let output = crate::code_view::code_text_edit(
             &mut viewport_buf,
@@ -235,6 +254,7 @@ pub(crate) fn code_view_editable_viewport(
         changed = output.response.changed();
         if let Some(cr) = output.cursor_range {
             new_cursor_char = cr.primary.index + win_start_char;
+            selection_secondary_global = cr.secondary.index + win_start_char;
         }
         if output.response.dragged() {
             let (ed, wd) = detect_edge_scroll(&output.response, ui);
@@ -247,8 +267,48 @@ pub(crate) fn code_view_editable_viewport(
     // 释放 layouter 对 cache 的借用
     drop(layouter);
 
-    // 编辑后检查是否仍需视窗模式
+    // 编辑后检查是否仍需视窗模式（viewport_buf 的最后一次使用）
     let is_still_viewport = !changed || viewport_buf.full_text.len() > VIEWPORT_TEXT_LEN;
+    // 释放 viewport_buf 对 text 的借用
+    drop(viewport_buf);
+
+    // 选中同名字段高亮：从选区提取词，查找全文匹配
+    let new_word = if new_cursor_char != selection_secondary_global {
+        let (start_char, end_char) = if new_cursor_char < selection_secondary_global {
+            (new_cursor_char, selection_secondary_global)
+        } else {
+            (selection_secondary_global, new_cursor_char)
+        };
+        let sb = byte_offset_at_char(text, start_char);
+        let eb = byte_offset_at_char(text, end_char);
+        if sb < eb && eb <= text.len() {
+            let selected = &text[sb..eb];
+            if selected.len() >= 2
+                && selected.len() <= 100
+                && !selected.contains(char::is_whitespace)
+            {
+                Some(selected.to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let prev_word = cache.as_ref().and_then(|c| c.highlight_word.clone());
+    if new_word != prev_word {
+        let new_ranges = new_word
+            .as_ref()
+            .map(|w| find_word_occurrences(text, w))
+            .unwrap_or_default();
+        if let Some(c) = cache.as_mut() {
+            c.highlight_word = new_word;
+            c.word_highlight_ranges = new_ranges;
+        }
+    }
+
     if let Some(c) = cache.as_mut() {
         c.viewport_cursor_char = new_cursor_char;
         c.viewport_window_start = win_start_char;
@@ -288,7 +348,6 @@ pub(crate) fn code_view_editable_viewport(
         gutter_w,
         &code_font,
         theme,
-        x_origin,
     );
     paint_viewport_indicator(ui, win_start_char, win_end_char, total_chars, theme);
     changed

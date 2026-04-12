@@ -17,12 +17,16 @@ use std::sync::Arc;
 
 /// 只读视图布局缓存
 ///
-/// 文本和 span 在只读模式下不变，仅搜索状态变化触发重建。
+/// 文本和 span 在只读模式下不变，仅搜索状态或选中高亮变化触发重建。
 pub struct LayoutCache {
     /// 搜索匹配数
     match_count: usize,
     /// 当前高亮的匹配索引
     current_match: Option<usize>,
+    /// 上一帧选中的高亮词（用于缓存命中判断）
+    highlight_word: Option<String>,
+    /// 选中同名字段高亮范围（字节偏移）
+    word_highlight_ranges: Vec<(usize, usize)>,
     /// 缓存的 galley
     galley: Arc<egui::Galley>,
 }
@@ -62,6 +66,10 @@ pub struct EditableLayoutCache {
     pub(crate) full_text_lines: usize,
     /// 全文字节数缓存（用于检测文本变更后刷新 chars/lines）
     pub(crate) full_text_len: usize,
+    /// 上一帧选中的高亮词
+    pub(crate) highlight_word: Option<String>,
+    /// 选中同名字段高亮范围（字节偏移）
+    pub(crate) word_highlight_ranges: Vec<(usize, usize)>,
 }
 
 impl EditableLayoutCache {
@@ -83,6 +91,44 @@ pub(crate) fn byte_offset_at_char(s: &str, char_offset: usize) -> usize {
     s.char_indices()
         .nth(char_offset)
         .map_or(s.len(), |(i, _)| i)
+}
+
+/// 从选区提取高亮词
+///
+/// `primary` 和 `secondary` 为选区两端的字符偏移（非字节偏移）。
+/// 选中文本须满足：2~100 字节、不含空白。
+fn extract_highlight_word(text: &str, primary: usize, secondary: usize) -> Option<String> {
+    if primary == secondary {
+        return None;
+    }
+    let (start_char, end_char) = if primary < secondary {
+        (primary, secondary)
+    } else {
+        (secondary, primary)
+    };
+    let start_byte = byte_offset_at_char(text, start_char);
+    let end_byte = byte_offset_at_char(text, end_char);
+    if start_byte >= end_byte || end_byte > text.len() {
+        return None;
+    }
+    let selected = &text[start_byte..end_byte];
+    if selected.len() < 2 || selected.len() > 100 || selected.contains(char::is_whitespace) {
+        return None;
+    }
+    Some(selected.to_string())
+}
+
+/// 查找文本中所有匹配的字节偏移范围
+pub(crate) fn find_word_occurrences(text: &str, word: &str) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let word_len = word.len();
+    let mut start = 0;
+    while let Some(pos) = text[start..].find(word) {
+        let abs_pos = start + pos;
+        ranges.push((abs_pos, abs_pos + word_len));
+        start = abs_pos + word_len;
+    }
+    ranges
 }
 
 /// 行号栏右侧到文本的间距
@@ -124,6 +170,7 @@ pub(crate) fn rebuild_galley(
     lang: Language,
     match_ranges: &[(usize, usize)],
     current_match: Option<usize>,
+    word_ranges: &[(usize, usize)],
     theme: &CodeViewTheme,
     cache: &mut Option<EditableLayoutCache>,
     is_viewport: bool,
@@ -131,12 +178,14 @@ pub(crate) fn rebuild_galley(
     viewport_window_start: usize,
 ) -> Option<Arc<egui::Galley>> {
     let mc = match_ranges.len();
+    let wc = word_ranges.len();
     // 缓存命中
     if let Some(c) = cache.as_ref() {
         if c.text_hash == text_hash
             && !c.stale
             && c.match_count == mc
             && c.current_match == current_match
+            && c.word_highlight_ranges.len() == wc
         {
             return Some(c.galley.clone());
         }
@@ -149,8 +198,14 @@ pub(crate) fn rebuild_galley(
     } else {
         old.unwrap().spans
     };
-    let job =
-        highlight::build_layout_job_with_matches(text, &spans, match_ranges, current_match, theme);
+    let job = highlight::build_layout_job_with_matches(
+        text,
+        &spans,
+        match_ranges,
+        current_match,
+        word_ranges,
+        theme,
+    );
     let galley = ui.fonts_mut(|f| f.layout_job(job));
     *cache = Some(EditableLayoutCache {
         text_hash,
@@ -166,6 +221,8 @@ pub(crate) fn rebuild_galley(
         full_text_chars: 0,
         full_text_lines: 0,
         full_text_len: 0,
+        highlight_word: None,
+        word_highlight_ranges: word_ranges.to_vec(),
     });
     Some(galley)
 }
@@ -200,30 +257,43 @@ pub fn code_view(
     let code_font = egui::FontId::monospace(theme.code_font_size);
     let match_ranges: Vec<(usize, usize)> = matches.iter().map(|m| (m.start, m.end)).collect();
     let match_ref = match_ranges.as_slice();
-    // layouter: 语法高亮 + 搜索匹配背景（带缓存）
-    let mut layouter =
-        |ui: &egui::Ui, text_buf: &dyn egui::TextBuffer, _wrap_width: f32| -> Arc<egui::Galley> {
-            let mc = match_ref.len();
-            let cm = current;
-            if let Some(c) = cache.as_ref() {
-                if c.match_count == mc && c.current_match == cm {
-                    return c.galley.clone();
-                }
+    // 上一帧的选中同名高亮范围（一帧延迟，在 immediate-mode 下不可感知）
+    let prev_word_ranges: Vec<(usize, usize)> = cache
+        .as_ref()
+        .map(|c| c.word_highlight_ranges.clone())
+        .unwrap_or_default();
+    let word_ref = prev_word_ranges.as_slice();
+    // layouter: 语法高亮 + 搜索匹配背景 + 选中同名高亮（带缓存）
+    let mut layouter = |ui: &egui::Ui,
+                        text_buf: &dyn egui::TextBuffer,
+                        _wrap_width: f32|
+     -> Arc<egui::Galley> {
+        let mc = match_ref.len();
+        let wc = word_ref.len();
+        let cm = current;
+        if let Some(c) = cache.as_ref() {
+            if c.match_count == mc && c.current_match == cm && c.word_highlight_ranges.len() == wc {
+                return c.galley.clone();
             }
-            let s = text_buf.as_str();
-            let job = highlight::build_layout_job_with_matches(s, spans, match_ref, cm, theme);
-            let galley = ui.fonts_mut(|f| f.layout_job(job));
-            *cache = Some(LayoutCache {
-                match_count: mc,
-                current_match: cm,
-                galley: galley.clone(),
-            });
-            galley
-        };
+        }
+        let s = text_buf.as_str();
+        let job =
+            highlight::build_layout_job_with_matches(s, spans, match_ref, cm, word_ref, theme);
+        let galley = ui.fonts_mut(|f| f.layout_job(job));
+        *cache = Some(LayoutCache {
+            match_count: mc,
+            current_match: cm,
+            highlight_word: None,
+            word_highlight_ranges: word_ref.to_vec(),
+            galley: galley.clone(),
+        });
+        galley
+    };
     let mut galley_y = 0.0f32;
-    let mut x_origin = 0.0f32;
     let mut edge_scroll_delta = 0.0f32;
     let mut wheel_delta = 0.0f32;
+    let mut cursor_primary: usize = 0;
+    let mut cursor_secondary: usize = 0;
     // 滚动到指定行时记录触发时间
     let hl_time_id = id.with("__hl_time");
     let hl_line_id = id.with("__hl_line");
@@ -236,7 +306,6 @@ pub fn code_view(
         });
     }
     ui.horizontal_top(|ui| {
-        x_origin = ui.cursor().left();
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
         const HOLD: f64 = 0.5;
         const FADE: f64 = 0.8;
@@ -280,6 +349,10 @@ pub fn code_view(
         let mut buf: &str = text;
         let output = code_text_edit(&mut buf, id, code_font.clone(), &mut layouter).show(ui);
         galley_y = output.galley_pos.y;
+        if let Some(cr) = output.cursor_range.as_ref() {
+            cursor_primary = cr.primary.index;
+            cursor_secondary = cr.secondary.index;
+        }
         // 滚动到指定行
         if let Some(line) = scroll_to_line.take() {
             let row_h = output.galley.size().y / line_count.max(1) as f32;
@@ -296,6 +369,21 @@ pub fn code_view(
             wheel_delta = wd;
         }
     });
+    // 释放 layouter 对 cache 的借用
+    drop(layouter);
+    // 选中同名字段高亮：提取选区文本，计算所有匹配范围写入缓存（下一帧生效）
+    let new_word = extract_highlight_word(text, cursor_primary, cursor_secondary);
+    let prev_word = cache.as_ref().and_then(|c| c.highlight_word.clone());
+    if new_word != prev_word {
+        let new_ranges = new_word
+            .as_ref()
+            .map(|w| find_word_occurrences(text, w))
+            .unwrap_or_default();
+        if let Some(c) = cache.as_mut() {
+            c.highlight_word = new_word;
+            c.word_highlight_ranges = new_ranges;
+        }
+    }
     apply_scroll_delta(ui, edge_scroll_delta, wheel_delta);
     paint_line_numbers(
         ui,
@@ -305,7 +393,6 @@ pub fn code_view(
         gutter_w,
         &code_font,
         theme,
-        x_origin,
     );
 }
 
@@ -376,7 +463,13 @@ pub fn code_view_editable(
     let code_font = egui::FontId::monospace(theme.code_font_size);
     let match_ranges: Vec<(usize, usize)> = matches.iter().map(|m| (m.start, m.end)).collect();
     let match_ref = match_ranges.as_slice();
-    // layouter: 语法高亮 + 搜索匹配背景（带缓存，避免每帧重建 LayoutJob 和重跑 tree-sitter）
+    // 上一帧的选中同名高亮范围
+    let prev_word_ranges: Vec<(usize, usize)> = cache
+        .as_ref()
+        .map(|c| c.word_highlight_ranges.clone())
+        .unwrap_or_default();
+    let word_ref = prev_word_ranges.as_slice();
+    // layouter: 语法高亮 + 搜索匹配背景 + 选中同名高亮（带缓存，避免每帧重建 LayoutJob 和重跑 tree-sitter）
     let mut layouter =
         |ui: &egui::Ui, text_buf: &dyn egui::TextBuffer, _wrap_width: f32| -> Arc<egui::Galley> {
             let s = text_buf.as_str();
@@ -412,15 +505,16 @@ pub fn code_view_editable(
                 }
             }
             rebuild_galley(
-                ui, s, th, lang, match_ref, current, theme, cache, false, 0, 0,
+                ui, s, th, lang, match_ref, current, word_ref, theme, cache, false, 0, 0,
             )
             .unwrap()
         };
     let mut galley_y = 0.0f32;
-    let mut x_origin = 0.0f32;
     let mut edge_scroll_delta = 0.0f32;
     let mut wheel_delta = 0.0f32;
     let mut changed = false;
+    let mut cursor_primary: usize = 0;
+    let mut cursor_secondary: usize = 0;
     // 滚动到指定行时记录触发时间
     let hl_time_id = id.with("__hl_time");
     let hl_line_id = id.with("__hl_line");
@@ -433,7 +527,6 @@ pub fn code_view_editable(
         });
     }
     ui.horizontal_top(|ui| {
-        x_origin = ui.cursor().left();
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
         // 行高亮动画（TextEdit 之前绘制，避免遮盖文字）
         const HOLD: f64 = 0.5;
@@ -478,6 +571,10 @@ pub fn code_view_editable(
         let output = code_text_edit(text, id, code_font.clone(), &mut layouter).show(ui);
         galley_y = output.galley_pos.y;
         changed = output.response.changed();
+        if let Some(cr) = output.cursor_range.as_ref() {
+            cursor_primary = cr.primary.index;
+            cursor_secondary = cr.secondary.index;
+        }
         // 滚动到指定行
         if let Some(line) = scroll_to_line.take() {
             let row_h = output.galley.size().y / line_count.max(1) as f32;
@@ -494,6 +591,21 @@ pub fn code_view_editable(
             wheel_delta = wd;
         }
     });
+    // 释放 layouter 对 cache 的借用
+    drop(layouter);
+    // 选中同名字段高亮：提取选区文本，计算所有匹配范围写入缓存（下一帧生效）
+    let new_word = extract_highlight_word(text, cursor_primary, cursor_secondary);
+    let prev_word = cache.as_ref().and_then(|c| c.highlight_word.clone());
+    if new_word != prev_word {
+        let new_ranges = new_word
+            .as_ref()
+            .map(|w| find_word_occurrences(text, w))
+            .unwrap_or_default();
+        if let Some(c) = cache.as_mut() {
+            c.highlight_word = new_word;
+            c.word_highlight_ranges = new_ranges;
+        }
+    }
     apply_scroll_delta(ui, edge_scroll_delta, wheel_delta);
     let line_count_now = text.split('\n').count().max(1);
     paint_line_numbers(
@@ -504,15 +616,15 @@ pub fn code_view_editable(
         gutter_w,
         &code_font,
         theme,
-        x_origin,
     );
     changed
 }
 
 /// 行号 overlay
 ///
-/// `x_origin` 是行号区域的左边缘绝对 X 坐标（从 `horizontal_top` 内部捕获），
-/// 不依赖 `clip_rect().left()` 以兼容嵌套 ScrollArea 等场景。
+/// 始终在 `clip_rect().left()` 处绘制行号区域，
+/// 使 gutter 在水平滚动时保持固定（sticky），
+/// 同时遮盖滚入行号区域的文本内容。
 pub(crate) fn paint_line_numbers(
     ui: &egui::Ui,
     galley_y: f32,
@@ -521,10 +633,10 @@ pub(crate) fn paint_line_numbers(
     gutter_w: f32,
     font: &egui::FontId,
     theme: &CodeViewTheme,
-    x_origin: f32,
 ) {
     let clip = ui.clip_rect();
     let painter = ui.painter();
+    let x_left = clip.left();
     let measure = painter.layout_no_wrap("M".to_string(), font.clone(), egui::Color32::WHITE);
     let line_height = measure.size().y;
     // 行号区背景（仅覆盖实际行区域，不扩展到整个 clip 高度；
@@ -535,14 +647,14 @@ pub(crate) fn paint_line_numbers(
     if gutter_bottom > gutter_top {
         painter.rect_filled(
             egui::Rect::from_min_max(
-                egui::pos2(x_origin, gutter_top),
-                egui::pos2(x_origin + gutter_w + GUTTER_PAD, gutter_bottom),
+                egui::pos2(x_left, gutter_top),
+                egui::pos2(x_left + gutter_w + GUTTER_PAD, gutter_bottom),
             ),
             0.0,
             theme.gutter_bg,
         );
     }
-    let gutter_right_x = x_origin + gutter_w;
+    let gutter_right_x = x_left + gutter_w;
     let first = ((clip.top() - galley_y) / line_height).max(0.0) as usize;
     let last = ((clip.bottom() - galley_y) / line_height + 1.0)
         .ceil()
