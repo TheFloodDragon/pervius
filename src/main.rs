@@ -19,6 +19,11 @@ fn main() -> eframe::Result {
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Debug)
         .init();
+    // 命令行参数：第一个参数为初始打开的 JAR 路径（新窗口模式使用）
+    let initial_jar = std::env::args()
+        .nth(1)
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.exists());
     // 从持久化配置中读取语言并设置 locale
     let saved_settings = settings::Settings::load_for_locale();
     rust_i18n::set_locale(saved_settings.language.code());
@@ -41,7 +46,13 @@ fn main() -> eframe::Result {
             window: appearance::theme::window_config(),
         },
     };
-    appearance::run(options, |_cc| Box::new(PervApp { app: App::new() }))
+    appearance::run(options, move |_cc| {
+        let mut app = App::new();
+        if let Some(ref path) = initial_jar {
+            app.open_jar(path);
+        }
+        Box::new(PervApp { app })
+    })
 }
 
 struct PervApp {

@@ -7,8 +7,9 @@
 use super::editor::TabAction;
 use crate::app::App;
 use crate::appearance::theme;
+use crate::settings::OpenBehavior;
 use eframe::egui;
-use egui_shell::components::{ConfirmDialog, ConfirmResult};
+use egui_shell::components::{ConfirmDialog, ConfirmResult, FlatButton};
 use rust_i18n::t;
 use std::path::PathBuf;
 
@@ -24,6 +25,8 @@ pub enum ConfirmAction {
     TabClose(TabAction),
     /// 大 JAR 全量反编译确认
     DecompileAll,
+    /// 选择在哪个窗口打开 JAR（Ask 模式）
+    OpenWindowChoice(PathBuf),
 }
 
 impl App {
@@ -51,19 +54,59 @@ impl App {
 
     /// 带确认的打开 JAR 对话框
     pub fn request_open_jar_dialog(&mut self) {
-        if self.has_unsaved_changes() {
-            self.pending_confirm = Some(ConfirmAction::OpenDialog);
-        } else {
+        if !self.workspace.is_loaded() {
             self.open_jar_dialog();
+            return;
+        }
+        match self.settings.open_behavior {
+            OpenBehavior::CurrentWindow => {
+                if self.has_unsaved_changes() {
+                    self.pending_confirm = Some(ConfirmAction::OpenDialog);
+                } else {
+                    self.open_jar_dialog();
+                }
+            }
+            OpenBehavior::NewWindow => {
+                if let Some((path, is_jar)) = Self::pick_file() {
+                    if is_jar {
+                        self.spawn_new_window(&path);
+                    } else {
+                        self.open_standalone_file(&path);
+                    }
+                }
+            }
+            OpenBehavior::Ask => {
+                if let Some((path, is_jar)) = Self::pick_file() {
+                    if is_jar {
+                        self.pending_confirm = Some(ConfirmAction::OpenWindowChoice(path));
+                    } else {
+                        self.open_standalone_file(&path);
+                    }
+                }
+            }
         }
     }
 
     /// 带确认的打开指定 JAR
     pub fn request_open_jar(&mut self, path: &std::path::Path) {
-        if self.has_unsaved_changes() {
-            self.pending_confirm = Some(ConfirmAction::Open(path.to_path_buf()));
-        } else {
+        if !self.workspace.is_loaded() {
             self.open_jar(path);
+            return;
+        }
+        match self.settings.open_behavior {
+            OpenBehavior::CurrentWindow => {
+                if self.has_unsaved_changes() {
+                    self.pending_confirm = Some(ConfirmAction::Open(path.to_path_buf()));
+                } else {
+                    self.open_jar(path);
+                }
+            }
+            OpenBehavior::NewWindow => {
+                self.spawn_new_window(path);
+            }
+            OpenBehavior::Ask => {
+                self.pending_confirm = Some(ConfirmAction::OpenWindowChoice(path.to_path_buf()));
+            }
         }
     }
 
@@ -97,6 +140,9 @@ impl App {
             ConfirmAction::DecompileAll => {
                 self.start_confirmed_decompile();
             }
+            ConfirmAction::OpenWindowChoice(_) => {
+                // 由 render_window_choice 独立处理，不经过此分支
+            }
         }
     }
 
@@ -105,6 +151,10 @@ impl App {
         let Some(action) = &self.pending_confirm else {
             return;
         };
+        if matches!(action, ConfirmAction::OpenWindowChoice(_)) {
+            self.render_window_choice(ctx);
+            return;
+        }
         let is_decompile = matches!(action, ConfirmAction::DecompileAll);
         let (title, message, confirm_label, cancel_label, confirm_color);
         if is_decompile {
@@ -147,6 +197,122 @@ impl App {
                 self.pending_confirm = None;
             }
             ConfirmResult::None => {}
+        }
+    }
+
+    /// 渲染窗口选择弹窗（当前窗口 / 新窗口 / 取消）
+    fn render_window_choice(&mut self, ctx: &egui::Context) {
+        let ct = theme::confirm_theme();
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.pending_confirm = None;
+            return;
+        }
+        // 遮罩
+        let backdrop_layer =
+            egui::LayerId::new(egui::Order::Foreground, egui::Id::new("confirm_backdrop"));
+        ctx.layer_painter(backdrop_layer)
+            .rect_filled(ctx.content_rect(), 0.0, ct.backdrop);
+        // 弹窗内容 + 按钮
+        let mut choice: Option<u8> = None;
+        let dialog_rect = egui::Area::new(egui::Id::new("window_choice_dialog"))
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ct.frame.show(ui, |ui| {
+                    ui.set_width(380.0);
+                    egui::Frame::NONE
+                        .inner_margin(egui::Margin {
+                            left: 20,
+                            right: 20,
+                            top: 20,
+                            bottom: 16,
+                        })
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(t!("confirm.window_choice_title"))
+                                    .size(13.0)
+                                    .color(ct.title_color)
+                                    .strong(),
+                            );
+                            ui.add_space(6.0);
+                            ui.label(
+                                egui::RichText::new(t!("confirm.window_choice_message"))
+                                    .size(12.0)
+                                    .color(ct.message_color),
+                            );
+                        });
+                    egui::Frame::NONE
+                        .inner_margin(egui::Margin {
+                            left: 20,
+                            right: 20,
+                            top: 12,
+                            bottom: 12,
+                        })
+                        .show(ui, |ui| {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let cancel_text = t!("confirm.cancel");
+                                    let cancel = FlatButton::new(&cancel_text, &ct.button)
+                                        .min_size(egui::vec2(72.0, 28.0));
+                                    if ui.add(cancel).clicked() {
+                                        choice = Some(0);
+                                    }
+                                    ui.add_space(6.0);
+                                    let new_text = t!("confirm.window_new");
+                                    let new_win = FlatButton::new(&new_text, &ct.button)
+                                        .min_size(egui::vec2(88.0, 28.0));
+                                    if ui.add(new_win).clicked() {
+                                        choice = Some(2);
+                                    }
+                                    ui.add_space(6.0);
+                                    let current_text = t!("confirm.window_current");
+                                    let current_win = FlatButton::new(&current_text, &ct.button)
+                                        .min_size(egui::vec2(88.0, 28.0));
+                                    if ui.add(current_win).clicked() {
+                                        choice = Some(1);
+                                    }
+                                },
+                            );
+                        });
+                });
+            })
+            .response
+            .rect;
+        // 点击外部关闭
+        if choice.is_none() && ctx.input(|i| i.pointer.any_pressed()) {
+            if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
+                if !dialog_rect.contains(pos) {
+                    choice = Some(0);
+                }
+            }
+        }
+        match choice {
+            // 取消
+            Some(0) => {
+                self.pending_confirm = None;
+            }
+            // 当前窗口
+            Some(1) => {
+                let path = match self.pending_confirm.take() {
+                    Some(ConfirmAction::OpenWindowChoice(p)) => p,
+                    _ => unreachable!(),
+                };
+                if self.has_unsaved_changes() {
+                    self.pending_confirm = Some(ConfirmAction::Open(path));
+                } else {
+                    self.open_jar(&path);
+                }
+            }
+            // 新窗口
+            Some(2) => {
+                let path = match self.pending_confirm.take() {
+                    Some(ConfirmAction::OpenWindowChoice(p)) => p,
+                    _ => unreachable!(),
+                };
+                self.spawn_new_window(&path);
+            }
+            _ => {}
         }
     }
 }

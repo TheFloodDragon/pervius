@@ -165,19 +165,45 @@ impl App {
         });
     }
 
-    /// 打开文件对话框选择 JAR 或独立文件
-    pub fn open_jar_dialog(&mut self) {
+    /// 打开文件选择器，返回 (路径, 是否 JAR 类文件)
+    pub(crate) fn pick_file() -> Option<(std::path::PathBuf, bool)> {
         let jar_label = t!("layout.java_archive");
         let class_label = t!("layout.class_file");
-        let file = rfd::FileDialog::new()
+        rfd::FileDialog::new()
             .add_filter(&*jar_label, &["jar", "zip", "war", "ear"])
             .add_filter(&*class_label, &["class"])
-            .pick_file();
-        if let Some(path) = file {
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            match ext.to_ascii_lowercase().as_str() {
-                "jar" | "zip" | "war" | "ear" => self.open_jar(&path),
-                _ => self.open_standalone_file(&path),
+            .pick_file()
+            .map(|path| {
+                let is_jar = is_jar_file(&path);
+                (path, is_jar)
+            })
+    }
+
+    /// 启动新进程实例打开指定文件
+    pub(crate) fn spawn_new_window(&mut self, path: &Path) {
+        match std::env::current_exe() {
+            Ok(exe) => {
+                if let Err(e) = std::process::Command::new(&exe).arg(path).spawn() {
+                    log::error!("Failed to spawn new window: {e}");
+                    self.toasts
+                        .error(t!("layout.spawn_window_failed", error = e));
+                }
+            }
+            Err(e) => {
+                log::error!("Cannot determine executable path: {e}");
+                self.toasts
+                    .error(t!("layout.spawn_window_failed", error = e));
+            }
+        }
+    }
+
+    /// 打开文件对话框选择 JAR 或独立文件
+    pub fn open_jar_dialog(&mut self) {
+        if let Some((path, is_jar)) = Self::pick_file() {
+            if is_jar {
+                self.open_jar(&path);
+            } else {
+                self.open_standalone_file(&path);
             }
         }
     }
@@ -205,6 +231,15 @@ impl App {
             self.decompile_class(&path_str, bytes, false);
         }
     }
+}
+
+/// 判断路径是否为 JAR 类归档文件
+fn is_jar_file(path: &Path) -> bool {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "jar" | "zip" | "war" | "ear"
+    )
 }
 
 /// 决定 JAR 加载完成后的初始反编译阶段

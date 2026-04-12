@@ -77,6 +77,10 @@ settings.java: "Java"
 settings.cache: "缓存"
 settings.keymap: "快捷键"
 settings.language: "语言"
+settings.open_behavior: "打开项目方式"
+settings.open_behavior_current: "当前窗口"
+settings.open_behavior_new: "新窗口"
+settings.open_behavior_ask: "每次询问"
 settings.environment: "环境"
 settings.java_home: "Java 路径"
 settings.java_home_hint: "留空使用系统 JAVA_HOME 环境变量，支持 JDK 根目录 / bin 目录 / java 可执行文件"
@@ -150,6 +154,7 @@ layout.cache_deleted: "已删除缓存：%{name}"
 layout.cache_delete_failed: "删除缓存失败：%{name}"
 layout.cache_delete_task_failed: "缓存删除任务失败"
 layout.cache_deleted_all: "已删除 %{count} 个缓存"
+layout.spawn_window_failed: "启动新窗口失败：%{error}"
 
 # 反编译器
 decompiler.java_home_not_set: "未找到 Java：请设置 JAVA_HOME、在设置中配置路径，或将 java 加入 PATH"
@@ -174,6 +179,12 @@ confirm.decompile_title: "全量反编译"
 confirm.decompile_message: "该 JAR 文件大小为 %{size} MB，包含 %{count} 个类。全量反编译可能需要较长时间，是否立即反编译所有类？"
 confirm.decompile_yes: "反编译全部"
 confirm.decompile_skip: "跳过"
+
+# 窗口选择弹窗
+confirm.window_choice_title: "打开项目"
+confirm.window_choice_message: "已有项目处于打开状态，请选择在哪里打开新文件。"
+confirm.window_current: "当前窗口"
+confirm.window_new: "新窗口"
 
 # 语言名称
 lang.en: "English"

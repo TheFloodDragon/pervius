@@ -52,6 +52,34 @@ impl Language {
     }
 }
 
+/// 打开第二个项目时的窗口策略
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OpenBehavior {
+    /// 每次弹窗询问用户
+    #[default]
+    #[serde(rename = "ask")]
+    Ask,
+    /// 启动新进程实例打开
+    #[serde(rename = "new_window")]
+    NewWindow,
+    /// 在当前窗口中替换现有项目
+    #[serde(rename = "current_window")]
+    CurrentWindow,
+}
+
+impl OpenBehavior {
+    pub const ALL: &[Self] = &[Self::CurrentWindow, Self::NewWindow, Self::Ask];
+
+    /// 返回显示名称
+    pub fn label(self) -> String {
+        match self {
+            Self::CurrentWindow => t!("settings.open_behavior_current").to_string(),
+            Self::NewWindow => t!("settings.open_behavior_new").to_string(),
+            Self::Ask => t!("settings.open_behavior_ask").to_string(),
+        }
+    }
+}
+
 /// 最近打开的文件条目
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecentEntry {
@@ -161,6 +189,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             language: Language::default(),
+            open_behavior: OpenBehavior::default(),
             java: JavaSettings::default(),
             cache: CacheSettings::default(),
             keymap: KeymapSettings::default(),
@@ -182,6 +211,8 @@ tabookit::class! {
     pub struct Settings {
         /// 界面语言
         pub language: Language,
+        /// 打开第二个项目时的窗口策略
+        pub open_behavior: OpenBehavior,
         /// Java 环境设置
         pub java: JavaSettings,
         /// 反编译缓存设置
@@ -356,6 +387,31 @@ fn render_general(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -
                     if ui.selectable_label(current == lang, lang.label()).clicked() {
                         draft.language = lang;
                         rust_i18n::set_locale(lang.code());
+                        changed = true;
+                    }
+                }
+            });
+    });
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(t!("settings.open_behavior").to_string())
+                .size(13.0)
+                .color(st.text_primary),
+        );
+        ui.add_space(8.0);
+        let current = draft.open_behavior;
+        egui::ComboBox::from_id_salt("open_behavior_combo")
+            .selected_text(current.label())
+            .width(140.0)
+            .show_ui(ui, |ui| {
+                for &behavior in OpenBehavior::ALL {
+                    if ui
+                        .selectable_label(current == behavior, behavior.label())
+                        .clicked()
+                    {
+                        draft.open_behavior = behavior;
                         changed = true;
                     }
                 }

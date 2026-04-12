@@ -77,6 +77,10 @@ settings.java: "Java"
 settings.cache: "Cache"
 settings.keymap: "Keymap"
 settings.language: "Language"
+settings.open_behavior: "Open Project In"
+settings.open_behavior_current: "Current Window"
+settings.open_behavior_new: "New Window"
+settings.open_behavior_ask: "Ask Every Time"
 settings.environment: "ENVIRONMENT"
 settings.java_home: "Java Home"
 settings.java_home_hint: "Leave empty to use system JAVA_HOME; accepts JDK root, bin dir, or java executable path"
@@ -150,6 +154,7 @@ layout.cache_deleted: "Deleted cache: %{name}"
 layout.cache_delete_failed: "Failed to delete cache: %{name}"
 layout.cache_delete_task_failed: "Cache delete task failed"
 layout.cache_deleted_all: "Deleted %{count} cache entries"
+layout.spawn_window_failed: "Failed to open new window: %{error}"
 
 # Decompiler
 decompiler.java_home_not_set: "Cannot find Java: set JAVA_HOME, configure in settings, or add java to PATH"
@@ -174,6 +179,12 @@ confirm.decompile_title: "Full Decompilation"
 confirm.decompile_message: "This JAR is %{size} MB with %{count} classes. Full decompilation may take a while. Decompile all classes now?"
 confirm.decompile_yes: "Decompile All"
 confirm.decompile_skip: "Skip"
+
+# Window choice dialog
+confirm.window_choice_title: "Open Project"
+confirm.window_choice_message: "A project is already open. Choose where to open the new file."
+confirm.window_current: "This Window"
+confirm.window_new: "New Window"
 
 # Language names
 lang.en: "English"
