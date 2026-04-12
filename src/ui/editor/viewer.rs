@@ -17,7 +17,7 @@ use rust_i18n::t;
 
 use std::collections::HashSet;
 
-/// Shift+Click 导航请求（附带来源 tab 上下文）
+/// Ctrl+Click 导航请求（附带来源 tab 上下文）
 pub struct PendingNavigate {
     /// 导航 hit 信息
     pub hit: NavigationHit,

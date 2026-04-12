@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-/// Shift+Click 导航请求（由 code_view 产生，调用方消费）
+/// Ctrl+Click 导航请求（由 code_view 产生，调用方消费）
 pub struct NavigationHit {
     /// 点击的 token 文本（如 "MyClass"、"getValue"）
     pub token: String,
@@ -24,13 +24,18 @@ pub struct NavigationHit {
     pub kind: TokenKind,
     /// 调用者文本（仅 MethodCall/Constant，如 "obj.method()" 中的 "obj"）
     pub receiver: Option<String>,
+    /// 是否为声明处的 token（MethodDeclaration 等），声明处触发 Find Usages
+    pub is_declaration: bool,
 }
 
 /// 可导航的 token 类型
 fn is_navigable(kind: TokenKind) -> bool {
     matches!(
         kind,
-        TokenKind::Type | TokenKind::MethodCall | TokenKind::Constant
+        TokenKind::Type
+            | TokenKind::MethodCall
+            | TokenKind::Constant
+            | TokenKind::MethodDeclaration
     )
 }
 
@@ -97,6 +102,8 @@ fn detect_navigation(
                     _ => false,
                 }
             }
+            // 方法声明：始终可导航（Find Usages）
+            TokenKind::MethodDeclaration => true,
             _ => false,
         };
         if !resolvable {
@@ -109,11 +116,13 @@ fn detect_navigation(
     // Ctrl+Click → 产生导航请求
     let clicked = output.response.clicked();
     if clicked {
+        let is_declaration = matches!(span.2, TokenKind::MethodDeclaration);
         let receiver = extract_receiver(text, span);
         Some(NavigationHit {
             token: token.to_string(),
             kind: span.2,
             receiver,
+            is_declaration,
         })
     } else {
         None

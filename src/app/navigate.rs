@@ -1,7 +1,8 @@
-//! Shift+Click 导航跳转：类、方法、字段
+//! Ctrl+Click 导航跳转：类、方法、字段
 //!
 //! 从反编译源码中的 token 解析出目标 class entry_path 和行号，
 //! 支持 import 解析、同包推断、通配符匹配。
+//! 声明处（MethodDeclaration）触发 Find Usages。
 //!
 //! @author sky
 
@@ -366,11 +367,16 @@ use egui_editor::TokenKind;
 use pervius_java_bridge::decompiler;
 
 impl App {
-    /// 处理 Shift+Click 导航请求
+    /// 处理 Ctrl+Click 导航请求
     pub(crate) fn handle_pending_navigation(&mut self) {
         let Some(nav) = self.layout.editor.pending_navigate.take() else {
             return;
         };
+        // 声明处 Ctrl+Click → Find Usages（打开搜索面板并填入 token）
+        if nav.hit.is_declaration {
+            self.layout.search.open_with_query(&nav.hit.token);
+            return;
+        }
         let Some(loaded) = self.workspace.loaded() else {
             return;
         };

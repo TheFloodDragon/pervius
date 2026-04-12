@@ -139,6 +139,28 @@ tabookit::class! {
         self.search_rx = None;
     }
 
+    /// 用指定查询文本打开搜索面板并立即搜索（Find Usages 用）
+    pub fn open_with_query(&mut self, query: &str) {
+        if self.search_index.is_none() {
+            return;
+        }
+        // 取消旧搜索
+        if let Some(c) = self.search_cancel.take() {
+            c.store(true, Ordering::Relaxed);
+        }
+        self.search_rx = None;
+        self.window.open();
+        self.focus_input = false;
+        self.query = query.to_string();
+        self.prev_query = query.to_string();
+        self.results.clear();
+        self.selected = None;
+        self.result_summary = None;
+        self.preview_cache = None;
+        self.debounce_deadline = None;
+        self.dispatch_search();
+    }
+
     /// 同步搜索状态（App 每帧调用）
     pub fn sync_state(
         &mut self,
