@@ -53,6 +53,8 @@ tabookit::class! {
         cancel_label: &'a str,
         /// 确认按钮文字颜色（破坏性操作可设为红色）
         confirm_color: Option<egui::Color32>,
+        /// 点击弹窗外部是否关闭
+        close_on_click_outside: bool,
     }
 
     pub fn new(title: &'a str, message: &'a str) -> Self {
@@ -62,7 +64,14 @@ tabookit::class! {
             confirm_label: "OK",
             cancel_label: "Cancel",
             confirm_color: None,
+            close_on_click_outside: true,
         }
+    }
+
+    /// 点击弹窗外部是否关闭弹窗，默认 true
+    pub fn close_on_click_outside(mut self, enabled: bool) -> Self {
+        self.close_on_click_outside = enabled;
+        self
     }
 
     pub fn confirm_label(mut self, label: &'a str) -> Self {
@@ -100,7 +109,7 @@ tabookit::class! {
             })
             .response
             .rect;
-        if matches!(result, ConfirmResult::None) {
+        if matches!(result, ConfirmResult::None) && self.close_on_click_outside {
             result = Self::check_click_outside(ctx, dialog_rect);
         }
         result

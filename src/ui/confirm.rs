@@ -132,7 +132,8 @@ impl App {
         };
         let mut dialog = ConfirmDialog::new(&title, &message)
             .confirm_label(&confirm_label)
-            .cancel_label(&cancel_label);
+            .cancel_label(&cancel_label)
+            .close_on_click_outside(!is_decompile);
         if let Some(color) = confirm_color {
             dialog = dialog.confirm_color(color);
         }
