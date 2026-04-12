@@ -83,7 +83,9 @@ cd classforge
 ./gradlew jar    # Windows: .\gradlew.bat jar
 ```
 
-将 `classforge/build/libs/classforge-1.0.jar` 和 `vineflower-*.jar` 复制到可执行文件同目录，然后运行：
+将 `classforge/build/libs/classforge-*.jar` 和 `vineflower-*.jar` 复制到可执行文件同目录，然后运行：
+
+> Release 版本自动附带 `classforge-*.jar`，无需手动构建。
 
 ```bash
 cargo run --release
