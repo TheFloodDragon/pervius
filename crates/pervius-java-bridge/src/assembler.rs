@@ -17,7 +17,12 @@ use crate::process;
 /// 返回版本字符串（如 `"1.0.0"`），未找到时返回 `None`。
 /// 调用方负责 i18n 格式化。
 pub fn classforge_version() -> Option<String> {
-    let path = crate::find_jar("classforge", |_| true).ok()?;
+    let path = crate::find_jar(
+        "classforge",
+        |_| true,
+        Some((crate::BUNDLED_CLASSFORGE, crate::BUNDLED_CLASSFORGE_NAME)),
+    )
+    .ok()?;
     crate::jar_version("classforge", &path)
 }
 
@@ -45,7 +50,11 @@ pub fn patch_methods(
     edits: &[MethodEdit],
     jar_path: Option<&Path>,
 ) -> Result<Vec<u8>, BridgeError> {
-    let classforge = crate::find_jar("classforge", |_| true)?;
+    let classforge = crate::find_jar(
+        "classforge",
+        |_| true,
+        Some((crate::BUNDLED_CLASSFORGE, crate::BUNDLED_CLASSFORGE_NAME)),
+    )?;
     let mut cmd = process::JavaCommand::new(&classforge)?;
     cmd.arg("--patch");
     if let Some(path) = jar_path {

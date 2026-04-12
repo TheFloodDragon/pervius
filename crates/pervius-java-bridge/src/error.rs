@@ -11,12 +11,10 @@ pub enum BridgeError {
     JavaHomeNotSet,
     /// java 可执行文件不存在
     JavaNotFound(PathBuf),
-    /// 指定前缀的 JAR 未在 exe 同目录找到
+    /// 指定前缀的 JAR 未找到（exe 同目录和数据目录均无匹配）
     JarNotFound {
         /// 搜索的文件名前缀
         prefix: String,
-        /// 搜索的目录
-        dir: PathBuf,
     },
     /// 无法确定系统缓存目录
     NoCacheDir,
@@ -46,8 +44,8 @@ impl std::fmt::Display for BridgeError {
             Self::JavaNotFound(path) => {
                 write!(f, "Java executable not found at {}", path.display())
             }
-            Self::JarNotFound { prefix, dir } => {
-                write!(f, "{prefix}*.jar not found in {}", dir.display())
+            Self::JarNotFound { prefix } => {
+                write!(f, "{prefix}*.jar not found")
             }
             Self::NoCacheDir => write!(f, "Cannot determine cache directory"),
             Self::SpawnFailed(e) => write!(f, "Failed to spawn process: {e}"),

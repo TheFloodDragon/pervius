@@ -184,8 +184,8 @@ use pervius_java_bridge::error::BridgeError;
 
 match decompiler::start(&jar.path, &jar.name, &jar.hash, jar.class_count()) {
     Err(BridgeError::JavaHomeNotSet) => println!("请设置 JAVA_HOME"),
-    Err(BridgeError::JarNotFound { prefix, dir }) => {
-        println!("{prefix}*.jar 未在 {} 找到", dir.display())
+    Err(BridgeError::JarNotFound { prefix }) => {
+        println!("{prefix}*.jar 未找到")
     }
     Err(BridgeError::SpawnFailed(e)) => println!("启动失败: {e}"),
     Err(e) => println!("{e}"), // Display 实现提供英文消息
@@ -206,7 +206,7 @@ let path = find_jar("vineflower", |name| !name.contains("-slim"))?;
 
 // 从文件名解析版本号
 let ver = jar_version("vineflower", &path);
-// => Some("1.11.1")
+// => Some("1.11.2")
 ```
 
 ## 依赖
@@ -222,5 +222,4 @@ let ver = jar_version("vineflower", &path);
 ## 运行时要求
 
 - **Java 8+** — 通过 `JAVA_HOME` 环境变量定位
-- **vineflower-*.jar** — Vineflower 反编译器，放在可执行文件同级目录
-- **classforge.jar** — ASM 字节码重组装工具，放在可执行文件同级目录
+- **vineflower-\*.jar** / **classforge-\*.jar** — 已通过 `include_bytes!` 内置，首次运行自动释放到数据目录；可在 exe 同目录放置同名 JAR 覆盖

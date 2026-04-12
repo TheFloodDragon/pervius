@@ -9,9 +9,9 @@ use std::path::PathBuf;
 #[macro_use]
 mod macros;
 
+pub mod assembler;
 pub mod bytecode;
 pub mod class_structure;
-pub mod assembler;
 pub mod decompiler;
 pub mod error;
 pub mod jar;
@@ -24,32 +24,85 @@ pub const KOTLIN_INTERNAL_ANNOTATIONS: &[&str] = &[
     "Lkotlin/jvm/internal/SourceDebugExtension;",
 ];
 
-/// 在 exe 同目录查找匹配的 JAR 文件
+/// 内置 Vineflower JAR（编译时嵌入）
+const BUNDLED_VINEFLOWER: &[u8] = include_bytes!("../libs/vineflower-1.11.2.jar");
+/// 内置 Vineflower 文件名
+const BUNDLED_VINEFLOWER_NAME: &str = "vineflower-1.11.2.jar";
+
+/// 内置 ClassForge JAR（编译时嵌入）
+const BUNDLED_CLASSFORGE: &[u8] = include_bytes!("../libs/classforge-1.0.jar");
+/// 内置 ClassForge 文件名
+const BUNDLED_CLASSFORGE_NAME: &str = "classforge-1.0.jar";
+
+/// 内置 JAR 释放目标目录（`<data_dir>/pervius/libs/`）
+fn bundled_libs_dir() -> Result<PathBuf, error::BridgeError> {
+    let base = dirs::data_dir().ok_or(error::BridgeError::NoCacheDir)?;
+    Ok(base.join("pervius").join("libs"))
+}
+
+/// 释放内置 JAR 到数据目录（已存在且大小一致则跳过）
+fn extract_bundled_jar(data: &[u8], filename: &str) -> Result<PathBuf, error::BridgeError> {
+    let dir = bundled_libs_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    let target = dir.join(filename);
+    // 已存在且大小一致 → 跳过写入
+    if let Ok(meta) = std::fs::metadata(&target) {
+        if meta.len() == data.len() as u64 {
+            return Ok(target);
+        }
+    }
+    std::fs::write(&target, data)?;
+    log::info!("Extracted bundled {filename} to {}", target.display());
+    Ok(target)
+}
+
+/// 查找 JAR 文件
+///
+/// 搜索顺序：
+/// 1. exe 同目录（用户覆盖）
+/// 2. 数据目录（已释放的内置 JAR）
+/// 3. 释放内置 JAR 到数据目录
 ///
 /// `prefix` — 文件名前缀（如 `"vineflower"`）
 /// `filter` — 额外过滤条件（如排除 `-slim`），无需额外过滤时传 `|_| true`
+/// `bundled` — 内置 JAR 数据和文件名，无内置时传 `None`
 pub fn find_jar(
     prefix: &str,
     filter: impl Fn(&str) -> bool,
+    bundled: Option<(&[u8], &str)>,
 ) -> Result<PathBuf, error::BridgeError> {
-    let exe = std::env::current_exe()?;
-    let exe_dir = exe
-        .parent()
-        .ok_or_else(|| error::BridgeError::JarNotFound {
-            prefix: prefix.to_string(),
-            dir: PathBuf::new(),
-        })?;
-    let entries = std::fs::read_dir(exe_dir)?;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if name.starts_with(prefix) && name.ends_with(".jar") && filter(&name) {
-            return Ok(entry.path());
+    // 1. exe 同目录探测
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            if let Ok(entries) = std::fs::read_dir(exe_dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name = name.to_string_lossy();
+                    if name.starts_with(prefix) && name.ends_with(".jar") && filter(&name) {
+                        return Ok(entry.path());
+                    }
+                }
+            }
         }
+    }
+    // 2. 数据目录探测（已释放的内置 JAR）
+    if let Ok(dir) = bundled_libs_dir() {
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with(prefix) && name.ends_with(".jar") && filter(&name) {
+                    return Ok(entry.path());
+                }
+            }
+        }
+    }
+    // 3. 释放内置 JAR
+    if let Some((data, filename)) = bundled {
+        return extract_bundled_jar(data, filename);
     }
     Err(error::BridgeError::JarNotFound {
         prefix: prefix.to_string(),
-        dir: exe_dir.to_path_buf(),
     })
 }
 

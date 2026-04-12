@@ -52,9 +52,15 @@ pub fn vineflower_version() -> Option<String> {
     crate::jar_version("vineflower", &path)
 }
 
-/// 定位 vineflower JAR（exe 同目录，匹配 vineflower-*.jar，排除 -slim）
+/// 定位 vineflower JAR
+///
+/// 搜索顺序：exe 同目录 → 数据目录 → 释放内置 JAR
 pub fn find_vineflower() -> Result<PathBuf, BridgeError> {
-    crate::find_jar("vineflower", |name| !name.contains("-slim"))
+    crate::find_jar(
+        "vineflower",
+        |name| !name.contains("-slim"),
+        Some((crate::BUNDLED_VINEFLOWER, crate::BUNDLED_VINEFLOWER_NAME)),
+    )
 }
 
 /// 获取缓存根目录

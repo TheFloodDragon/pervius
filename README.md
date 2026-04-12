@@ -12,7 +12,7 @@
 [![egui](https://img.shields.io/badge/egui-0.34-1ba7f5)](https://github.com/emilk/egui)
 [![Platform](https://img.shields.io/badge/Platform-Windows_·_macOS_·_Linux-8957e5)](#运行要求)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)</br>
-[![Decompiler](https://img.shields.io/badge/Decompiler-Vineflower_1.11.1-e76f00?logo=openjdk&logoColor=white)](https://github.com/Vineflower/vineflower)
+[![Decompiler](https://img.shields.io/badge/Decompiler-Vineflower_1.11.2-e76f00?logo=openjdk&logoColor=white)](https://github.com/Vineflower/vineflower)
 [![Assembler](https://img.shields.io/badge/Assembler-ClassForge_1.0-b07219)](classforge/)
 
 [特性](#特性) · [运行要求](#运行要求) · [构建](#构建) · [快捷键](#快捷键) · [项目结构](#项目结构)
@@ -65,10 +65,8 @@
 ## 运行要求
 
 - 已配置 `JAVA_HOME`
-- 可执行文件同目录放置 `vineflower-*.jar`
-- 可执行文件同目录放置 `classforge-*.jar`
 
-缺 `vineflower` 无法反编译；缺 `classforge` 无法写回字节码修改。
+Vineflower 和 ClassForge 已内置，首次运行自动释放到数据目录。如需覆盖，可在可执行文件同目录放置同名 JAR（优先级最高）。
 
 ## 构建
 
@@ -76,22 +74,20 @@
 cargo build --release
 ```
 
-构建 ClassForge：
+ClassForge 和 Vineflower 已通过 `include_bytes!` 内置到二进制中，无需额外复制 JAR。
+
+构建 ClassForge（仅需在修改 ClassForge 源码后重新执行）：
 
 ```bash
 cd classforge
 ./gradlew jar    # Windows: .\gradlew.bat jar
 ```
 
-将 `classforge/build/libs/classforge-*.jar` 和 `vineflower-*.jar` 复制到可执行文件同目录，然后运行：
-
-> Release 版本自动附带 `classforge-*.jar`，无需手动构建。
+将产出的 JAR 复制到 `crates/pervius-java-bridge/libs/` 替换同名文件，重新编译 Rust 即可。
 
 ```bash
 cargo run --release
 ```
-
-> `cargo run` 从 `target/debug/` 查找 JAR，`cargo run --release` 从 `target/release/` 查找。
 
 ## 快捷键
 
