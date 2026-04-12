@@ -7,7 +7,9 @@
 use super::tab::EditorTab;
 use crate::appearance::theme;
 use eframe::egui;
+use egui_editor::code_view::NavigationHit;
 use egui_editor::search::FindMatch;
+use std::collections::HashSet;
 
 pub use egui_editor::code_view::line_number_width;
 
@@ -18,12 +20,15 @@ pub fn paint_editor_bg(ui: &egui::Ui, full_rect: egui::Rect, gutter_w: f32) {
 }
 
 /// 反编译视图
+///
+/// 返回 Ctrl+Click 产生的导航请求（如有）
 pub fn render_decompiled(
     ui: &mut egui::Ui,
     tab: &mut EditorTab,
     matches: &[FindMatch],
     current: Option<usize>,
-) {
+    known_classes: &HashSet<String>,
+) -> Option<NavigationHit> {
     let t = theme::editor_theme();
     egui_editor::code_view::code_view(
         ui,
@@ -36,7 +41,8 @@ pub fn render_decompiled(
         &t,
         &mut tab.layout_cache,
         &mut tab.pending_scroll_to_line,
-    );
+        Some(known_classes),
+    )
 }
 
 /// 可编辑文本视图

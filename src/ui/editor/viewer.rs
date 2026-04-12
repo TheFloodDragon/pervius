@@ -10,11 +10,22 @@ use crate::appearance::{codicon, theme};
 use crate::ui::keybindings;
 use eframe::egui;
 use egui_dock::{tab_viewer::OnCloseResponse, NodePath, TabViewer};
+use egui_editor::code_view::NavigationHit;
 use egui_editor::find_bar::FindBar;
 use egui_shell::components::menu_item;
 use rust_i18n::t;
 
 use std::collections::HashSet;
+
+/// Ctrl+Click 导航请求（附带来源 tab 上下文）
+pub struct PendingNavigate {
+    /// 导航 hit 信息
+    pub hit: NavigationHit,
+    /// 来源文件的 entry_path（用于解析同包类名）
+    pub source_entry: Option<String>,
+    /// 来源文件的反编译源码（用于解析 import 语句）
+    pub source_text: String,
+}
 
 /// Tab 右键菜单触发的动作
 pub enum TabAction {
@@ -36,6 +47,10 @@ pub struct EditorTabViewer<'a> {
     pub jar_modified: &'a HashSet<String>,
     /// on_close 被 is_modified 拦截时记录要关闭的 tab 路径
     pub pending_close: Option<Option<String>>,
+    /// Ctrl+Click 导航请求（每帧最多一个，由 EditorArea 传播到 App 层）
+    pub pending_navigate: Option<PendingNavigate>,
+    /// JAR 内已知简短类名集合（hover 过滤用）
+    pub known_classes: &'a HashSet<String>,
 }
 
 impl TabViewer for EditorTabViewer<'_> {
@@ -116,7 +131,17 @@ impl TabViewer for EditorTabViewer<'_> {
             ActiveView::Decompiled if tab.is_text => {
                 render::render_editable(ui, tab, &matches, current)
             }
-            ActiveView::Decompiled => render::render_decompiled(ui, tab, &matches, current),
+            ActiveView::Decompiled => {
+                if let Some(hit) =
+                    render::render_decompiled(ui, tab, &matches, current, self.known_classes)
+                {
+                    self.pending_navigate = Some(PendingNavigate {
+                        hit,
+                        source_entry: tab.entry_path.clone(),
+                        source_text: tab.decompiled.clone(),
+                    });
+                }
+            }
             ActiveView::Bytecode => bytecode::render_bytecode_panel(ui, tab, &matches, current),
             ActiveView::Hex => render::render_hex(ui, tab, &matches, current),
         }

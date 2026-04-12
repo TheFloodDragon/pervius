@@ -6,7 +6,7 @@ use super::render::{self, line_number_width};
 use super::style::dock;
 use super::tab::EditorTab;
 use super::view_toggle::ActiveView;
-use super::viewer::{EditorTabViewer, TabAction};
+use super::viewer::{EditorTabViewer, PendingNavigate, TabAction};
 use crate::appearance::theme;
 use eframe::egui;
 use egui_dock::{DockArea, DockState, SurfaceIndex};
@@ -27,6 +27,8 @@ tabookit::class! {
         pub blocked_close: Option<TabAction>,
         /// 已保存成员记录（entry_path → 成员集合），跨 tab 关闭/重开保留
         pub saved_members: HashMap<String, HashSet<SavedMember>>,
+        /// Shift+Click 导航请求（由 viewer 产生，由 App 消费）
+        pub pending_navigate: Option<PendingNavigate>,
     }
     pub fn new() -> Self {
         Self {
@@ -34,11 +36,17 @@ tabookit::class! {
             find_bar: FindBar::new(),
             blocked_close: None,
             saved_members: HashMap::new(),
+            pending_navigate: None,
         }
     }
 
     /// 在给定 UI 区域内渲染
-    pub fn render(&mut self, ui: &mut egui::Ui, jar_modified: &HashSet<String>) {
+    pub fn render(
+        &mut self,
+        ui: &mut egui::Ui,
+        jar_modified: &HashSet<String>,
+        known_classes: &HashSet<String>,
+    ) {
         if self.is_empty() {
             Self::render_placeholder(ui);
             return;
@@ -53,17 +61,26 @@ tabookit::class! {
             find_bar: &mut self.find_bar,
             jar_modified,
             pending_close: None,
+            pending_navigate: None,
+            known_classes,
         };
         DockArea::new(&mut self.dock_state)
             .style(style)
             .show_leaf_collapse_buttons(false)
             .show_leaf_close_all_buttons(false)
             .show_inside(ui, &mut viewer);
-        if let Some(entry_path) = viewer.pending_close.take() {
+        let pending_close = viewer.pending_close.take();
+        let action = viewer.action.take();
+        let nav = viewer.pending_navigate.take();
+        drop(viewer);
+        if let Some(entry_path) = pending_close {
             self.blocked_close = Some(TabAction::Close(entry_path));
         }
-        if let Some(action) = viewer.action.take() {
+        if let Some(action) = action {
             self.handle_tab_action(action);
+        }
+        if let Some(nav) = nav {
+            self.pending_navigate = Some(nav);
         }
         ui.output_mut(|o| {
             if matches!(o.cursor_icon, egui::CursorIcon::Grab) {

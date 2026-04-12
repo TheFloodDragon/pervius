@@ -12,7 +12,7 @@ pub mod search;
 pub mod theme;
 mod viewport;
 
-pub use code_view::{EditableLayoutCache, LayoutCache};
+pub use code_view::{EditableLayoutCache, LayoutCache, NavigationHit};
 pub use find_bar::FindBar;
 pub use highlight::{Language, Span, TokenKind};
 pub use search::FindMatch;

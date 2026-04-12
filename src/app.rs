@@ -4,6 +4,7 @@
 
 mod decompile;
 mod export;
+pub(crate) mod navigate;
 mod open;
 mod platform;
 mod search;
