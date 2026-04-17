@@ -4,119 +4,119 @@
 
 # Pervius
 
-**现代化的 Java 反编译与字节码编辑工具。**
+**Modern Java decompiler and bytecode editor.**
 
-[Vineflower](https://github.com/Vineflower/vineflower) 反编译 · [ClassForge](classforge/) 字节码重写 · Rust 原生界面
+[Vineflower](https://github.com/Vineflower/vineflower) decompilation · [ClassForge](classforge/) bytecode rewriting · Native Rust UI
 
 [![Rust](https://img.shields.io/badge/Rust-2024_Edition-f74c00?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![egui](https://img.shields.io/badge/egui-0.34-1ba7f5)](https://github.com/emilk/egui)
-[![Platform](https://img.shields.io/badge/Platform-Windows_·_macOS_·_Linux-8957e5)](#运行要求)
+[![Platform](https://img.shields.io/badge/Platform-Windows_·_macOS_·_Linux-8957e5)](#requirements)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)</br>
 [![Decompiler](https://img.shields.io/badge/Decompiler-Vineflower_1.11.2-e76f00?logo=openjdk&logoColor=white)](https://github.com/Vineflower/vineflower)
 [![Assembler](https://img.shields.io/badge/Assembler-ClassForge_1.0-b07219)](classforge/)
 
-[特性](#特性) · [运行要求](#运行要求) · [构建](#构建) · [快捷键](#快捷键) · [项目结构](#项目结构)
+[Features](#features) · [Requirements](#requirements) · [Build](#build) · [Shortcuts](#shortcuts) · [中文](README_CN.md)
 
 </div>
 
-## 特性
+## Features
 
-### 反编译
+### Decompilation
 
-基于 Vineflower，支持 JAR 批量反编译和单文件按需反编译。小体积 JAR 自动全量反编译，大 JAR 按需逐类反编译。Vineflower 输出实时解析进度，逐类跟踪。结果按 JAR 的 SHA-256 缓存，重复打开不重编译。Kotlin 类自动检测并输出 `.kt`，保留原始行号映射。
+Powered by Vineflower, with both batch JAR decompilation and on-demand single-class decompilation. Small JARs are fully decompiled upfront; large JARs decompile class-by-class on demand. Vineflower progress is parsed in real time and tracked per class. Results are cached by the JAR's SHA-256, so reopening never triggers a rebuild. Kotlin classes are auto-detected and emitted as `.kt` with original line-number mapping preserved.
 
-<img src="screenshots/1.png" width="600" alt="截图" />
+<img src="screenshots/1.png" width="600" alt="Screenshot" />
 
-### 字节码编辑
+### Bytecode Editing
 
-结构化 `.class` 编辑面板：左侧导航类信息、字段、方法，右侧对应编辑区。可修改访问标志、继承关系、注解、描述符，方法指令也可直接编辑。保存时 ClassForge（基于 ASM 9.7）自动处理常量池重建、StackMapTable 重算和 max_stack/max_locals。未修改方法直接字节拷贝，仅对改动方法触发帧重算。
+Structured `.class` editor: the left pane navigates class info, fields, and methods; the right pane provides the matching editor. Access flags, inheritance, annotations, and descriptors are all editable, along with method instructions. On save, ClassForge (built on ASM 9.7) handles constant-pool rebuilding, StackMapTable recomputation, and `max_stack` / `max_locals`. Untouched methods are byte-copied; only modified methods trigger frame recomputation.
 
-<img src="screenshots/3.png" width="600" alt="截图" />
+<img src="screenshots/3.png" width="600" alt="Screenshot" />
 
-### 三视图
+### Tri-View
 
-每个 `.class` 可通过 `Tab` 在三种视图间切换：
+Every `.class` can be toggled between three views with `Tab`:
 
-- **反编译视图** — 语法高亮的 Java/Kotlin 源码，只读
-- **字节码视图** — 结构化编辑面板
-- **Hex 视图** — 交互式十六进制查看器
+- **Decompiled view** — syntax-highlighted Java / Kotlin source, read-only
+- **Bytecode view** — structured editor
+- **Hex view** — interactive hex inspector
 
-非 `.class` 的文本文件（XML、YAML、JSON 等）直接可编辑，带语法高亮；二进制文件以 Hex 视图打开。
+Non-`.class` text files (XML, YAML, JSON, etc.) are editable directly with syntax highlighting; binary files open in the hex view.
 
-<img src="screenshots/4.png" width="600" alt="截图" />
+<img src="screenshots/4.png" width="600" alt="Screenshot" />
 
-### 代码导航
+### Code Navigation
 
-`Ctrl+Click`（macOS `Cmd+Click`）跳转到类、方法、字段的定义。支持 import 解析、同包推断和通配符匹配。在方法声明处 `Ctrl+Click` 触发 Find Usages，自动搜索所有引用。
+`Ctrl+Click` (macOS `Cmd+Click`) jumps to class, method, or field definitions. Supports import resolution, same-package inference, and wildcard matching. `Ctrl+Click` on a method declaration triggers Find Usages, searching all references automatically.
 
-### 全局搜索
+### Global Search
 
-`Double Shift` 打开搜索面板，覆盖所有反编译源码，支持正则和大小写敏感。结果流式返回，按类分组，行级高亮预览，双击跳转。反编译完成后后台自动建索引，不阻塞 UI。
+`Double Shift` opens the search panel across every decompiled source, with regex and case-sensitivity support. Results stream back grouped by class with line-level highlighted previews; double-click to jump. The index is built in the background after decompilation completes and never blocks the UI.
 
-<img src="screenshots/2.png" width="600" alt="截图" />
+<img src="screenshots/2.png" width="600" alt="Screenshot" />
 
-### 归档浏览
+### Archive Browsing
 
-左侧资源树展示 JAR 内容，支持 `jar` `zip` `war` `ear`。键入即过滤（Speed Search），过滤计算在后台线程完成。修改状态实时标记，反编译状态实时可见。支持拖拽打开和最近文件列表。
+The left-hand resource tree lists JAR contents and supports `jar`, `zip`, `war`, and `ear`. Type to filter (Speed Search) with filtering computed on a background thread. Modified and decompilation states are reflected in real time. Drag-and-drop opening and a recent-files list are supported.
 
-<img src="screenshots/5.png" width="600" alt="截图" />
+<img src="screenshots/5.png" width="600" alt="Screenshot" />
 
-### 导出
+### Export
 
-- **导出 JAR**（`Ctrl+Shift+S`）— 修改写回 JAR，生成新归档
-- **导出反编译源码**（`Ctrl+Shift+E`）— 导出 `.java`/`.kt` 到指定目录，保留包结构
+- **Export JAR** (`Ctrl+Shift+S`) — writes modifications back and produces a new archive
+- **Export decompiled sources** (`Ctrl+Shift+E`) — exports `.java` / `.kt` to a directory, preserving the package layout
 
-## 运行要求
+## Requirements
 
-- 已配置 `JAVA_HOME`
+- `JAVA_HOME` configured
 
-Vineflower 和 ClassForge 已内置，首次运行自动释放到数据目录。如需覆盖，可在可执行文件同目录放置同名 JAR（优先级最高）。
+Vineflower and ClassForge are bundled and extracted to the data directory on first launch. To override, drop a JAR with the same name next to the executable (highest priority).
 
-## 构建
+## Build
 
 ```bash
 cargo build --release
 ```
 
-ClassForge 和 Vineflower 已通过 `include_bytes!` 内置到二进制中，无需额外复制 JAR。
+ClassForge and Vineflower are embedded via `include_bytes!`, so no extra JAR copying is needed.
 
-构建 ClassForge（仅需在修改 ClassForge 源码后重新执行）：
+Build ClassForge (only required after modifying ClassForge sources):
 
 ```bash
 cd classforge
 ./gradlew jar    # Windows: .\gradlew.bat jar
 ```
 
-将产出的 JAR 复制到 `crates/pervius-java-bridge/libs/` 替换同名文件，重新编译 Rust 即可。
+Copy the resulting JAR into `crates/pervius-java-bridge/libs/`, overwriting the file of the same name, then rebuild Rust.
 
 ```bash
 cargo run --release
 ```
 
-## 快捷键
+## Shortcuts
 
-| 快捷键 | 操作 |
-|:-------|:-----|
-| `Ctrl+O` | 打开归档或单文件 |
-| `Ctrl+S` | 保存 |
-| `Ctrl+F` | 查找 |
-| `Double Shift` | 全局搜索 |
-| `Ctrl+Click` | 跳转到定义 / Find Usages |
-| `Tab` | 切换视图 |
-| `Alt+1` | 切换资源树 |
-| `Ctrl+Shift+S` | 导出 JAR |
-| `Ctrl+Shift+E` | 导出反编译源码 |
-| `Ctrl+,` | 设置 |
+| Shortcut | Action |
+|:---------|:-------|
+| `Ctrl+O` | Open archive or single file |
+| `Ctrl+S` | Save |
+| `Ctrl+F` | Find |
+| `Double Shift` | Global search |
+| `Ctrl+Click` | Go to definition / Find Usages |
+| `Tab` | Switch view |
+| `Alt+1` | Toggle resource tree |
+| `Ctrl+Shift+S` | Export JAR |
+| `Ctrl+Shift+E` | Export decompiled sources |
+| `Ctrl+,` | Settings |
 
-所有快捷键可在设置中自定义。
+All shortcuts can be customized in Settings.
 
-## 致谢
+## Credits
 
-- [Vineflower](https://github.com/Vineflower/vineflower) — Java 反编译引擎
-- [ASM](https://asm.ow2.io/) — Java 字节码操作框架
+- [Vineflower](https://github.com/Vineflower/vineflower) — Java decompilation engine
+- [ASM](https://asm.ow2.io/) — Java bytecode manipulation framework
 - [egui](https://github.com/emilk/egui) — Rust immediate mode GUI
-- [tree-sitter](https://tree-sitter.github.io/tree-sitter/) — 语法高亮
+- [tree-sitter](https://tree-sitter.github.io/tree-sitter/) — syntax highlighting
 
-## 许可证
+## License
 
 [MIT](LICENSE)
