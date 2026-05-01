@@ -14,12 +14,30 @@ impl App {
     ///
     /// 独立文件直接写回磁盘；JAR 条目写入 JAR 内存并触发重反编译。
     pub fn save_active_tab(&mut self) {
+        let compile_entry = {
+            let Some(tab) = self.layout.editor.focused_tab_mut() else {
+                return;
+            };
+            if !(tab.is_modified || tab.source_modified) {
+                return;
+            }
+            if tab.standalone_path.is_none()
+                && tab.is_class
+                && tab.is_source_unlocked()
+                && tab.source_modified
+            {
+                tab.entry_path.clone()
+            } else {
+                None
+            }
+        };
+        if let Some(entry_path) = compile_entry {
+            self.compile_source_tab(&entry_path);
+            return;
+        }
         let Some(tab) = self.layout.editor.focused_tab_mut() else {
             return;
         };
-        if !tab.is_modified {
-            return;
-        }
         // 独立文件：直接写回磁盘，不参与 JAR modified 管理
         if let Some(disk_path) = tab.standalone_path.clone() {
             let new_bytes = match tab.serialize_bytes(None) {

@@ -46,6 +46,10 @@ impl App {
             .map(|(name, _)| name.as_str());
         if let Some(name) = re_decompile_name {
             self.layout.status_bar.sync_decompile_single(name);
+        } else if !self.pending_compiles.is_empty() {
+            let name = &self.pending_compiles.last().unwrap().0;
+            let short = name.rsplit('/').next().unwrap_or(name);
+            self.layout.status_bar.sync_decompile_single(short);
         } else if !self.pending_decompiles.is_empty() {
             let name = &self.pending_decompiles.last().unwrap().0;
             let short = name.rsplit('/').next().unwrap_or(name);
@@ -85,6 +89,7 @@ impl App {
         // 有后台任务运行时持续刷新
         let has_bg_work = self.workspace.is_decompiling()
             || !self.pending_decompiles.is_empty()
+            || !self.pending_compiles.is_empty()
             || self
                 .workspace
                 .loaded()

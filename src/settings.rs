@@ -107,6 +107,25 @@ impl Default for JavaSettings {
     }
 }
 
+/// Java 源码编译配置
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CompileSettings {
+    /// javac --release 目标版本
+    pub target_version: u8,
+    /// 是否生成调试信息
+    pub emit_debug_info: bool,
+}
+
+impl Default for CompileSettings {
+    fn default() -> Self {
+        Self {
+            target_version: 8,
+            emit_debug_info: true,
+        }
+    }
+}
+
 /// 反编译缓存配置
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -191,6 +210,7 @@ impl Default for Settings {
             language: Language::default(),
             open_behavior: OpenBehavior::default(),
             java: JavaSettings::default(),
+            compile: CompileSettings::default(),
             cache: CacheSettings::default(),
             keymap: KeymapSettings::default(),
             recent: Vec::new(),
@@ -215,6 +235,8 @@ tabookit::class! {
         pub open_behavior: OpenBehavior,
         /// Java 环境设置
         pub java: JavaSettings,
+        /// Java 源码编译设置
+        pub compile: CompileSettings,
         /// 反编译缓存设置
         pub cache: CacheSettings,
         /// 快捷键设置
@@ -335,6 +357,10 @@ pub fn show(
             label: t!("settings.java").to_string(),
         },
         SectionDef {
+            icon: codicon::TOOLS,
+            label: t!("settings.compile").to_string(),
+        },
+        SectionDef {
             icon: codicon::FOLDER,
             label: t!("settings.cache").to_string(),
         },
@@ -361,7 +387,8 @@ fn render_section(
     match active {
         0 => render_general(draft, ui, st),
         1 => render_java(draft, ui, st),
-        2 => render_cache(draft, ui, st, state),
+        2 => render_compile(draft, ui, st),
+        3 => render_cache(draft, ui, st, state),
         _ => render_keymap(&mut draft.keymap, ui, st),
     }
 }
@@ -437,6 +464,48 @@ fn render_java(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> b
                 .map(|p| p.to_string_lossy().into_owned())
         },
     );
+    changed
+}
+
+fn render_compile(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> bool {
+    let mut changed = false;
+    section_header(ui, st, &t!("settings.section_compile"));
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(t!("settings.compile_target").to_string())
+                .size(13.0)
+                .color(st.text_primary),
+        );
+        ui.add_space(8.0);
+        let before = draft.compile.target_version;
+        egui::ComboBox::from_id_salt("compile_target_combo")
+            .selected_text(format!("Java {}", draft.compile.target_version))
+            .width(110.0)
+            .show_ui(ui, |ui| {
+                for target in [8u8, 11, 17, 21] {
+                    if ui
+                        .selectable_label(draft.compile.target_version == target, format!("Java {target}"))
+                        .clicked()
+                    {
+                        draft.compile.target_version = target;
+                    }
+                }
+            });
+        changed |= before != draft.compile.target_version;
+    });
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        let before = draft.compile.emit_debug_info;
+        changed |= ui
+            .checkbox(&mut draft.compile.emit_debug_info, t!("settings.compile_debug").to_string())
+            .changed();
+        if before != draft.compile.emit_debug_info {
+            changed = true;
+        }
+    });
     changed
 }
 

@@ -103,6 +103,7 @@ impl App {
         self.poll_jar_decompile();
         self.poll_redecompile();
         self.poll_class_decompiles();
+        self.poll_class_compiles();
         self.poll_cache_delete();
         self.poll_export_jar();
         self.poll_search_index();
@@ -391,6 +392,9 @@ impl App {
                 &jar_modified,
                 &known_classes,
             );
+            if let Some(entry) = self.layout.editor.pending_recompile.take() {
+                self.compile_source_tab(&entry);
+            }
         }
         egui_shell::components::widget::island::paint_corner_mask(ui, rect, &theme::ISLAND);
     }

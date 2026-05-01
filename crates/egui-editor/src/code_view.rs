@@ -25,6 +25,12 @@ pub use gutter::{line_number_width, paint_editor_bg};
 pub use layout::{EditableLayoutCache, LayoutCache};
 pub use navigation::NavigationHit;
 
+/// 代码视图渲染输出
+pub struct CodeViewOutput<T> {
+    pub value: T,
+    pub response: Option<egui::Response>,
+}
+
 use frame::{
     finish_code_view_frame, line_highlight_ids, remember_line_highlight, show_code_view_frame,
 };
@@ -52,7 +58,7 @@ pub fn code_view(
     cache: &mut Option<LayoutCache>,
     scroll_to_line: &mut Option<usize>,
     known_classes: Option<&HashSet<String>>,
-) -> Option<NavigationHit> {
+) -> CodeViewOutput<Option<NavigationHit>> {
     let line_count = text.split('\n').count().max(1);
     let max_number = if line_mapping.is_empty() {
         line_count
@@ -107,7 +113,10 @@ pub fn code_view(
         theme,
     );
     LayoutCache::update_highlight_word(cache, text, new_word);
-    nav_hit
+    CodeViewOutput {
+        value: nav_hit,
+        response: frame.response,
+    }
 }
 
 /// 可编辑代码视图（TextEdit + 语法高亮 + 搜索高亮 + 行号）
@@ -124,7 +133,7 @@ pub fn code_view_editable(
     cache: &mut Option<EditableLayoutCache>,
     viewport_override: Option<bool>,
     scroll_to_line: &mut Option<usize>,
-) -> bool {
+) -> CodeViewOutput<bool> {
     // 视窗模式判断：优先用手动覆盖，否则自动检测
     let is_viewport = match viewport_override {
         Some(v) => v,
@@ -155,12 +164,15 @@ pub fn code_view_editable(
                 }
                 paint_transition_overlay(ui, theme);
                 ui.ctx().request_repaint();
-                return false;
+                return CodeViewOutput {
+                    value: false,
+                    response: None,
+                };
             }
         }
     }
     if is_viewport {
-        return viewport::code_view_editable_viewport(
+        let changed = viewport::code_view_editable_viewport(
             ui,
             id,
             text,
@@ -171,6 +183,10 @@ pub fn code_view_editable(
             cache,
             scroll_to_line,
         );
+        return CodeViewOutput {
+            value: changed,
+            response: None,
+        };
     }
     let line_count = text.split('\n').count().max(1);
     let gutter_w = line_number_width(line_count);
@@ -216,7 +232,10 @@ pub fn code_view_editable(
         theme,
     );
     EditableLayoutCache::update_highlight_word(cache, text, new_word);
-    changed
+    CodeViewOutput {
+        value: changed,
+        response: frame.response,
+    }
 }
 
 /// 视窗→普通模式过渡帧 overlay

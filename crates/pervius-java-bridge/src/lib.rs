@@ -12,6 +12,7 @@ mod macros;
 pub mod assembler;
 pub mod bytecode;
 pub mod class_structure;
+pub mod compiler;
 pub mod decompiler;
 pub mod error;
 pub mod jar;

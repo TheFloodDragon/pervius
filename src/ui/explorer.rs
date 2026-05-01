@@ -210,7 +210,7 @@ impl App {
         let mut tab_set = HashSet::new();
         let mut jar_set = HashSet::new();
         for (_, tab) in self.layout.editor.dock_state.iter_all_tabs() {
-            if tab.is_modified {
+            if tab.is_modified || tab.source_modified {
                 if let Some(path) = &tab.entry_path {
                     Self::insert_with_parents(&mut tab_set, path);
                 }

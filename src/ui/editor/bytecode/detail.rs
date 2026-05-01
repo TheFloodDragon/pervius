@@ -158,7 +158,7 @@ pub fn render_method_editable(
                     ui.add_space(12.0);
                     let t = theme::editor_theme();
                     let mut bc_cache = None;
-                    changed |= egui_editor::code_view::code_view_editable(
+                    let output = egui_editor::code_view::code_view_editable(
                         ui,
                         egui::Id::new(("bc_code", idx)),
                         &mut method.bytecode,
@@ -170,6 +170,7 @@ pub fn render_method_editable(
                         None,
                         scroll_to_line,
                     );
+                    changed |= output.value;
                 } else {
                     ui.add_space(12.0);
                     ui.horizontal(|ui| {

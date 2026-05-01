@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+mod compile;
 mod decompile;
 mod export;
 pub(crate) mod navigate;
@@ -18,6 +19,7 @@ use crate::task::Task;
 use crate::ui::layout::Layout;
 use egui_notify::Toasts;
 use egui_shell::components::SettingsFile;
+use pervius_java_bridge::compiler::CompileOutcome;
 use pervius_java_bridge::decompiler::CachedSource;
 use pervius_java_bridge::error::BridgeError;
 use workspace::Workspace;
@@ -49,6 +51,8 @@ pub struct App {
     pub(crate) workspace: Workspace,
     /// 单文件反编译结果队列（支持并发，独立文件不依赖 JAR）
     pub(crate) pending_decompiles: Vec<(String, Task<Result<CachedSource, BridgeError>>)>,
+    /// class 源码编译结果队列
+    pub(crate) pending_compiles: Vec<(String, Task<Result<CompileOutcome, BridgeError>>)>,
     /// 后台缓存删除任务
     pub(crate) pending_cache_delete: Option<Task<CacheDeleteResult>>,
     /// 后台 JAR 导出任务（快照已取，可跨 JAR 切换存活）
@@ -68,6 +72,7 @@ impl App {
             pending_confirm: None,
             workspace: Workspace::Empty,
             pending_decompiles: Vec::new(),
+            pending_compiles: Vec::new(),
             pending_cache_delete: None,
             exporting: None,
         }

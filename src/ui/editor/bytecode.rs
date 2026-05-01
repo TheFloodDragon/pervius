@@ -18,6 +18,16 @@ pub fn render_bytecode_panel(
     matches: &[FindMatch],
     current: Option<usize>,
 ) {
+    if tab.is_source_unlocked() {
+        ui.centered_and_justified(|ui| {
+            ui.label(
+                egui::RichText::new(rust_i18n::t!("editor.source_vs_struct_conflict"))
+                    .color(theme::TEXT_MUTED)
+                    .size(14.0),
+            );
+        });
+        return;
+    }
     if tab.class_structure.is_none() {
         ui.centered_and_justified(|ui| {
             ui.label(

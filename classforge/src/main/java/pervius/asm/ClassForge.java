@@ -11,6 +11,7 @@ import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.analysis.Analyzer;
 import org.objectweb.asm.tree.analysis.BasicVerifier;
+import pervius.compile.SourceCompiler;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -38,6 +39,12 @@ import java.util.Map;
 public class ClassForge {
 
     public static void main(String[] args) throws Exception {
+        for (String arg : args) {
+            if ("--compile".equals(arg)) {
+                SourceCompiler.run(args);
+                return;
+            }
+        }
         String classpathJar = null;
         boolean patchMode = false;
         for (int i = 0; i < args.length; i++) {
