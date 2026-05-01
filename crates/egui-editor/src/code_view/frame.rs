@@ -126,7 +126,7 @@ pub(crate) fn show_code_view_frame(
             frame.cursor_secondary = cr.secondary.index;
         }
         inspect_output(ui, &output);
-        frame.response = Some(output.response.clone());
+        frame.response = Some(output.response.response.clone());
         scroll_to_requested_line(ui, &output, frame.galley_y, line_count, scroll_to_line);
         if output.response.dragged() {
             let (ed, wd) = detect_edge_scroll(&output.response, ui);
