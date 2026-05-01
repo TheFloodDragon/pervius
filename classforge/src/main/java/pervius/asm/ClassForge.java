@@ -40,6 +40,10 @@ public class ClassForge {
 
     public static void main(String[] args) throws Exception {
         for (String arg : args) {
+            if ("--compile-kt".equals(arg)) {
+                runCompileKtEntrypoint(args);
+                return;
+            }
             if ("--compile".equals(arg)) {
                 SourceCompiler.run(args);
                 return;
@@ -68,6 +72,28 @@ public class ClassForge {
             e.printStackTrace(System.err);
             System.exit(2);
         }
+    }
+
+    /**
+     * --compile-kt 入口：仅在 Kotlin 编译模式下触发 KotlincCompiler 类加载。
+     */
+    private static void runCompileKtEntrypoint(String[] args) throws Exception {
+        try {
+            byte[] output = runCompileKt(args);
+            System.out.write(output);
+            System.out.flush();
+        } catch (Throwable e) {
+            System.err.println("ClassForge error: " + e.getMessage());
+            e.printStackTrace(System.err);
+            System.exit(2);
+        }
+    }
+
+    /**
+     * 独立方法：保持 main 的非 Kotlin 分支不触碰 Kotlin 编译器类型。
+     */
+    private static byte[] runCompileKt(String[] args) throws Exception {
+        return pervius.compile.KotlincCompiler.run(args);
     }
 
     /**

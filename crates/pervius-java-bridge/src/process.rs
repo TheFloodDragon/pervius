@@ -123,6 +123,22 @@ tabookit::class! {
         Ok(Self { cmd })
     }
 
+    /// 创建 `java -cp <jars> <main-class>` 命令（多 JAR 使用平台分隔符）
+    pub fn with_classpath(jars: &[&Path], main_class: &str) -> Result<Self, BridgeError> {
+        let java = find_java()?;
+        let mut cmd = Command::new(java);
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let cp = jars
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(sep);
+        cmd.arg("-cp").arg(cp).arg(main_class);
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        Ok(Self { cmd })
+    }
+
     /// 追加单个参数
     pub fn arg(&mut self, arg: impl AsRef<std::ffi::OsStr>) -> &mut Self {
         self.cmd.arg(arg);

@@ -7,6 +7,15 @@ use crate::process;
 use std::io::{Cursor, Read, Write};
 use std::path::Path;
 
+/// Kotlin 源文件输入
+#[derive(Clone, Debug)]
+pub struct KotlinSource {
+    /// 相对文件路径，如 `com/example/Foo.kt`
+    pub path: String,
+    /// Kotlin 源码
+    pub source: String,
+}
+
 /// 编译产物 class
 #[derive(Clone, Debug)]
 pub struct CompiledClass {
@@ -53,6 +62,13 @@ pub fn is_jdk_available() -> bool {
     javac.exists()
 }
 
+/// 定位 Kotlin compiler embeddable JAR（用户可放在 exe 同目录或数据目录）
+pub fn find_kotlinc() -> Result<std::path::PathBuf, BridgeError> {
+    crate::find_jar("kotlinc-embeddable", |_| true, None).or_else(|_| {
+        crate::find_jar("kotlin-compiler-embeddable", |_| true, None)
+    })
+}
+
 /// 调用 classforge --compile 编译 Java 源码
 pub fn compile_source(
     source: &str,
@@ -86,6 +102,45 @@ pub fn compile_source(
     if output.stdout.first() == Some(&2) {
         return Ok(CompileOutcome::JdkMissing);
     }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(BridgeError::Compile(stderr.into_owned()));
+    }
+    parse_compile_output(&output.stdout)
+}
+
+/// 调用 classforge --compile-kt 编译 Kotlin 源码
+pub fn compile_kotlin_sources(
+    sources: &[KotlinSource],
+    classpath_jar: Option<&Path>,
+    target: Option<u8>,
+    module_name: Option<&str>,
+) -> Result<CompileOutcome, BridgeError> {
+    let classforge = crate::find_jar(
+        "classforge",
+        |_| true,
+        Some((crate::BUNDLED_CLASSFORGE, crate::BUNDLED_CLASSFORGE_NAME)),
+    )?;
+    let kotlinc = find_kotlinc()?;
+    let mut cmd = process::JavaCommand::with_classpath(
+        &[&classforge, &kotlinc],
+        "pervius.asm.ClassForge",
+    )?;
+    cmd.arg("--compile-kt");
+    if let Some(path) = classpath_jar {
+        cmd.arg("--classpath").arg(path);
+    }
+    if let Some(target) = target {
+        cmd.arg("--target").arg(target.to_string());
+    }
+    if let Some(module_name) = module_name {
+        cmd.arg("--module-name").arg(module_name);
+    }
+    let mut child = cmd.spawn_with_stdin().map_err(BridgeError::SpawnFailed)?;
+    if let Some(mut stdin) = child.stdin.take() {
+        write_kotlin_sources_protocol(&mut stdin, sources)?;
+    }
+    let output = child.wait_with_output()?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(BridgeError::Compile(stderr.into_owned()));
@@ -135,6 +190,18 @@ fn parse_compile_output(stdout: &[u8]) -> Result<CompileOutcome, BridgeError> {
             "unexpected compiler status byte {other}"
         ))),
     }
+}
+
+fn write_kotlin_sources_protocol(
+    w: &mut dyn Write,
+    sources: &[KotlinSource],
+) -> Result<(), BridgeError> {
+    w.write_all(&(sources.len() as u32).to_be_bytes())?;
+    for source in sources {
+        write_prefixed_string(w, &source.path)?;
+        write_prefixed_string_u32(w, &source.source)?;
+    }
+    Ok(())
 }
 
 fn write_prefixed_string(w: &mut dyn Write, s: &str) -> Result<(), BridgeError> {

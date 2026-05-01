@@ -4,13 +4,21 @@
 
 use super::App;
 use crate::task::{Poll, Pollable, Task};
-use pervius_java_bridge::compiler::{self, CompileOutcome, DiagSeverity};
+use egui_editor::highlight::Language;
+use pervius_java_bridge::compiler::{self, CompileOutcome, DiagSeverity, KotlinSource};
 use rust_i18n::t;
+
+fn kotlin_source_path(entry_path: &str) -> String {
+    let base = entry_path.strip_suffix(".class").unwrap_or(entry_path);
+    let outer = base.find('$').map_or(base, |idx| &base[..idx]);
+    format!("{outer}.kt")
+}
 
 impl App {
     /// 启动指定 class tab 的源码编译
     pub(crate) fn compile_source_tab(&mut self, entry_path: &str) {
         let mut source = None;
+        let mut language = Language::Java;
         for (_, tab) in self.layout.editor.dock_state.iter_all_tabs_mut() {
             if tab.entry_path.as_deref() == Some(entry_path) {
                 if !tab.is_class || !tab.is_source_unlocked() {
@@ -23,30 +31,41 @@ impl App {
                 }
                 tab.compile_diagnostics.clear();
                 source = Some(tab.decompiled.clone());
+                language = tab.language;
                 break;
             }
         }
         let Some(source) = source else {
             return;
         };
-        if !compiler::is_jdk_available() {
-            self.toasts.error(t!("editor.jdk_required"));
-            return;
-        }
         let Some(binary_name) = entry_path.strip_suffix(".class").map(str::to_string) else {
             return;
         };
+        if language != Language::Kotlin && !compiler::is_jdk_available() {
+            self.toasts.error(t!("editor.jdk_required"));
+            return;
+        }
         let jar_path = self.workspace.jar().map(|j| j.path.clone());
         let target = Some(self.settings.compile.target_version);
         let debug = self.settings.compile.emit_debug_info;
+        let source_entry = entry_path.to_string();
         let task = Task::spawn(move || {
-            compiler::compile_source(
-                &source,
-                &binary_name,
-                jar_path.as_deref(),
-                target,
-                debug,
-            )
+            if language == Language::Kotlin {
+                let kt_path = kotlin_source_path(&source_entry);
+                let sources = [KotlinSource {
+                    path: kt_path,
+                    source,
+                }];
+                compiler::compile_kotlin_sources(&sources, jar_path.as_deref(), target, None)
+            } else {
+                compiler::compile_source(
+                    &source,
+                    &binary_name,
+                    jar_path.as_deref(),
+                    target,
+                    debug,
+                )
+            }
         });
         self.pending_compiles.push((entry_path.to_string(), task));
         log::info!("Compiling source: {entry_path}");

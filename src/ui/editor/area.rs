@@ -276,9 +276,9 @@ tabookit::class! {
     /// 切换当前 tab 的视窗模式
     pub fn toggle_viewport(&mut self) {
         let tab = tabookit::or!(self.focused_tab(), return);
-            if !(tab.is_text || (tab.is_class && tab.is_source_unlocked())) {
-                return;
-            }
+        if !(tab.is_text || (tab.is_class && tab.is_source_unlocked())) {
+            return;
+        }
         let currently_on = match tab.viewport_override {
             Some(v) => v,
             None => tab
