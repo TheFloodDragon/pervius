@@ -4,7 +4,7 @@
 
 # Pervius
 
-**现代化的 Java 反编译与字节码编辑工具。**
+**现代化的 Java / Kotlin 反编译、源码重编译与字节码编辑工具。**
 
 [Vineflower](https://github.com/Vineflower/vineflower) 反编译 · [ClassForge](classforge/) 字节码重写 · Rust 原生界面
 
@@ -33,11 +33,17 @@
 
 <img src="screenshots/3.png" width="600" alt="截图" />
 
+### 源码重编译
+
+反编译出的 Java / Kotlin 源码可在代码区右键菜单中解锁编辑（`右键` → **允许编辑**）。`Ctrl+S` 或 **立即重新编译** 会异步编译当前源码，并把生成的 `.class` 条目替换到内存中的 JAR。Java 重编译使用 JDK 的 `javax.tools.JavaCompiler`；Kotlin 重编译使用独立 `-cp` 启动路径加载 `kotlin-compiler-embeddable`，因此 ClassForge 的普通模式不会加载 Kotlin 编译器。编译诊断会回填到编辑器，以 gutter 标记展示，且不阻塞继续编辑。
+
+源码编辑与结构化字节码编辑互斥：切换前需要先保存或放弃其中一种编辑路径。
+
 ### 三视图
 
 每个 `.class` 可通过 `Tab` 在三种视图间切换：
 
-- **反编译视图** — 语法高亮的 Java/Kotlin 源码，只读
+- **反编译视图** — 语法高亮的 Java/Kotlin 源码，默认只读，可解锁后进行源码重编译
 - **字节码视图** — 结构化编辑面板
 - **Hex 视图** — 交互式十六进制查看器
 
@@ -68,9 +74,11 @@
 
 ## 运行要求
 
-- 已配置 `JAVA_HOME`
+- 已配置 `JAVA_HOME`，用于反编译器 / ClassForge 执行
+- Java 源码重编译需要 **JDK**（不能只是 JRE），因为 ClassForge 会调用系统 `javac`
+- Kotlin 源码重编译可选：将 `kotlinc-embeddable*.jar` 或 `kotlin-compiler-embeddable*.jar` 放到可执行文件同目录，或 Pervius 数据目录下的 `libs` 目录
 
-Vineflower 和 ClassForge 已内置，首次运行自动释放到数据目录。如需覆盖，可在可执行文件同目录放置同名 JAR（优先级最高）。
+Vineflower 和 ClassForge 已内置，首次运行自动释放到数据目录。如需覆盖，可在可执行文件同目录放置同名 JAR（优先级最高）。Kotlin 编译器为保持默认分发体积不会内置，仅在 `--compile-kt` / Kotlin 源码重编译时按需加载。
 
 ## 构建
 
@@ -87,7 +95,7 @@ cd classforge
 ./gradlew jar    # Windows: .\gradlew.bat jar
 ```
 
-将产出的 JAR 复制到 `crates/pervius-java-bridge/libs/` 替换同名文件，重新编译 Rust 即可。
+ClassForge 以 `compileOnly` 方式声明 `kotlin-compiler-embeddable`：Gradle / javac 可以对 `KotlincCompiler` 做类型检查，但 Kotlin 编译器不会打进 `classforge-*.jar`。将产出的 ClassForge JAR 复制到 `crates/pervius-java-bridge/libs/` 替换同名文件，重新编译 Rust 即可。运行时如需 Kotlin 重编译，请按[运行要求](#运行要求)单独提供 Kotlin compiler embeddable JAR。
 
 ```bash
 cargo run --release
@@ -98,7 +106,7 @@ cargo run --release
 | 快捷键 | 操作 |
 |:-------|:-----|
 | `Ctrl+O` | 打开归档或单文件 |
-| `Ctrl+S` | 保存 |
+| `Ctrl+S` | 保存 / 重编译已解锁源码 |
 | `Ctrl+F` | 查找 |
 | `Double Shift` | 全局搜索 |
 | `Ctrl+Click` | 跳转到定义 / Find Usages |

@@ -4,7 +4,7 @@
 
 # Pervius
 
-**Modern Java decompiler and bytecode editor.**
+**Modern Java / Kotlin decompiler, source recompiler, and bytecode editor.**
 
 [Vineflower](https://github.com/Vineflower/vineflower) decompilation · [ClassForge](classforge/) bytecode rewriting · Native Rust UI
 
@@ -33,11 +33,17 @@ Structured `.class` editor: the left pane navigates class info, fields, and meth
 
 <img src="screenshots/3.png" width="600" alt="Screenshot" />
 
+### Source Recompilation
+
+Decompiled Java / Kotlin sources can be unlocked from the code view context menu (`Right Click` → **Allow Editing**). `Ctrl+S` or **Recompile Now** compiles the edited source asynchronously and replaces the generated `.class` entries in the in-memory JAR. Java recompilation uses the JDK `javax.tools.JavaCompiler`; Kotlin recompilation uses `kotlin-compiler-embeddable` on a dedicated `-cp` launch path so the normal ClassForge modes do not load the Kotlin compiler. Compiler diagnostics are returned to the editor and shown as gutter markers without blocking further edits.
+
+Source editing is mutually exclusive with the structured bytecode editor: save or discard one path before switching to the other.
+
 ### Tri-View
 
 Every `.class` can be toggled between three views with `Tab`:
 
-- **Decompiled view** — syntax-highlighted Java / Kotlin source, read-only
+- **Decompiled view** — syntax-highlighted Java / Kotlin source, read-only by default and unlockable for source recompilation
 - **Bytecode view** — structured editor
 - **Hex view** — interactive hex inspector
 
@@ -68,9 +74,11 @@ The left-hand resource tree lists JAR contents and supports `jar`, `zip`, `war`,
 
 ## Requirements
 
-- `JAVA_HOME` configured
+- `JAVA_HOME` configured for decompilation / ClassForge execution
+- A **JDK** (not just a JRE) is required for Java source recompilation, because ClassForge calls the system `javac`
+- Optional for Kotlin source recompilation: place `kotlinc-embeddable*.jar` or `kotlin-compiler-embeddable*.jar` next to the executable or in Pervius' data `libs` directory
 
-Vineflower and ClassForge are bundled and extracted to the data directory on first launch. To override, drop a JAR with the same name next to the executable (highest priority).
+Vineflower and ClassForge are bundled and extracted to the data directory on first launch. To override, drop a JAR with the same name next to the executable (highest priority). The Kotlin compiler is intentionally not bundled to keep the default distribution small; it is only loaded when using `--compile-kt` / Kotlin source recompilation.
 
 ## Build
 
@@ -87,7 +95,7 @@ cd classforge
 ./gradlew jar    # Windows: .\gradlew.bat jar
 ```
 
-Copy the resulting JAR into `crates/pervius-java-bridge/libs/`, overwriting the file of the same name, then rebuild Rust.
+ClassForge declares `kotlin-compiler-embeddable` as `compileOnly`: Gradle / javac can type-check `KotlincCompiler`, but the Kotlin compiler is not packed into `classforge-*.jar`. Copy the resulting ClassForge JAR into `crates/pervius-java-bridge/libs/`, overwriting the file of the same name, then rebuild Rust. For runtime Kotlin recompilation, provide the Kotlin compiler embeddable JAR separately as described in [Requirements](#requirements).
 
 ```bash
 cargo run --release
@@ -98,7 +106,7 @@ cargo run --release
 | Shortcut | Action |
 |:---------|:-------|
 | `Ctrl+O` | Open archive or single file |
-| `Ctrl+S` | Save |
+| `Ctrl+S` | Save / recompile unlocked source |
 | `Ctrl+F` | Find |
 | `Double Shift` | Global search |
 | `Ctrl+Click` | Go to definition / Find Usages |
