@@ -8,6 +8,14 @@ use egui_editor::highlight::Language;
 use pervius_java_bridge::compiler::{self, CompileOutcome, DiagSeverity, KotlinSource};
 use rust_i18n::t;
 
+fn class_info_release(version: Option<&str>) -> Option<u8> {
+    let version = version?;
+    let java = version.strip_prefix("Java ")?;
+    let release = java.split_whitespace().next()?;
+    let release = release.strip_prefix("1.").unwrap_or(release);
+    release.parse::<u8>().ok()
+}
+
 fn kotlin_source_path(entry_path: &str) -> String {
     let base = entry_path.strip_suffix(".class").unwrap_or(entry_path);
     let outer = base.find('$').map_or(base, |idx| &base[..idx]);
@@ -19,6 +27,7 @@ impl App {
     pub(crate) fn compile_source_tab(&mut self, entry_path: &str) {
         let mut source = None;
         let mut language = Language::Java;
+        let mut target = None;
         for (_, tab) in self.layout.editor.dock_state.iter_all_tabs_mut() {
             if tab.entry_path.as_deref() == Some(entry_path) {
                 if !tab.is_class || !tab.is_source_unlocked() {
@@ -32,6 +41,7 @@ impl App {
                 tab.compile_diagnostics.clear();
                 source = Some(tab.decompiled.clone());
                 language = tab.language;
+                target = class_info_release(tab.class_info.as_deref());
                 break;
             }
         }
@@ -45,9 +55,15 @@ impl App {
             self.toasts.error(t!("editor.jdk_required"));
             return;
         }
+        let Some(target) = target else {
+            self.toasts.error(t!(
+                "editor.recompile_failed",
+                error = "Cannot determine original class version"
+            ));
+            return;
+        };
         let jar_path = self.workspace.jar().map(|j| j.path.clone());
-        let target = Some(self.settings.compile.target_version);
-        let debug = self.settings.compile.emit_debug_info;
+        let target = Some(target);
         let source_entry = entry_path.to_string();
         let task = Task::spawn(move || {
             if language == Language::Kotlin {
@@ -63,7 +79,7 @@ impl App {
                     &binary_name,
                     jar_path.as_deref(),
                     target,
-                    debug,
+                    true,
                 )
             }
         });

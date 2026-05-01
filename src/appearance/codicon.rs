@@ -55,8 +55,6 @@ pub const WHOLE_WORD: &str = "\u{EB7E}";
 pub const KEYBOARD: &str = "\u{EB44}";
 /// 编辑 / 铅笔
 pub const EDIT: &str = "\u{EA73}";
-/// 工具
-pub const TOOLS: &str = "\u{EAF8}";
 
 /// Codicon 字体族（来自 egui-shell）
 pub fn family() -> egui::FontFamily {
