@@ -31,9 +31,9 @@ const BUNDLED_VINEFLOWER: &[u8] = include_bytes!("../libs/vineflower-1.11.2.jar"
 const BUNDLED_VINEFLOWER_NAME: &str = "vineflower-1.11.2.jar";
 
 /// 内置 ClassForge JAR（编译时嵌入）
-const BUNDLED_CLASSFORGE: &[u8] = include_bytes!("../libs/classforge-1.1.jar");
+const BUNDLED_CLASSFORGE: &[u8] = include_bytes!("../libs/classforge-1.2.jar");
 /// 内置 ClassForge 文件名
-const BUNDLED_CLASSFORGE_NAME: &str = "classforge-1.1.jar";
+const BUNDLED_CLASSFORGE_NAME: &str = "classforge-1.2.jar";
 
 /// 内置 JAR 释放目标目录（`<data_dir>/pervius/libs/`）
 fn bundled_libs_dir() -> Result<PathBuf, error::BridgeError> {
@@ -61,8 +61,8 @@ fn extract_bundled_jar(data: &[u8], filename: &str) -> Result<PathBuf, error::Br
 ///
 /// 搜索顺序：
 /// 1. exe 同目录（用户覆盖）
-/// 2. 数据目录（已释放的内置 JAR）
-/// 3. 释放内置 JAR 到数据目录
+/// 2. 有内置 JAR 时，使用数据目录中的指定内置版本，缺失则释放
+/// 3. 无内置 JAR 时，探测数据目录中的同名前缀 JAR
 ///
 /// `prefix` — 文件名前缀（如 `"vineflower"`）
 /// `filter` — 额外过滤条件（如排除 `-slim`），无需额外过滤时传 `|_| true`
@@ -86,7 +86,11 @@ pub fn find_jar(
             }
         }
     }
-    // 2. 数据目录探测（已释放的内置 JAR）
+    // 2. 内置 JAR 有明确文件名时优先保证该版本存在，避免数据目录里的旧版同名前缀 JAR 抢先命中。
+    if let Some((data, filename)) = bundled {
+        return extract_bundled_jar(data, filename);
+    }
+    // 3. 数据目录探测（无内置 JAR 的外部依赖，如 kotlinc）
     if let Ok(dir) = bundled_libs_dir() {
         if let Ok(entries) = std::fs::read_dir(&dir) {
             for entry in entries.flatten() {
@@ -97,10 +101,6 @@ pub fn find_jar(
                 }
             }
         }
-    }
-    // 3. 释放内置 JAR
-    if let Some((data, filename)) = bundled {
-        return extract_bundled_jar(data, filename);
     }
     Err(error::BridgeError::JarNotFound {
         prefix: prefix.to_string(),
