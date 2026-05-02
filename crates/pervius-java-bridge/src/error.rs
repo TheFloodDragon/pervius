@@ -34,6 +34,8 @@ pub enum BridgeError {
     JdkRequired,
     /// Java 源码编译错误
     Compile(String),
+    /// 外部工具下载失败
+    Download(String),
     /// Vineflower 未产出结果
     NoOutput,
 }
@@ -60,6 +62,7 @@ impl std::fmt::Display for BridgeError {
             Self::ClassForge(msg) => write!(f, "ClassForge: {msg}"),
             Self::JdkRequired => write!(f, "JDK required to compile Java source"),
             Self::Compile(msg) => write!(f, "Compile error: {msg}"),
+            Self::Download(msg) => write!(f, "Download error: {msg}"),
             Self::NoOutput => write!(f, "Decompiler produced no output"),
         }
     }

@@ -124,7 +124,7 @@ tabookit::class! {
     }
 
     /// 创建 `java -cp <jars> <main-class>` 命令（多 JAR 使用平台分隔符）
-    pub fn with_classpath(jars: &[&Path], main_class: &str) -> Result<Self, BridgeError> {
+    pub fn with_classpath(jars: &[PathBuf], main_class: &str) -> Result<Self, BridgeError> {
         let java = find_java()?;
         let mut cmd = Command::new(java);
         let sep = if cfg!(windows) { ";" } else { ":" };

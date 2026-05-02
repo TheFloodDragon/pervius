@@ -17,6 +17,7 @@ pub mod decompiler;
 pub mod error;
 pub mod jar;
 pub mod process;
+pub mod environment;
 pub mod save;
 
 /// Kotlin 编译器生成的内部注解，不可编辑，读写时均跳过
@@ -25,15 +26,10 @@ pub const KOTLIN_INTERNAL_ANNOTATIONS: &[&str] = &[
     "Lkotlin/jvm/internal/SourceDebugExtension;",
 ];
 
-/// 内置 Vineflower JAR（编译时嵌入）
-const BUNDLED_VINEFLOWER: &[u8] = include_bytes!("../libs/vineflower-1.12.0.jar");
-/// 内置 Vineflower 文件名
-const BUNDLED_VINEFLOWER_NAME: &str = "vineflower-1.12.0.jar";
-
 /// 内置 ClassForge JAR（编译时嵌入）
-const BUNDLED_CLASSFORGE: &[u8] = include_bytes!("../libs/classforge-1.2.jar");
+const BUNDLED_CLASSFORGE: &[u8] = include_bytes!("../libs/classforge-1.1.jar");
 /// 内置 ClassForge 文件名
-const BUNDLED_CLASSFORGE_NAME: &str = "classforge-1.2.jar";
+const BUNDLED_CLASSFORGE_NAME: &str = "classforge-1.1.jar";
 
 /// 内置 JAR 释放目标目录（`<data_dir>/pervius/libs/`）
 fn bundled_libs_dir() -> Result<PathBuf, error::BridgeError> {

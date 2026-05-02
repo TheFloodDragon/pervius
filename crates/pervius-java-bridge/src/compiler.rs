@@ -162,9 +162,18 @@ pub fn compile_kotlin_sources_with_options(
         |_| true,
         Some((crate::BUNDLED_CLASSFORGE, crate::BUNDLED_CLASSFORGE_NAME)),
     )?;
-    let mut cmd = process::JavaCommand::with_classpath(&[&classforge], "pervius.asm.ClassForge")?;
+    let kotlin_dependencies = crate::environment::ensure_kotlin_dependencies()?;
+    let runtime_classpath = vec![
+        classforge.clone(),
+        kotlin_dependencies.compiler_embeddable.clone(),
+        kotlin_dependencies.stdlib.clone(),
+    ];
+    let mut cmd =
+        process::JavaCommand::with_classpath(&runtime_classpath, "pervius.asm.ClassForge")?;
     cmd.arg("--compile-kt");
-    if let Some(classpath) = classpath.joined() {
+    let mut compile_classpath = classpath.clone();
+    compile_classpath.push(kotlin_dependencies.stdlib.clone());
+    if let Some(classpath) = compile_classpath.joined() {
         cmd.arg("--classpath").arg(classpath);
     }
     if let Some(target) = target {

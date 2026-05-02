@@ -90,8 +90,7 @@ impl Drop for DecompileTask {
 /// 返回版本字符串（如 `"1.11.1"`），未找到时返回 `None`。
 /// 调用方负责 i18n 格式化。
 pub fn vineflower_version() -> Option<String> {
-    let path = find_vineflower().ok()?;
-    crate::jar_version("vineflower", &path)
+    Some(crate::environment::vineflower_version())
 }
 
 /// 设置缓存根目录（空值表示回退到系统默认目录）
@@ -115,13 +114,9 @@ pub fn current_cache_root() -> Result<PathBuf, BridgeError> {
 
 /// 定位 vineflower JAR
 ///
-/// 搜索顺序：exe 同目录 → 数据目录 → 释放内置 JAR
+/// 搜索顺序：exe 同目录匹配版本 JAR → 环境配置目录（缺失则下载）。
 pub fn find_vineflower() -> Result<PathBuf, BridgeError> {
-    crate::find_jar(
-        "vineflower",
-        |name| !name.contains("-slim"),
-        Some((crate::BUNDLED_VINEFLOWER, crate::BUNDLED_VINEFLOWER_NAME)),
-    )
+    crate::environment::ensure_vineflower()
 }
 
 /// 获取缓存根目录

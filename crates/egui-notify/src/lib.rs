@@ -12,11 +12,12 @@ pub use egui::__run_test_ctx;
 use egui::text::TextWrapping;
 use egui::{
     vec2, Align, Color32, Context, CornerRadius, FontId, FontSelection, Id, LayerId, Order, Rect,
-    Shadow, Stroke, TextWrapMode, Vec2, WidgetText,
+    Shadow, Stroke, StrokeKind, TextWrapMode, Vec2, WidgetText,
 };
 
 pub(crate) const TOAST_WIDTH: f32 = 180.;
 pub(crate) const TOAST_HEIGHT: f32 = 34.;
+const MAX_TOAST_WIDTH: f32 = 420.;
 
 const ERROR_COLOR: Color32 = Color32::from_rgb(200, 90, 90);
 const INFO_COLOR: Color32 = Color32::from_rgb(150, 200, 210);
@@ -241,19 +242,50 @@ impl Toasts {
                 }
             }
 
-            let caption_galley = toast.caption.clone().into_galley_impl(
+            let style = ctx.global_style();
+            let fallback_font = self
+                .font
+                .clone()
+                .map_or(FontSelection::Default, FontSelection::FontId);
+            let unwrapped_caption_galley = toast.caption.clone().into_galley_impl(
                 ctx,
-                ctx.global_style().as_ref(),
+                style.as_ref(),
                 TextWrapping::from_wrap_mode_and_width(TextWrapMode::Extend, f32::INFINITY),
-                FontSelection::Default,
+                fallback_font.clone(),
                 Align::LEFT,
             );
 
+            let icon_width = unwrapped_caption_galley.rect.height()
+                / unwrapped_caption_galley.rows.len().max(1) as f32;
+            let icon_width_padded_estimate = if toast.level == ToastLevel::None {
+                0.
+            } else {
+                icon_width + padding.x
+            };
+            let cross_width_padded_estimate = if toast.closable {
+                icon_width + padding.x
+            } else {
+                0.
+            };
+            let max_caption_width = (MAX_TOAST_WIDTH
+                - padding.x * 2.
+                - icon_width_padded_estimate
+                - cross_width_padded_estimate)
+                .max(48.);
+            let caption_galley = if unwrapped_caption_galley.rect.width() > max_caption_width {
+                toast.caption.clone().into_galley_impl(
+                    ctx,
+                    style.as_ref(),
+                    TextWrapping::from_wrap_mode_and_width(TextWrapMode::Wrap, max_caption_width),
+                    fallback_font,
+                    Align::LEFT,
+                )
+            } else {
+                unwrapped_caption_galley
+            };
+
             let (caption_width, caption_height) =
                 (caption_galley.rect.width(), caption_galley.rect.height());
-
-            let line_count = caption_galley.rows.len().max(1);
-            let icon_width = caption_height / line_count as f32;
             let rounding = CornerRadius::same(4);
 
             // Create toast icon
@@ -414,6 +446,36 @@ impl Toasts {
             if let Some(hp) = ctx.input(|i| i.pointer.hover_pos()) {
                 if rect.contains(hp) {
                     ctx.set_cursor_icon(egui::CursorIcon::ContextMenu);
+                    let tooltip_galley = WidgetText::from("右键复制").into_galley_impl(
+                        ctx,
+                        style.as_ref(),
+                        TextWrapping::from_wrap_mode_and_width(
+                            TextWrapMode::Extend,
+                            f32::INFINITY,
+                        ),
+                        FontSelection::Default,
+                        Align::LEFT,
+                    );
+                    let tooltip_padding = vec2(8., 5.);
+                    let tooltip_size = tooltip_galley.rect.size() + tooltip_padding * 2.;
+                    let tooltip_rect = Rect::from_min_size(hp + vec2(12., 12.), tooltip_size);
+                    let tooltip_visuals = ctx.global_style().visuals.widgets.noninteractive;
+                    let tooltip_painter = ctx.layer_painter(LayerId::new(
+                        Order::Tooltip,
+                        Id::new("toast_copy_hint"),
+                    ));
+                    tooltip_painter.rect(
+                        tooltip_rect,
+                        CornerRadius::same(4),
+                        tooltip_visuals.bg_fill,
+                        Stroke::new(1., tooltip_visuals.bg_stroke.color),
+                        StrokeKind::Outside,
+                    );
+                    tooltip_painter.galley(
+                        tooltip_rect.min + tooltip_padding,
+                        tooltip_galley,
+                        tooltip_visuals.fg_stroke.color,
+                    );
                     if ctx.input(|i| i.pointer.secondary_clicked()) {
                         ctx.copy_text(caption_text);
                     }

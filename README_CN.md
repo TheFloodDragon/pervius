@@ -13,7 +13,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows_·_macOS_·_Linux-8957e5)](#运行要求)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)</br>
 [![Decompiler](https://img.shields.io/badge/Decompiler-Vineflower_1.11.2-e76f00?logo=openjdk&logoColor=white)](https://github.com/Vineflower/vineflower)
-[![Assembler](https://img.shields.io/badge/Assembler-ClassForge_1.0-b07219)](classforge/)
+[![Assembler](https://img.shields.io/badge/Assembler-ClassForge_1.1-b07219)](classforge/)
 
 [特性](#特性) · [运行要求](#运行要求) · [构建](#构建) · [快捷键](#快捷键) · [English](README.md)
 
@@ -75,10 +75,10 @@
 ## 运行要求
 
 - 已配置 `JAVA_HOME`，用于反编译器 / ClassForge 执行
-- Java 源码重编译需要 **JDK**（不能只是 JRE），因为 ClassForge 会调用系统 `javac`
-- Kotlin 源码重编译可选：将 `kotlinc-embeddable*.jar` 或 `kotlin-compiler-embeddable*.jar` 放到可执行文件同目录，或 Pervius 数据目录下的 `libs` 目录
+- Java 和 Kotlin 源码重编译需要 **JDK**（不能只是 JRE），因为 ClassForge 会调用系统 `javac`
+- Vineflower 与 Kotlin 编译依赖会从华为云 Maven 镜像自动下载到“环境”工具目录（默认位于反编译缓存根目录下）
 
-Vineflower 和 ClassForge 已内置，首次运行自动释放到数据目录。如需覆盖，可在可执行文件同目录放置同名 JAR（优先级最高）。Kotlin 编译器为保持默认分发体积不会内置，仅在 `--compile-kt` / Kotlin 源码重编译时按需加载。
+ClassForge 已内置，首次运行自动释放到数据目录。Vineflower 从“环境”中配置的目录解析并按需下载；可执行文件同目录下匹配版本的 `vineflower-{version}.jar` 仍具备最高优先级，便于本地/离线覆盖。Kotlin 依赖（`kotlin-stdlib` 与 `kotlin-compiler-embeddable`）为保持默认分发体积不会内置，仅在 Kotlin 源码重编译时按需下载。
 
 ## 构建
 
@@ -86,7 +86,7 @@ Vineflower 和 ClassForge 已内置，首次运行自动释放到数据目录。
 cargo build --release
 ```
 
-ClassForge 和 Vineflower 已通过 `include_bytes!` 内置到二进制中，无需额外复制 JAR。
+ClassForge 已通过 `include_bytes!` 内置到二进制中；Vineflower 与 Kotlin 依赖由“环境”设置解析并按需下载。
 
 构建 ClassForge（仅需在修改 ClassForge 源码后重新执行）：
 
@@ -95,7 +95,7 @@ cd classforge
 ./gradlew jar    # Windows: .\gradlew.bat jar
 ```
 
-ClassForge 以 `compileOnly` 方式声明 `kotlin-compiler-embeddable`：Gradle / javac 可以对 `KotlincCompiler` 做类型检查，但 Kotlin 编译器不会打进 `classforge-*.jar`。将产出的 ClassForge JAR 复制到 `crates/pervius-java-bridge/libs/` 替换同名文件，重新编译 Rust 即可。运行时如需 Kotlin 重编译，请按[运行要求](#运行要求)单独提供 Kotlin compiler embeddable JAR。
+ClassForge 以 `compileOnly` 方式声明 Kotlin 依赖：Gradle / javac 可以对 `KotlincCompiler` 做类型检查，但 Kotlin stdlib/compiler 不会打进 `classforge-*.jar`。将产出的 ClassForge JAR 复制到 `crates/pervius-java-bridge/libs/` 替换同名文件，重新编译 Rust 即可。运行时 Kotlin 重编译会自动下载已配置版本的 Kotlin 依赖。
 
 ```bash
 cargo run --release

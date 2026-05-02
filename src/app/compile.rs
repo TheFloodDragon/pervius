@@ -91,7 +91,7 @@ impl App {
         let Some(binary_name) = entry_path.strip_suffix(".class").map(str::to_string) else {
             return;
         };
-        if language != Language::Kotlin && !compiler::is_jdk_available() {
+        if !compiler::is_jdk_available() {
             self.toasts.error(t!("editor.jdk_required"));
             return;
         }

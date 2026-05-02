@@ -10,7 +10,7 @@ use crate::task::{Poll, Pollable, Task};
 use eframe::egui;
 use egui_keybind::KeyMap;
 use egui_shell::components::{SettingsFile, SettingsPanel};
-use pervius_java_bridge::{decompiler, process};
+use pervius_java_bridge::{decompiler, environment, process};
 use rust_i18n::t;
 use std::sync::atomic::Ordering;
 
@@ -199,10 +199,23 @@ impl App {
         if new_settings.java.java_home != self.settings.java.java_home {
             process::set_java_home(&new_settings.java.java_home);
         }
-        if new_settings.cache.decompiled_dir != self.settings.cache.decompiled_dir {
+        let environment_changed = new_settings.java.vineflower_version
+            != self.settings.java.vineflower_version
+            || new_settings.java.vineflower_dir != self.settings.java.vineflower_dir
+            || new_settings.java.kotlin_version != self.settings.java.kotlin_version
+            || new_settings.java.kotlin_dependencies_dir
+                != self.settings.java.kotlin_dependencies_dir;
+        let cache_changed = new_settings.cache.decompiled_dir != self.settings.cache.decompiled_dir;
+        if cache_changed {
             decompiler::set_cache_root(new_settings.cache.root_path());
             settings::refresh_cache_state(&mut self.layout.settings_state);
             self.sync_cache_state();
+        }
+        if environment_changed || cache_changed {
+            environment::set_environment_config(new_settings.java.environment_config());
+        }
+        if environment_changed {
+            self.layout.status_bar = StatusBar::default();
         }
         self.settings = new_settings;
         if let Err(e) = self.settings.save() {

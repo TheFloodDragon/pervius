@@ -13,7 +13,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows_·_macOS_·_Linux-8957e5)](#requirements)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)</br>
 [![Decompiler](https://img.shields.io/badge/Decompiler-Vineflower_1.11.2-e76f00?logo=openjdk&logoColor=white)](https://github.com/Vineflower/vineflower)
-[![Assembler](https://img.shields.io/badge/Assembler-ClassForge_1.0-b07219)](classforge/)
+[![Assembler](https://img.shields.io/badge/Assembler-ClassForge_1.1-b07219)](classforge/)
 
 [Features](#features) · [Requirements](#requirements) · [Build](#build) · [Shortcuts](#shortcuts) · [中文](README_CN.md)
 
@@ -75,10 +75,10 @@ The left-hand resource tree lists JAR contents and supports `jar`, `zip`, `war`,
 ## Requirements
 
 - `JAVA_HOME` configured for decompilation / ClassForge execution
-- A **JDK** (not just a JRE) is required for Java source recompilation, because ClassForge calls the system `javac`
-- Optional for Kotlin source recompilation: place `kotlinc-embeddable*.jar` or `kotlin-compiler-embeddable*.jar` next to the executable or in Pervius' data `libs` directory
+- A **JDK** (not just a JRE) is required for Java and Kotlin source recompilation, because ClassForge calls the system `javac`
+- Vineflower and Kotlin compiler dependencies are downloaded automatically from the Huawei Cloud Maven mirror into the Environment tools directory (by default under the decompile cache root)
 
-Vineflower and ClassForge are bundled and extracted to the data directory on first launch. To override, drop a JAR with the same name next to the executable (highest priority). The Kotlin compiler is intentionally not bundled to keep the default distribution small; it is only loaded when using `--compile-kt` / Kotlin source recompilation.
+ClassForge is bundled and extracted to the data directory on first launch. Vineflower is resolved from the configured Environment directory and downloaded on demand; a matching `vineflower-{version}.jar` next to the executable still takes priority for local/offline override. Kotlin dependencies (`kotlin-stdlib` and `kotlin-compiler-embeddable`) are intentionally not bundled to keep the default distribution small and are downloaded only when Kotlin source recompilation is used.
 
 ## Build
 
@@ -86,7 +86,7 @@ Vineflower and ClassForge are bundled and extracted to the data directory on fir
 cargo build --release
 ```
 
-ClassForge and Vineflower are embedded via `include_bytes!`, so no extra JAR copying is needed.
+ClassForge is embedded via `include_bytes!`; Vineflower and Kotlin dependencies are resolved by the Environment settings and downloaded on demand.
 
 Build ClassForge (only required after modifying ClassForge sources):
 
@@ -95,7 +95,7 @@ cd classforge
 ./gradlew jar    # Windows: .\gradlew.bat jar
 ```
 
-ClassForge declares `kotlin-compiler-embeddable` as `compileOnly`: Gradle / javac can type-check `KotlincCompiler`, but the Kotlin compiler is not packed into `classforge-*.jar`. Copy the resulting ClassForge JAR into `crates/pervius-java-bridge/libs/`, overwriting the file of the same name, then rebuild Rust. For runtime Kotlin recompilation, provide the Kotlin compiler embeddable JAR separately as described in [Requirements](#requirements).
+ClassForge declares Kotlin dependencies as `compileOnly`: Gradle / javac can type-check `KotlincCompiler`, but Kotlin stdlib/compiler are not packed into `classforge-*.jar`. Copy the resulting ClassForge JAR into `crates/pervius-java-bridge/libs/`, overwriting the file of the same name, then rebuild Rust. Runtime Kotlin recompilation will download the configured Kotlin dependencies automatically.
 
 ```bash
 cargo run --release

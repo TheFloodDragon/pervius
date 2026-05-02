@@ -14,6 +14,7 @@ use egui_shell::components::{
 };
 use egui_shell::keybind_rows;
 use pervius_java_bridge::decompiler::{self, CacheEntry};
+use pervius_java_bridge::environment;
 use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -91,19 +92,52 @@ pub struct RecentEntry {
     pub timestamp: u64,
 }
 
-/// Java 环境配置
+/// Java / 外部工具环境配置
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct JavaSettings {
     /// JAVA_HOME 路径（空字符串表示使用系统环境变量）
     pub java_home: String,
+    /// Vineflower 版本
+    pub vineflower_version: String,
+    /// Vineflower 存储目录（空字符串表示使用默认缓存工具目录）
+    pub vineflower_dir: String,
+    /// Kotlin 版本
+    pub kotlin_version: String,
+    /// Kotlin 依赖存储目录（空字符串表示使用默认缓存工具目录）
+    pub kotlin_dependencies_dir: String,
 }
 
 impl Default for JavaSettings {
     fn default() -> Self {
         Self {
             java_home: String::new(),
+            vineflower_version: environment::DEFAULT_VINEFLOWER_VERSION.to_string(),
+            vineflower_dir: String::new(),
+            kotlin_version: environment::DEFAULT_KOTLIN_VERSION.to_string(),
+            kotlin_dependencies_dir: String::new(),
         }
+    }
+}
+
+impl JavaSettings {
+    /// 转换为 bridge 层环境工具配置。
+    pub fn environment_config(&self) -> environment::EnvironmentConfig {
+        environment::EnvironmentConfig {
+            vineflower_version: self.vineflower_version.clone(),
+            vineflower_dir: path_option(&self.vineflower_dir),
+            kotlin_version: self.kotlin_version.clone(),
+            kotlin_dependencies_dir: path_option(&self.kotlin_dependencies_dir),
+        }
+    }
+}
+
+fn path_option(path: &str) -> Option<std::path::PathBuf> {
+    let path = path.trim();
+    if path.is_empty() {
+        None
+    } else {
+        Some(path.into())
     }
 }
 
@@ -354,7 +388,7 @@ pub fn show(
         },
         SectionDef {
             icon: codicon::BEAKER,
-            label: t!("settings.java").to_string(),
+            label: t!("settings.environment").to_string(),
         },
         SectionDef {
             icon: codicon::TOOLS,
@@ -386,7 +420,7 @@ fn render_section(
 ) -> bool {
     match active {
         0 => render_general(draft, ui, st),
-        1 => render_java(draft, ui, st),
+        1 => render_environment(draft, ui, st),
         2 => render_compile(draft, ui, st),
         3 => render_cache(draft, ui, st, state),
         _ => render_keymap(&mut draft.keymap, ui, st),
@@ -448,7 +482,7 @@ fn render_general(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -
     changed
 }
 
-fn render_java(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> bool {
+fn render_environment(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> bool {
     let mut changed = false;
     section_header(ui, st, &t!("settings.environment"));
     changed |= path_picker_with(
@@ -464,7 +498,130 @@ fn render_java(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> b
                 .map(|p| p.to_string_lossy().into_owned())
         },
     );
+    ui.add_space(10.0);
+    section_header(ui, st, &t!("settings.vineflower_tools"));
+    changed |= text_field_row(
+        ui,
+        st,
+        &t!("settings.vineflower_version"),
+        &mut draft.java.vineflower_version,
+        None,
+    );
+    changed |= path_picker_with(
+        ui,
+        st,
+        &t!("settings.vineflower_dir"),
+        &mut draft.java.vineflower_dir,
+        &t!("settings.vineflower_dir_hint"),
+        &t!("settings.browse"),
+        || {
+            rfd::FileDialog::new()
+                .pick_folder()
+                .map(|p| p.to_string_lossy().into_owned())
+        },
+    );
+    paint_tool_dir_hint(ui, st, effective_vineflower_dir(draft));
+    ui.add_space(10.0);
+    section_header(ui, st, &t!("settings.kotlin_tools"));
+    changed |= text_field_row(
+        ui,
+        st,
+        &t!("settings.kotlin_version"),
+        &mut draft.java.kotlin_version,
+        None,
+    );
+    changed |= path_picker_with(
+        ui,
+        st,
+        &t!("settings.kotlin_dependencies_dir"),
+        &mut draft.java.kotlin_dependencies_dir,
+        &t!("settings.kotlin_dependencies_dir_hint"),
+        &t!("settings.browse"),
+        || {
+            rfd::FileDialog::new()
+                .pick_folder()
+                .map(|p| p.to_string_lossy().into_owned())
+        },
+    );
+    paint_tool_dir_hint(ui, st, effective_kotlin_dependencies_dir(draft));
     changed
+}
+
+fn effective_vineflower_dir(
+    draft: &Settings,
+) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
+    path_option(&draft.java.vineflower_dir)
+        .map(Ok)
+        .unwrap_or_else(|| {
+            Ok(effective_cache_root(draft)?
+                .join("tools")
+                .join("vineflower"))
+        })
+}
+
+fn effective_kotlin_dependencies_dir(
+    draft: &Settings,
+) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
+    path_option(&draft.java.kotlin_dependencies_dir)
+        .map(Ok)
+        .unwrap_or_else(|| Ok(effective_cache_root(draft)?.join("tools").join("kotlin")))
+}
+
+fn effective_cache_root(
+    draft: &Settings,
+) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
+    if let Some(path) = draft.cache.root_path() {
+        return Ok(path.to_path_buf());
+    }
+    let base = dirs::cache_dir().ok_or(pervius_java_bridge::error::BridgeError::NoCacheDir)?;
+    Ok(base.join("pervius").join("decompiled"))
+}
+
+fn text_field_row(
+    ui: &mut egui::Ui,
+    st: &SettingsTheme,
+    label: &str,
+    value: &mut String,
+    hint: Option<&str>,
+) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(label.to_string())
+                .size(13.0)
+                .color(st.text_primary),
+        );
+        ui.add_space(8.0);
+        let mut edit = egui::TextEdit::singleline(value).desired_width(160.0);
+        if let Some(hint) = hint {
+            edit = edit.hint_text(hint);
+        }
+        let resp = ui.add(edit);
+        changed |= resp.changed();
+    });
+    ui.add_space(4.0);
+    changed
+}
+
+fn paint_tool_dir_hint(
+    ui: &mut egui::Ui,
+    st: &SettingsTheme,
+    path: Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError>,
+) {
+    let text = match path {
+        Ok(path) => t!("settings.tool_current_dir", path = path.display()).to_string(),
+        Err(error) => t!("settings.tool_current_dir_failed", error = error.to_string()).to_string(),
+    };
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(text)
+                .size(11.0)
+                .color(st.text_secondary)
+                .monospace(),
+        );
+    });
 }
 
 fn render_compile(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> bool {
