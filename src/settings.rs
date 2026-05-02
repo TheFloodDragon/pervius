@@ -141,6 +141,12 @@ fn path_option(path: &str) -> Option<std::path::PathBuf> {
     }
 }
 
+fn pick_folder_string() -> Option<String> {
+    rfd::FileDialog::new()
+        .pick_folder()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
 /// 拖拽到资源管理器 / Classpath 区域时的 Classpath 处理策略。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClasspathDropBehavior {
@@ -523,11 +529,7 @@ fn render_environment(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsThem
         &mut draft.java.java_home,
         &t!("settings.java_home_hint"),
         &t!("settings.browse"),
-        || {
-            rfd::FileDialog::new()
-                .pick_folder()
-                .map(|p| p.to_string_lossy().into_owned())
-        },
+        pick_folder_string,
     );
     paint_java_path_hint(ui, st, &draft.java.java_home);
     ui.add_space(10.0);
@@ -546,11 +548,7 @@ fn render_environment(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsThem
         &mut draft.java.vineflower_dir,
         &t!("settings.vineflower_dir_hint"),
         &t!("settings.browse"),
-        || {
-            rfd::FileDialog::new()
-                .pick_folder()
-                .map(|p| p.to_string_lossy().into_owned())
-        },
+        pick_folder_string,
     );
     paint_tool_dir_hint(ui, st, effective_vineflower_dir(draft));
     ui.add_space(10.0);
@@ -569,30 +567,32 @@ fn render_environment(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsThem
         &mut draft.java.kotlin_dependencies_dir,
         &t!("settings.kotlin_dependencies_dir_hint"),
         &t!("settings.browse"),
-        || {
-            rfd::FileDialog::new()
-                .pick_folder()
-                .map(|p| p.to_string_lossy().into_owned())
-        },
+        pick_folder_string,
     );
     paint_tool_dir_hint(ui, st, effective_kotlin_dependencies_dir(draft));
     changed
 }
 
+fn effective_tool_dir(
+    draft: &Settings,
+    configured: &str,
+    sub_dir: &str,
+) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
+    path_option(configured)
+        .map(Ok)
+        .unwrap_or_else(|| Ok(effective_dependencies_root(draft)?.join(sub_dir)))
+}
+
 fn effective_vineflower_dir(
     draft: &Settings,
 ) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
-    path_option(&draft.java.vineflower_dir)
-        .map(Ok)
-        .unwrap_or_else(|| Ok(effective_dependencies_root(draft)?.join("vineflower")))
+    effective_tool_dir(draft, &draft.java.vineflower_dir, "vineflower")
 }
 
 fn effective_kotlin_dependencies_dir(
     draft: &Settings,
 ) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
-    path_option(&draft.java.kotlin_dependencies_dir)
-        .map(Ok)
-        .unwrap_or_else(|| Ok(effective_dependencies_root(draft)?.join("kotlin")))
+    effective_tool_dir(draft, &draft.java.kotlin_dependencies_dir, "kotlin")
 }
 
 fn effective_dependencies_root(
@@ -662,6 +662,17 @@ fn paint_tool_dir_hint(
     paint_hint_line(ui, st, text);
 }
 
+fn paint_secondary_hint_line(ui: &mut egui::Ui, st: &SettingsTheme, text: String) {
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(text)
+                .size(11.0)
+                .color(st.text_secondary),
+        );
+    });
+}
+
 fn paint_hint_line(ui: &mut egui::Ui, st: &SettingsTheme, text: String) {
     ui.horizontal(|ui| {
         ui.add_space(16.0);
@@ -683,14 +694,11 @@ fn render_compile(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -
         &t!("settings.kotlin_skip_metadata_version_check"),
         &mut draft.compile.kotlin_skip_metadata_version_check,
     );
-    ui.horizontal(|ui| {
-        ui.add_space(16.0);
-        ui.label(
-            egui::RichText::new(t!("settings.kotlin_skip_metadata_version_check_hint").to_string())
-                .size(11.0)
-                .color(st.text_secondary),
-        );
-    });
+    paint_secondary_hint_line(
+        ui,
+        st,
+        t!("settings.kotlin_skip_metadata_version_check_hint").to_string(),
+    );
     ui.add_space(10.0);
     section_header(ui, st, &t!("settings.compile_classpath"));
     changed |= render_classpath_drop_behavior(draft, ui, st);
@@ -731,27 +739,17 @@ fn render_classpath_drop_behavior(
                 }
             });
     });
-    ui.horizontal(|ui| {
-        ui.add_space(16.0);
-        ui.label(
-            egui::RichText::new(t!("settings.classpath_drop_behavior_hint").to_string())
-                .size(11.0)
-                .color(st.text_secondary),
-        );
-    });
+    paint_secondary_hint_line(
+        ui,
+        st,
+        t!("settings.classpath_drop_behavior_hint").to_string(),
+    );
     ui.add_space(8.0);
     changed
 }
 
 fn paint_classpath_hint(ui: &mut egui::Ui, st: &SettingsTheme) {
-    ui.horizontal(|ui| {
-        ui.add_space(16.0);
-        ui.label(
-            egui::RichText::new(t!("settings.compile_classpath_hint").to_string())
-                .size(11.0)
-                .color(st.text_secondary),
-        );
-    });
+    paint_secondary_hint_line(ui, st, t!("settings.compile_classpath_hint").to_string());
 }
 
 fn paint_classpath_actions(
@@ -943,11 +941,7 @@ fn render_cache(
         &mut draft.cache.decompiled_dir,
         &t!("settings.cache_dir_hint"),
         &t!("settings.browse"),
-        || {
-            rfd::FileDialog::new()
-                .pick_folder()
-                .map(|p| p.to_string_lossy().into_owned())
-        },
+        pick_folder_string,
     );
     ui.add_space(6.0);
     paint_cache_root_hint(ui, st);
@@ -1022,15 +1016,7 @@ fn paint_cache_root_hint(ui: &mut egui::Ui, st: &SettingsTheme) {
         Ok(path) => t!("settings.cache_current_root", path = path.display()).to_string(),
         Err(error) => t!("settings.cache_list_failed", error = error.to_string()).to_string(),
     };
-    ui.horizontal(|ui| {
-        ui.add_space(16.0);
-        ui.label(
-            egui::RichText::new(text)
-                .size(11.0)
-                .color(st.text_secondary)
-                .monospace(),
-        );
-    });
+    paint_hint_line(ui, st, text);
 }
 
 fn paint_cache_actions(ui: &mut egui::Ui, st: &SettingsTheme, state: &SettingsPanelState) {

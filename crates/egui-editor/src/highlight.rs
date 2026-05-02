@@ -156,6 +156,7 @@ fn collect_treesitter_spans_checked(source: &str, lang: Language) -> (Vec<Span>,
     if lang == Language::Kotlin {
         kotlin::patch_string_gaps(&mut spans, source);
     }
+    patch_dollar_identifier_spans(&mut spans, source);
     spans.sort_by_key(|&(start, _, _)| start);
     normalize_spans(&mut spans);
     (spans, has_errors)
@@ -182,6 +183,68 @@ fn normalize_spans(spans: &mut Vec<Span>) {
     }
     spans.truncate(write);
     spans.sort_by_key(|&(start, _, _)| start);
+}
+
+fn patch_dollar_identifier_spans(spans: &mut Vec<Span>, source: &str) {
+    if spans.len() < 2 {
+        return;
+    }
+    let mut dollar_spans = Vec::new();
+    for i in 0..spans.len() - 1 {
+        let (left_start, left_end, left_kind) = spans[i];
+        let (right_start, right_end, right_kind) = spans[i + 1];
+        if left_end >= right_start || right_start != left_end + 1 {
+            continue;
+        }
+        if source.as_bytes().get(left_end) != Some(&b'$') {
+            continue;
+        }
+        if !is_identifier_like_kind(left_kind) || !is_identifier_like_kind(right_kind) {
+            continue;
+        }
+        if source[..left_end]
+            .chars()
+            .next_back()
+            .map_or(true, |c| !is_identifier_char(c))
+            || source[right_start..]
+                .chars()
+                .next()
+                .map_or(true, |c| !is_identifier_char(c))
+        {
+            continue;
+        }
+        let merged_kind = merge_identifier_kind(left_kind, right_kind);
+        spans[i] = (left_start, left_end, merged_kind);
+        spans[i + 1] = (right_start, right_end, merged_kind);
+        dollar_spans.push((left_end, right_start, merged_kind));
+    }
+    spans.extend(dollar_spans);
+}
+
+fn is_identifier_like_kind(kind: TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Plain
+            | TokenKind::Type
+            | TokenKind::Constant
+            | TokenKind::MethodCall
+            | TokenKind::MethodDeclaration
+    )
+}
+
+fn merge_identifier_kind(left: TokenKind, right: TokenKind) -> TokenKind {
+    use TokenKind::*;
+    match (left, right) {
+        (MethodDeclaration, _) | (_, MethodDeclaration) => MethodDeclaration,
+        (MethodCall, _) | (_, MethodCall) => MethodCall,
+        (Type, _) | (_, Type) => Type,
+        (Constant, _) | (_, Constant) => Constant,
+        _ => Plain,
+    }
+}
+
+fn is_identifier_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_' || c == '$'
 }
 
 fn token_priority(kind: TokenKind) -> u8 {

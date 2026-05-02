@@ -93,17 +93,11 @@ impl App {
                     }
                 }
                 ClasspathDropBehavior::Add => self.add_classpath_paths(classpath_entries),
-                ClasspathDropBehavior::Open => {
-                    if let Some(path) = paths.first() {
-                        self.open_dropped_path(path);
-                    }
-                }
+                ClasspathDropBehavior::Open => self.open_first_dropped_path(&paths),
             }
             return;
         }
-        if let Some(path) = paths.first() {
-            self.open_dropped_path(path);
-        }
+        self.open_first_dropped_path(&paths);
     }
 
     /// 检查后台 JAR 加载和基础资源准备是否完成
@@ -228,6 +222,12 @@ impl App {
         }
         let pos = ctx.input(|i| i.pointer.latest_pos().or(i.pointer.interact_pos()))?;
         self.layout.file_panel.drop_target_at(pos)
+    }
+
+    fn open_first_dropped_path(&mut self, paths: &[std::path::PathBuf]) {
+        if let Some(path) = paths.first() {
+            self.open_dropped_path(path);
+        }
     }
 
     /// 按拖拽默认行为打开第一个路径。

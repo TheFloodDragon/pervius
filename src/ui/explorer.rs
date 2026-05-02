@@ -176,6 +176,12 @@ tabookit::class! {
         self.drop_target_at(pos)
     }
 
+    fn classpath_height_bounds(body_rect: egui::Rect) -> (f32, f32) {
+        let max_height = (body_rect.height() - 48.0).max(32.0);
+        let min_height = 58.0_f32.min(max_height);
+        (min_height, max_height)
+    }
+
     fn classpath_rect(
         &self,
         body_rect: egui::Rect,
@@ -185,8 +191,7 @@ tabookit::class! {
     ) -> egui::Rect {
         let entries = current_jar.map_or(0, |_| 1) + project_classpath.len() + global_classpath.len();
         let auto_height = 34.0 + entries.max(1) as f32 * 24.0 + 8.0;
-        let max_height = (body_rect.height() - 48.0).max(32.0);
-        let min_height = 58.0_f32.min(max_height);
+        let (min_height, max_height) = Self::classpath_height_bounds(body_rect);
         let height = if self.classpath_expanded {
             let preferred = if self.classpath_height > 0.0 {
                 self.classpath_height
@@ -253,8 +258,7 @@ tabookit::class! {
             );
         }
         if resp.dragged() {
-            let max_height = (body_rect.height() - 48.0).max(32.0);
-            let min_height = 58.0_f32.min(max_height);
+            let (min_height, max_height) = Self::classpath_height_bounds(body_rect);
             let base_height = if self.classpath_height > 0.0 {
                 self.classpath_height
             } else {

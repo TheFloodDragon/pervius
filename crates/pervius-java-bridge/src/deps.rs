@@ -354,19 +354,20 @@ fn fetch_sha256(url: &str) -> Result<String, BridgeError> {
     Ok(checksum)
 }
 
-fn download_text(url: &str) -> Result<String, BridgeError> {
-    let response = ureq::get(url)
+fn download_response(url: &str) -> Result<ureq::Response, BridgeError> {
+    ureq::get(url)
         .call()
-        .map_err(|e| BridgeError::Download(format!("failed to download {url}: {e}")))?;
-    response
+        .map_err(|e| BridgeError::Download(format!("failed to download {url}: {e}")))
+}
+
+fn download_text(url: &str) -> Result<String, BridgeError> {
+    download_response(url)?
         .into_string()
         .map_err(|e| BridgeError::Download(format!("failed to read {url}: {e}")))
 }
 
 fn download_to_file(url: &str, path: &Path) -> Result<(), BridgeError> {
-    let response = ureq::get(url)
-        .call()
-        .map_err(|e| BridgeError::Download(format!("failed to download {url}: {e}")))?;
+    let response = download_response(url)?;
     let total = response
         .header("Content-Length")
         .and_then(|value| value.parse::<u64>().ok());

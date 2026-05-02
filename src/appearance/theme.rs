@@ -63,8 +63,8 @@ pub const SYN_NUMBER: egui::Color32 = egui::Color32::from_rgb(42, 172, 184);
 pub const SYN_COMMENT: egui::Color32 = egui::Color32::from_rgb(122, 126, 133);
 /// 注解 #B3AE60
 pub const SYN_ANNOTATION: egui::Color32 = egui::Color32::from_rgb(179, 174, 96);
-/// 方法调用（与默认文字同色）
-pub const SYN_METHOD: egui::Color32 = SYN_TEXT;
+/// 方法调用 #7CB4FF
+pub const SYN_METHOD: egui::Color32 = egui::Color32::from_rgb(124, 180, 255);
 /// 方法声明 #56A8F5
 pub const SYN_METHOD_DECL: egui::Color32 = egui::Color32::from_rgb(86, 168, 245);
 

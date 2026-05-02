@@ -117,19 +117,20 @@ pub fn ensure_kotlin_dependencies() -> Result<KotlinDependencies, BridgeError> {
 }
 
 fn normalize_config(mut config: EnvironmentConfig) -> EnvironmentConfig {
-    if config.vineflower_version.trim().is_empty() {
-        config.vineflower_version = DEFAULT_VINEFLOWER_VERSION.to_string();
-    } else {
-        config.vineflower_version = config.vineflower_version.trim().to_string();
-    }
-    if config.kotlin_version.trim().is_empty() {
-        config.kotlin_version = DEFAULT_KOTLIN_VERSION.to_string();
-    } else {
-        config.kotlin_version = config.kotlin_version.trim().to_string();
-    }
+    config.vineflower_version = normalize_version(&config.vineflower_version, DEFAULT_VINEFLOWER_VERSION);
+    config.kotlin_version = normalize_version(&config.kotlin_version, DEFAULT_KOTLIN_VERSION);
     config.vineflower_dir = normalize_dir(config.vineflower_dir);
     config.kotlin_dependencies_dir = normalize_dir(config.kotlin_dependencies_dir);
     config
+}
+
+fn normalize_version(value: &str, default: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        default.to_string()
+    } else {
+        value.to_string()
+    }
 }
 
 fn normalize_dir(path: Option<PathBuf>) -> Option<PathBuf> {

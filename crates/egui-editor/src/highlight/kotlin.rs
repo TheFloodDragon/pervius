@@ -188,6 +188,12 @@ fn classify_jvm_identifier_suffix(node: &tree_sitter::Node, source: &[u8]) -> Op
     if !dollar_is_inside_identifier(node.start_byte(), source) {
         return None;
     }
+    if ancestors_contain(node, "function_declaration", 4) {
+        return Some(TokenKind::MethodDeclaration);
+    }
+    if ancestors_contain(node, "call_expression", 4) || ancestors_contain(node, "navigation_suffix", 4) {
+        return Some(TokenKind::MethodCall);
+    }
     let text = node.utf8_text(source).unwrap_or("");
     Some(if text.starts_with(|c: char| c.is_uppercase()) {
         TokenKind::Type

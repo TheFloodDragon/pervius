@@ -163,7 +163,7 @@ fn extract_receiver(text: &str, span: &Span) -> Option<String> {
     let receiver: String = before_dot
         .chars()
         .rev()
-        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
         .collect::<String>()
         .chars()
         .rev()
