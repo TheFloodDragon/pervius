@@ -17,6 +17,7 @@ pub use crate::ui::confirm::ConfirmAction;
 use crate::settings::Settings;
 use crate::task::Task;
 use crate::ui::layout::Layout;
+use rust_i18n::t;
 use egui_notify::Toasts;
 use egui_shell::components::SettingsFile;
 use pervius_java_bridge::decompiler::CachedSource;
@@ -64,10 +65,12 @@ impl App {
         // 传递用户配置的 java_home 给 bridge 层
         pervius_java_bridge::process::set_java_home(&settings.java.java_home);
         pervius_java_bridge::decompiler::set_cache_root(settings.cache.root_path());
+        let mut toasts = Toasts::default();
+        toasts.set_copied_text(t!("toast.copied"));
         Self {
             layout: Layout::new(&settings),
             settings,
-            toasts: Toasts::default(),
+            toasts,
             pending_confirm: None,
             workspace: Workspace::Empty,
             pending_decompiles: Vec::new(),

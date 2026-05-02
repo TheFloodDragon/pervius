@@ -44,12 +44,12 @@ impl App {
             .loaded()
             .and_then(|s| s.pending_re_decompile.as_ref())
             .map(|(name, _)| name.as_str());
-        if let Some(name) = re_decompile_name {
-            self.layout.status_bar.sync_decompile_single(name);
-        } else if !self.pending_compiles.is_empty() {
+        if !self.pending_compiles.is_empty() {
             let name = &self.pending_compiles.last().unwrap().entry_path;
             let short = name.rsplit('/').next().unwrap_or(name);
-            self.layout.status_bar.sync_decompile_single(short);
+            self.layout.status_bar.sync_compile_single(short);
+        } else if let Some(name) = re_decompile_name {
+            self.layout.status_bar.sync_decompile_single(name);
         } else if !self.pending_decompiles.is_empty() {
             let name = &self.pending_decompiles.last().unwrap().0;
             let short = name.rsplit('/').next().unwrap_or(name);

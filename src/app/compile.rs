@@ -75,7 +75,7 @@ impl App {
         let target = Some(target);
         let kotlin_skip_metadata_version_check = self
             .settings
-            .java
+            .compile
             .kotlin_skip_metadata_version_check;
         let source_entry = entry_path.to_string();
         let source_snapshot = source.clone();

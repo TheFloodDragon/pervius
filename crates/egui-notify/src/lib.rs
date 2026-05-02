@@ -48,12 +48,13 @@ pub struct Toasts {
     font: Option<FontId>,
     shadow: Option<Shadow>,
     held: bool,
+    copied_text: WidgetText,
 }
 
 impl Toasts {
     /// Creates new [`Toasts`] instance.
     #[must_use]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             anchor: Anchor::TopRight,
             margin: vec2(8., 8.),
@@ -65,6 +66,7 @@ impl Toasts {
             reverse: false,
             font: None,
             shadow: None,
+            copied_text: WidgetText::from_static("Copied"),
         }
     }
 
@@ -135,6 +137,11 @@ impl Toasts {
     /// Shortcut for adding a toast with no level.
     pub fn basic(&mut self, caption: impl Into<WidgetText>) -> &mut Toast {
         self.add(Toast::basic(caption))
+    }
+
+    /// Sets the success toast text shown after right-click copying a toast caption.
+    pub fn set_copied_text(&mut self, copied_text: impl Into<WidgetText>) {
+        self.copied_text = copied_text.into();
     }
 
     /// Shortcut for adding a toast with custom `level`.
@@ -445,7 +452,9 @@ impl Toasts {
         });
 
         if copied_toast {
-            self.success("Copied").duration(std::time::Duration::from_millis(1200));
+            let copied_text = self.copied_text.clone();
+            self.success(copied_text)
+                .duration(std::time::Duration::from_millis(1200));
         }
 
         if update {

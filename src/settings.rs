@@ -97,14 +97,27 @@ pub struct RecentEntry {
 pub struct JavaSettings {
     /// JAVA_HOME 路径（空字符串表示使用系统环境变量）
     pub java_home: String,
-    /// Kotlin 编译时跳过依赖元数据版本检查
-    pub kotlin_skip_metadata_version_check: bool,
 }
 
 impl Default for JavaSettings {
     fn default() -> Self {
         Self {
             java_home: String::new(),
+        }
+    }
+}
+
+/// 编译配置
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CompileSettings {
+    /// Kotlin 编译时跳过依赖元数据版本检查
+    pub kotlin_skip_metadata_version_check: bool,
+}
+
+impl Default for CompileSettings {
+    fn default() -> Self {
+        Self {
             kotlin_skip_metadata_version_check: true,
         }
     }
@@ -194,6 +207,7 @@ impl Default for Settings {
             language: Language::default(),
             open_behavior: OpenBehavior::default(),
             java: JavaSettings::default(),
+            compile: CompileSettings::default(),
             cache: CacheSettings::default(),
             keymap: KeymapSettings::default(),
             recent: Vec::new(),
@@ -218,6 +232,8 @@ tabookit::class! {
         pub open_behavior: OpenBehavior,
         /// Java 环境设置
         pub java: JavaSettings,
+        /// 编译设置
+        pub compile: CompileSettings,
         /// 反编译缓存设置
         pub cache: CacheSettings,
         /// 快捷键设置
@@ -338,6 +354,10 @@ pub fn show(
             label: t!("settings.java").to_string(),
         },
         SectionDef {
+            icon: codicon::TOOLS,
+            label: t!("settings.compile").to_string(),
+        },
+        SectionDef {
             icon: codicon::FOLDER,
             label: t!("settings.cache").to_string(),
         },
@@ -364,7 +384,8 @@ fn render_section(
     match active {
         0 => render_general(draft, ui, st),
         1 => render_java(draft, ui, st),
-        2 => render_cache(draft, ui, st, state),
+        2 => render_compile(draft, ui, st),
+        3 => render_cache(draft, ui, st, state),
         _ => render_keymap(&mut draft.keymap, ui, st),
     }
 }
@@ -440,11 +461,17 @@ fn render_java(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> b
                 .map(|p| p.to_string_lossy().into_owned())
         },
     );
+    changed
+}
+
+fn render_compile(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> bool {
+    let mut changed = false;
+    section_header(ui, st, &t!("settings.section_compile"));
     changed |= toggle(
         ui,
         st,
         &t!("settings.kotlin_skip_metadata_version_check"),
-        &mut draft.java.kotlin_skip_metadata_version_check,
+        &mut draft.compile.kotlin_skip_metadata_version_check,
     );
     ui.horizontal(|ui| {
         ui.add_space(16.0);
