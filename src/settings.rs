@@ -524,13 +524,7 @@ fn paint_classpath_actions(
                 .add_filter(&*t!("layout.java_archive"), &["jar", "zip", "war", "ear"])
                 .pick_files()
             {
-                for path in paths {
-                    let path = path.to_string_lossy().into_owned();
-                    if !entries.iter().any(|p| p == &path) {
-                        entries.push(path);
-                        changed = true;
-                    }
-                }
+                changed |= add_classpath_entries(entries, paths);
             }
         }
         if ui
@@ -542,11 +536,7 @@ fn paint_classpath_actions(
             .clicked()
         {
             if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                let path = path.to_string_lossy().into_owned();
-                if !entries.iter().any(|p| p == &path) {
-                    entries.push(path);
-                    changed = true;
-                }
+                changed |= add_classpath_entries(entries, [path]);
             }
         }
         ui.label(
@@ -555,6 +545,22 @@ fn paint_classpath_actions(
                 .color(st.text_secondary),
         );
     });
+    changed
+}
+
+fn add_classpath_entries<I, P>(entries: &mut Vec<String>, paths: I) -> bool
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    let mut changed = false;
+    for path in paths {
+        let path = path.as_ref().to_string_lossy().into_owned();
+        if !path.trim().is_empty() && !entries.iter().any(|p| p == &path) {
+            entries.push(path);
+            changed = true;
+        }
+    }
     changed
 }
 

@@ -6,10 +6,11 @@ use super::{Span, TokenKind};
 
 /// 返回 Some 表示命中着色，None 表示继续深入子节点
 pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
-    if is_inside_string_literal(node) && !is_string_interpolation_node(node) {
+    let kind = node.kind();
+    if is_inside_string_literal(node) && !is_string_interpolation_node(node, kind) {
         return Some(TokenKind::String);
     }
-    match node.kind() {
+    match kind {
         // 关键字（叶节点）
         "val" | "var" | "fun" | "class" | "object" | "interface" | "enum" | "typealias" | "if"
         | "else" | "when" | "for" | "do" | "while" | "try" | "catch" | "throw" | "finally"
@@ -124,56 +125,42 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
     None
 }
 
-/// 补齐 tree-sitter-kotlin 对字符串引号/普通片段拆分不稳定导致的漏色。
-pub(super) fn patch_string_spans(spans: &mut Vec<Span>, source: &str) {
+/// 补齐 Kotlin 字符串中 tree-sitter 未覆盖的片段（常见为引号或错误恢复产生的空白区）。
+pub(super) fn patch_string_gaps(spans: &mut Vec<Span>, source: &str) {
     let bytes = source.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        match bytes[i] {
-            b'"' => {
-                if source[i..].starts_with("\"\"\"") {
-                    if let Some(end) = find_raw_string_end(source, i + 3) {
-                        push_string_gaps(spans, source, i, end);
-                        i = end;
-                    } else {
-                        push_string_gaps(spans, source, i, bytes.len());
-                        break;
-                    }
-                } else {
-                    let end = find_line_string_end(bytes, i + 1);
-                    push_string_gaps(spans, source, i, end);
-                    i = end;
-                }
-            }
-            _ => i += 1,
+        if bytes[i] != b'"' {
+            i += 1;
+            continue;
         }
+        let end = if source[i..].starts_with("\"\"\"") {
+            find_raw_string_end(source, i + 3).unwrap_or(bytes.len())
+        } else {
+            find_line_string_end(bytes, i + 1)
+        };
+        fill_string_gaps(spans, source, i, end);
+        i = end.max(i + 1);
     }
 }
 
-fn push_string_gaps(spans: &mut Vec<Span>, source: &str, start: usize, end: usize) {
-    let mut cursor = start;
-    let mut existing = spans
+fn fill_string_gaps(spans: &mut Vec<Span>, source: &str, start: usize, end: usize) {
+    let mut covered = spans
         .iter()
-        .copied()
-        .filter(|&(s, e, k)| s < end && e > start && k != TokenKind::Plain)
-        .filter(|&(s, e, kind)| kind != TokenKind::String || !is_whole_range(start, end, s, e))
+        .filter_map(|&(s, e, kind)| {
+            (kind != TokenKind::Plain && s < end && e > start).then_some((s.max(start), e.min(end)))
+        })
         .collect::<Vec<_>>();
-    existing.sort_by_key(|&(s, e, _)| (s, e));
-    for (s, e, _) in existing {
-        let s = s.max(start).min(end);
-        let e = e.max(start).min(end);
+    covered.sort_unstable();
+
+    let mut cursor = start;
+    for (s, e) in covered {
         if cursor < s {
             push_string_span(spans, source, cursor, s);
         }
-        cursor = e;
+        cursor = cursor.max(e);
     }
-    if cursor < end {
-        push_string_span(spans, source, cursor, end);
-    }
-}
-
-fn is_whole_range(start: usize, end: usize, span_start: usize, span_end: usize) -> bool {
-    span_start <= start && span_end >= end
+    push_string_span(spans, source, cursor, end);
 }
 
 fn push_string_span(spans: &mut Vec<Span>, source: &str, start: usize, end: usize) {
@@ -205,9 +192,9 @@ fn is_inside_string_literal(node: &tree_sitter::Node) -> bool {
         || ancestors_contain(node, "multiline_string_literal", 16)
 }
 
-fn is_string_interpolation_node(node: &tree_sitter::Node) -> bool {
+fn is_string_interpolation_node(node: &tree_sitter::Node, kind: &str) -> bool {
     matches!(
-        node.kind(),
+        kind,
         "interpolated_expression"
             | "interpolated_identifier"
             | "interpolation_expression_start"

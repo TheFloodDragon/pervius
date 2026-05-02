@@ -31,12 +31,10 @@ impl CompileClasspath {
 
     /// 追加一个条目。
     pub fn push(&mut self, path: impl Into<PathBuf>) {
-        self.entries.push(path.into());
-    }
-
-    /// 是否为空。
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        let path = path.into();
+        if !path.as_os_str().is_empty() && !self.entries.iter().any(|p| p == &path) {
+            self.entries.push(path);
+        }
     }
 
     /// 按平台分隔符拼接为 Java classpath 字符串。
@@ -48,7 +46,7 @@ impl CompileClasspath {
         Some(
             self.entries
                 .iter()
-                .map(|p| p.display().to_string())
+                .map(|p| p.to_string_lossy().into_owned())
                 .collect::<Vec<_>>()
                 .join(sep),
         )

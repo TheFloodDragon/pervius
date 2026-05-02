@@ -14,7 +14,7 @@ use pervius_java_bridge::decompiler;
 use pervius_java_bridge::jar::{JarArchive, LoadProgress};
 use rust_i18n::t;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 /// 自动全量反编译的文件大小阈值（1 MB）
@@ -85,16 +85,7 @@ impl App {
             .cloned()
             .collect::<Vec<_>>();
         if !classpath_entries.is_empty() {
-            let mut added = 0;
-            for path in classpath_entries {
-                if self.add_session_classpath_entry(path) {
-                    added += 1;
-                }
-            }
-            if added > 0 {
-                self.toasts
-                    .success(t!("layout.classpath_added", count = added));
-            }
+            self.add_classpath_paths(classpath_entries);
             return;
         }
         if let Some(path) = paths.first() {
@@ -168,9 +159,9 @@ impl App {
         if path.is_dir() {
             return true;
         }
-        path.extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "jar" | "zip"))
+        path.extension().and_then(|e| e.to_str()).is_some_and(|ext| {
+            matches!(ext.to_ascii_lowercase().as_str(), "jar" | "zip" | "war" | "ear")
+        })
     }
 
     /// 选择文件/目录并添加到当前会话 classpath。
@@ -183,7 +174,7 @@ impl App {
         }
     }
 
-    fn add_classpath_paths(&mut self, paths: Vec<PathBuf>) {
+    fn add_classpath_paths(&mut self, paths: Vec<std::path::PathBuf>) {
         let mut added = 0;
         for path in paths {
             if self.add_session_classpath_entry(path) {

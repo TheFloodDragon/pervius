@@ -248,14 +248,9 @@ public final class SourceCompiler {
 
         CompileFileManager(StandardJavaFileManager fileManager, String classpath) throws IOException {
             super(fileManager);
-            this.jars = openJars(classpath);
-            if (classpath != null && !classpath.isEmpty()) {
-                List<File> files = new ArrayList<File>();
-                for (String entry : classpath.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
-                    if (!entry.isEmpty()) {
-                        files.add(new File(entry));
-                    }
-                }
+            List<File> files = classpathFiles(classpath);
+            this.jars = openJars(files);
+            if (!files.isEmpty()) {
                 fileManager.setLocation(StandardLocation.CLASS_PATH, files);
             }
         }
@@ -331,19 +326,35 @@ public final class SourceCompiler {
             }
         }
 
-        private static List<JarFile> openJars(String classpath) throws IOException {
-            List<JarFile> result = new ArrayList<JarFile>();
+        private static List<File> classpathFiles(String classpath) {
+            List<File> result = new ArrayList<File>();
             if (classpath == null || classpath.isEmpty()) {
                 return result;
             }
             for (String entry : classpath.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
-                if (entry.isEmpty()) continue;
-                File file = new File(entry);
-                if (file.isFile() && entry.toLowerCase(Locale.ROOT).endsWith(".jar")) {
+                if (!entry.isEmpty()) {
+                    result.add(new File(entry));
+                }
+            }
+            return result;
+        }
+
+        private static List<JarFile> openJars(List<File> files) throws IOException {
+            List<JarFile> result = new ArrayList<JarFile>();
+            for (File file : files) {
+                if (file.isFile() && isArchive(file)) {
                     result.add(new JarFile(file));
                 }
             }
             return result;
+        }
+
+        private static boolean isArchive(File file) {
+            String name = file.getName().toLowerCase(Locale.ROOT);
+            return name.endsWith(".jar")
+                    || name.endsWith(".zip")
+                    || name.endsWith(".war")
+                    || name.endsWith(".ear");
         }
     }
 }
