@@ -14,6 +14,7 @@ pub mod bytecode;
 pub mod class_structure;
 pub mod compiler;
 pub mod decompiler;
+pub(crate) mod deps;
 pub mod error;
 pub mod jar;
 pub mod process;

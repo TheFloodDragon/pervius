@@ -41,6 +41,8 @@ pub const SEARCH: &str = "\u{EA6D}";
 pub const SETTINGS_GEAR: &str = "\u{EB51}";
 /// 关闭 / X 号
 pub const CLOSE: &str = "\u{EA76}";
+/// 添加 / 加号
+pub const ADD: &str = "\u{EA60}";
 /// App logo（beaker 图标）
 pub const BEAKER: &str = "\u{EAC4}";
 /// 图钉（大头针，竖直）

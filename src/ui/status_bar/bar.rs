@@ -13,13 +13,13 @@ use crate::appearance::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
 use egui_shell::components::panel::status_bar::{Alignment, StatusBarWidget, StatusItem, TextItem};
-use pervius_java_bridge::{assembler, decompiler, environment::DownloadProgressSnapshot};
+use pervius_java_bridge::environment::DownloadProgressSnapshot;
 use rust_i18n::t;
 
 tabookit::class! {
     /// 状态栏服务
     ///
-    /// 内置默认 items（版本号、类信息、编码、反编译器版本、视图切换），
+    /// 内置默认 items（应用版本、类信息、视图切换与后台进度），
     /// 外部只需调用 `render` 和 `sync` 即可。
     pub struct StatusBar {
         widget: StatusBarWidget,
@@ -129,32 +129,6 @@ impl Default for StatusBar {
             Alignment::Left,
         ));
         widget.add(ClassInfoItem::new());
-        if let Some(ver) = decompiler::vineflower_version() {
-            widget.add(TextItem::new(
-                t!("decompiler.vineflower_version", version = ver),
-                theme::ACCENT_GREEN,
-                Alignment::Right,
-            ));
-        } else {
-            widget.add(TextItem::new(
-                t!("status.vineflower_not_found"),
-                theme::ACCENT_RED,
-                Alignment::Right,
-            ));
-        }
-        if let Some(ver) = assembler::classforge_version() {
-            widget.add(TextItem::new(
-                t!("status.classforge_version", version = ver),
-                theme::ACCENT_GREEN,
-                Alignment::Right,
-            ));
-        } else {
-            widget.add(TextItem::new(
-                t!("status.classforge_not_found"),
-                theme::ACCENT_RED,
-                Alignment::Right,
-            ));
-        }
         widget.add(ModifiedCountItem::new());
         widget.add(ViewToggleItem::new());
         widget.add(DownloadProgressItem::new());

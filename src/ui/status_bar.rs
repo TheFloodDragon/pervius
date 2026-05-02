@@ -94,6 +94,7 @@ impl App {
         self.layout.status_bar.sync_index(index_info);
         // 有后台任务运行时持续刷新
         let has_bg_work = download_info.is_some()
+            || self.pending_vineflower_prepare.is_some()
             || self.workspace.is_decompiling()
             || !self.pending_decompiles.is_empty()
             || !self.pending_compiles.is_empty()

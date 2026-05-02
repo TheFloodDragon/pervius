@@ -15,7 +15,7 @@ use rust_i18n::t;
 use std::sync::atomic::Ordering;
 
 use super::editor::EditorArea;
-use super::explorer::FilePanel;
+use super::explorer::{ClasspathAction, FilePanel};
 use super::search::SearchDialog;
 use super::status_bar::StatusBar;
 
@@ -99,6 +99,7 @@ impl App {
 
     /// 轮询所有后台任务
     fn poll_tasks(&mut self) {
+        self.poll_vineflower_prepare();
         self.check_loading();
         if matches!(self.workspace, Workspace::Loading(_)) {
             return;
@@ -179,6 +180,7 @@ impl App {
         );
         if let Some(new_settings) = output.settings {
             self.apply_settings(new_settings);
+            ui.ctx().request_repaint();
         }
         if let Some(action) = output.action {
             self.handle_settings_action(action);
@@ -202,13 +204,16 @@ impl App {
         if new_settings.java.java_home != self.settings.java.java_home {
             process::set_java_home(&new_settings.java.java_home);
         }
-        let environment_changed = new_settings.java.vineflower_version
+        let vineflower_changed = new_settings.java.vineflower_version
             != self.settings.java.vineflower_version
-            || new_settings.java.vineflower_dir != self.settings.java.vineflower_dir
-            || new_settings.java.kotlin_version != self.settings.java.kotlin_version
+            || new_settings.java.vineflower_dir != self.settings.java.vineflower_dir;
+        let kotlin_changed = new_settings.java.kotlin_version != self.settings.java.kotlin_version
             || new_settings.java.kotlin_dependencies_dir
                 != self.settings.java.kotlin_dependencies_dir;
+        let environment_changed = vineflower_changed || kotlin_changed;
         let cache_changed = new_settings.cache.decompiled_dir != self.settings.cache.decompiled_dir;
+        let use_default_vineflower_dir = new_settings.java.vineflower_dir.trim().is_empty();
+        let should_prepare_vineflower = vineflower_changed || (cache_changed && use_default_vineflower_dir);
         if cache_changed {
             decompiler::set_cache_root(new_settings.cache.root_path());
             settings::refresh_cache_state(&mut self.layout.settings_state);
@@ -217,12 +222,49 @@ impl App {
         if environment_changed || cache_changed {
             environment::set_environment_config(new_settings.java.environment_config());
         }
-        if environment_changed {
+        if vineflower_changed || (cache_changed && use_default_vineflower_dir) {
             self.layout.status_bar = StatusBar::default();
         }
         self.settings = new_settings;
         if let Err(e) = self.settings.save() {
             log::warn!("配置保存失败: {e}");
+        }
+        if should_prepare_vineflower {
+            self.start_vineflower_prepare();
+        }
+    }
+
+    fn start_vineflower_prepare(&mut self) {
+        self.pending_vineflower_prepare = Some(Task::spawn(environment::ensure_vineflower));
+    }
+
+    fn poll_vineflower_prepare(&mut self) {
+        let Some(task) = &self.pending_vineflower_prepare else {
+            return;
+        };
+        let result = match task.poll() {
+            Poll::Ready(result) => result,
+            Poll::Pending => return,
+            Poll::Lost => {
+                self.pending_vineflower_prepare = None;
+                self.toasts.error(t!("layout.vineflower_prepare_task_failed"));
+                return;
+            }
+        };
+        self.pending_vineflower_prepare = None;
+        match result {
+            Ok(path) => {
+                self.layout.status_bar = StatusBar::default();
+                self.toasts.info(
+                    t!("layout.vineflower_prepare_complete", path = path.display().to_string()),
+                );
+            }
+            Err(error) => {
+                self.toasts.error(t!(
+                    "layout.vineflower_prepare_failed",
+                    error = error.to_string()
+                ));
+            }
         }
     }
 
@@ -368,16 +410,61 @@ impl App {
             .workspace
             .loaded()
             .and_then(|s| s.decompile.decompiled_set());
+        let current_jar = self.workspace.jar().map(|jar| jar.path.clone());
+        let project_classpath = self
+            .workspace
+            .loaded()
+            .map(|s| s.compile_classpath_entries.clone())
+            .unwrap_or_default();
+        let global_classpath = self.settings.compile.classpath_entries.clone();
         let mut child = ui.new_child(
             egui::UiBuilder::new()
                 .id(egui::Id::new("explorer_island"))
                 .max_rect(rect),
         );
         child.set_clip_rect(rect);
-        self.layout
-            .file_panel
-            .render(&mut child, &tab_modified, &jar_modified, decompiled);
+        self.layout.file_panel.render(
+            &mut child,
+            &tab_modified,
+            &jar_modified,
+            decompiled,
+            current_jar.as_deref(),
+            &project_classpath,
+            &global_classpath,
+        );
+        self.handle_classpath_panel_action();
         egui_shell::components::widget::island::paint_corner_mask(ui, rect, &theme::ISLAND);
+    }
+
+    fn handle_classpath_panel_action(&mut self) {
+        let Some(action) = self.layout.file_panel.take_classpath_action() else {
+            return;
+        };
+        match action {
+            ClasspathAction::AddProject => self.add_classpath_dialog(),
+            ClasspathAction::RemoveProject(path) => {
+                if let Some(loaded) = self.workspace.loaded_mut() {
+                    let before = loaded.compile_classpath_entries.len();
+                    loaded.compile_classpath_entries.retain(|entry| entry != &path);
+                    if loaded.compile_classpath_entries.len() != before {
+                        self.toasts.info(t!("layout.classpath_removed", path = path.display()));
+                    }
+                }
+            }
+            ClasspathAction::RemoveGlobal(entry) => {
+                let before = self.settings.compile.classpath_entries.len();
+                self.settings
+                    .compile
+                    .classpath_entries
+                    .retain(|path| path != &entry);
+                if self.settings.compile.classpath_entries.len() != before {
+                    if let Err(e) = self.settings.save() {
+                        log::warn!("保存全局 classpath 失败: {e}");
+                    }
+                    self.toasts.info(t!("layout.classpath_removed", path = entry));
+                }
+            }
+        }
     }
 
     /// 渲染 editor 面板

@@ -60,12 +60,12 @@ public final class KotlincCompiler {
             if (parsed.languageVersion != null) {
                 compilerArgs.setLanguageVersion(parsed.languageVersion);
             }
-            compilerArgs.setNoStdlib(false);
+            compilerArgs.setNoStdlib(true);
             compilerArgs.setNoReflect(true);
             compilerArgs.setSuppressWarnings(false);
             compilerArgs.setSkipMetadataVersionCheck(parsed.skipMetadataVersionCheck);
 
-            ExitCode exit = new K2JVMCompiler().exec(collector, Services.EMPTY, compilerArgs);
+            ExitCode exit = new K2JVMCompiler().execImpl(collector, Services.EMPTY, compilerArgs);
             if (exit == ExitCode.OK) {
                 return success(outDir);
             }

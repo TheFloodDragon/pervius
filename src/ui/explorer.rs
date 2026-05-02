@@ -9,11 +9,23 @@ use crate::appearance::theme::flat_button_theme;
 use crate::appearance::{codicon, theme};
 use crate::task::Task;
 use eframe::egui;
-use egui_shell::components::FlatButton;
+use egui_shell::components::{menu_item_raw, FlatButton};
 use rust_i18n::t;
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tree::TreeNode;
+
+/// Classpath 面板产生的一次性动作（由 App 消费）。
+#[derive(Clone)]
+pub enum ClasspathAction {
+    /// 为当前项目/会话添加 classpath。
+    AddProject,
+    /// 删除当前项目/会话 classpath。
+    RemoveProject(PathBuf),
+    /// 删除全局 classpath 配置。
+    RemoveGlobal(String),
+}
 
 tabookit::class! {
     /// 文件面板状态
@@ -40,6 +52,14 @@ tabookit::class! {
         filter_task: Option<Task<(u64, tree::FilterResult)>>,
         /// 过滤请求计数器（丢弃过期结果）
         filter_gen: u64,
+        /// Classpath 面板是否展开
+        classpath_expanded: bool,
+        /// 上一帧资源管理器整体区域（用于判断拖拽落点）
+        pub last_explorer_rect: Option<egui::Rect>,
+        /// 上一帧 Classpath 面板区域（用于判断拖拽落点）
+        pub last_classpath_rect: Option<egui::Rect>,
+        /// 待处理 Classpath UI 动作
+        pending_classpath_action: Option<ClasspathAction>,
     }
 
     pub fn new() -> Self {
@@ -55,6 +75,10 @@ tabookit::class! {
             filter_visible: HashSet::new(),
             filter_task: None,
             filter_gen: 0,
+            classpath_expanded: true,
+            last_explorer_rect: None,
+            last_classpath_rect: None,
+            pending_classpath_action: None,
         }
     }
 
@@ -65,19 +89,22 @@ tabookit::class! {
         tab_modified: &HashSet<String>,
         jar_modified: &HashSet<String>,
         decompiled_classes: Option<&HashSet<String>>,
+        current_jar: Option<&Path>,
+        project_classpath: &[PathBuf],
+        global_classpath: &[String],
     ) {
         let rect = ui.max_rect();
+        self.last_explorer_rect = Some(rect);
         self.update_focus(ui.ctx(), rect);
         if self.focused {
             self.capture_input(ui.ctx());
         }
         self.poll_filter_result();
-        let painter = ui.painter();
         // 面板标题
         let title_h = 32.0;
         let title_rect =
             egui::Rect::from_min_size(rect.left_top(), egui::vec2(rect.width(), title_h));
-        painter.text(
+        ui.painter().text(
             egui::pos2(title_rect.left() + 12.0, title_rect.center().y),
             egui::Align2::LEFT_CENTER,
             &t!("explorer.title"),
@@ -91,14 +118,218 @@ tabookit::class! {
             egui::pos2(rect.left() + 2.0, title_rect.bottom()),
             egui::pos2(rect.right() - 8.0, rect.bottom()),
         );
+        let classpath_rect = self.classpath_rect(body_rect, current_jar, project_classpath, global_classpath);
+        self.last_classpath_rect = Some(classpath_rect);
+        let tree_rect = egui::Rect::from_min_max(body_rect.left_top(), egui::pos2(body_rect.right(), classpath_rect.top()));
         let mut body_ui = ui.new_child(
             egui::UiBuilder::new()
-                .max_rect(body_rect)
+                .max_rect(tree_rect)
                 .id(egui::Id::new("explorer_body")),
         );
         self.render_tree(&mut body_ui, tab_modified, jar_modified, decompiled_classes);
+        self.render_classpath_panel(ui, classpath_rect, current_jar, project_classpath, global_classpath);
         // 过滤条浮层
         self.render_filter_bar(ui, rect);
+    }
+
+    /// 取出 Classpath 面板动作。
+    pub fn take_classpath_action(&mut self) -> Option<ClasspathAction> {
+        self.pending_classpath_action.take()
+    }
+
+    /// 判断屏幕位置是否落在上一帧资源管理器/Classpath 区域内。
+    pub fn contains_drop_target(&self, pos: egui::Pos2) -> bool {
+        self.last_explorer_rect.is_some_and(|r| r.contains(pos))
+            || self.last_classpath_rect.is_some_and(|r| r.contains(pos))
+    }
+
+    fn classpath_rect(
+        &self,
+        body_rect: egui::Rect,
+        current_jar: Option<&Path>,
+        project_classpath: &[PathBuf],
+        global_classpath: &[String],
+    ) -> egui::Rect {
+        let entries = current_jar.map_or(0, |_| 1) + project_classpath.len() + global_classpath.len();
+        let height = if self.classpath_expanded {
+            (34.0 + entries.max(1) as f32 * 24.0 + 8.0).clamp(58.0, 220.0)
+        } else {
+            32.0
+        }
+        .min((body_rect.height() * 0.45).max(32.0));
+        egui::Rect::from_min_max(
+            egui::pos2(body_rect.left(), body_rect.bottom() - height),
+            body_rect.right_bottom(),
+        )
+    }
+
+    fn render_classpath_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: egui::Rect,
+        current_jar: Option<&Path>,
+        project_classpath: &[PathBuf],
+        global_classpath: &[String],
+    ) {
+        ui.painter().line_segment(
+            [egui::pos2(rect.left() + 6.0, rect.top()), egui::pos2(rect.right(), rect.top())],
+            egui::Stroke::new(1.0, theme::BORDER),
+        );
+        let header_h = 32.0;
+        let header_rect = egui::Rect::from_min_size(rect.left_top(), egui::vec2(rect.width(), header_h));
+        let header_resp = ui.interact(header_rect, egui::Id::new("classpath_header"), egui::Sense::click());
+        if header_resp.clicked() {
+            self.classpath_expanded = !self.classpath_expanded;
+        }
+        let arrow = if self.classpath_expanded { codicon::CHEVRON_DOWN } else { codicon::CHEVRON_RIGHT };
+        ui.painter().text(
+            egui::pos2(header_rect.left() + 10.0, header_rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            arrow,
+            egui::FontId::new(12.0, codicon::family()),
+            theme::TEXT_MUTED,
+        );
+        ui.painter().text(
+            egui::pos2(header_rect.left() + 28.0, header_rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            t!("explorer.classpath_title").to_string(),
+            egui::FontId::proportional(11.0),
+            theme::TEXT_SECONDARY,
+        );
+        let fbt = flat_button_theme(theme::TEXT_SECONDARY);
+        let btn_size = egui::vec2(22.0, 22.0);
+        let add_rect = egui::Rect::from_center_size(
+            egui::pos2(header_rect.right() - 12.0 - btn_size.x * 0.5, header_rect.center().y),
+            btn_size,
+        );
+        let mut add_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(add_rect)
+                .id_salt("classpath_add_btn"),
+        );
+        if add_ui
+            .add(
+                FlatButton::new(codicon::ADD, &fbt)
+                    .font_size(14.0)
+                    .font_family(codicon::family())
+                    .inactive_color(theme::TEXT_SECONDARY)
+                    .min_size(btn_size),
+            )
+            .on_hover_text(t!("explorer.classpath_add"))
+            .clicked()
+        {
+            self.pending_classpath_action = Some(ClasspathAction::AddProject);
+        }
+        if !self.classpath_expanded {
+            return;
+        }
+        let list_rect = egui::Rect::from_min_max(
+            egui::pos2(rect.left(), header_rect.bottom()),
+            rect.right_bottom(),
+        );
+        let mut list_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(list_rect)
+                .id(egui::Id::new("classpath_list")),
+        );
+        egui::ScrollArea::vertical()
+            .id_salt("classpath_scroll")
+            .auto_shrink(false)
+            .show(&mut list_ui, |ui| {
+                let mut any = false;
+                if let Some(path) = current_jar {
+                    any = true;
+                    self.render_classpath_row(
+                        ui,
+                        "jar",
+                        &path.to_string_lossy(),
+                        Some(t!("explorer.classpath_tag_jar").to_string()),
+                        theme::ACCENT_GREEN,
+                        None,
+                    );
+                }
+                for (idx, path) in project_classpath.iter().enumerate() {
+                    any = true;
+                    self.render_classpath_row(
+                        ui,
+                        &format!("project_{idx}"),
+                        &path.to_string_lossy(),
+                        Some(t!("explorer.classpath_tag_project").to_string()),
+                        theme::TEXT_MUTED,
+                        Some(ClasspathAction::RemoveProject(path.clone())),
+                    );
+                }
+                for (idx, entry) in global_classpath.iter().enumerate() {
+                    any = true;
+                    self.render_classpath_row(
+                        ui,
+                        &format!("global_{idx}"),
+                        entry,
+                        Some(t!("explorer.classpath_tag_global").to_string()),
+                        theme::ACCENT_CYAN,
+                        Some(ClasspathAction::RemoveGlobal(entry.clone())),
+                    );
+                }
+                if !any {
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(t!("explorer.classpath_empty").to_string())
+                            .size(11.0)
+                            .color(theme::TEXT_MUTED),
+                    );
+                }
+            });
+    }
+
+    fn render_classpath_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: &str,
+        path: &str,
+        tag: Option<String>,
+        tag_color: egui::Color32,
+        remove_action: Option<ClasspathAction>,
+    ) {
+        let row_h = 24.0;
+        let avail_w = ui.available_width();
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(avail_w, row_h), egui::Sense::click());
+        if resp.hovered() {
+            ui.painter().rect_filled(rect, 3.0, theme::BG_HOVER);
+        }
+        let mid_y = rect.center().y;
+        let tag_w = if tag.is_some() { 54.0 } else { 0.0 };
+        ui.painter().text(
+            egui::pos2(rect.left() + 10.0, mid_y),
+            egui::Align2::LEFT_CENTER,
+            path,
+            egui::FontId::monospace(10.5),
+            if Path::new(path).exists() { theme::TEXT_SECONDARY } else { theme::TEXT_MUTED },
+        );
+        if let Some(tag) = tag {
+            let tag_rect = egui::Rect::from_min_max(
+                egui::pos2(rect.right() - tag_w, rect.top() + 4.0),
+                egui::pos2(rect.right() - 4.0, rect.bottom() - 4.0),
+            );
+            ui.painter().rect_filled(tag_rect, 3.0, theme::BG_MEDIUM);
+            ui.painter().text(
+                tag_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                tag,
+                egui::FontId::proportional(9.0),
+                tag_color,
+            );
+        }
+        if let Some(action) = remove_action {
+            resp.context_menu(|ui| {
+                ui.style_mut().visuals.widgets.hovered.bg_fill = theme::BG_HOVER;
+                if menu_item_raw(ui, &theme::menu_theme(), &t!("explorer.classpath_remove"), "") {
+                    self.pending_classpath_action = Some(action.clone());
+                    ui.close();
+                }
+            });
+        } else {
+            let _ = id;
+        }
     }
 
     fn render_tree(

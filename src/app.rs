@@ -54,6 +54,8 @@ pub struct App {
     pub(crate) pending_compiles: Vec<compile::PendingCompile>,
     /// 后台缓存删除任务
     pub(crate) pending_cache_delete: Option<Task<CacheDeleteResult>>,
+    /// 后台 Vineflower 预热任务（设置修改后立即下载/校验）
+    pub(crate) pending_vineflower_prepare: Option<Task<Result<std::path::PathBuf, BridgeError>>>,
     /// 后台 JAR 导出任务（快照已取，可跨 JAR 切换存活）
     pub(crate) exporting: Option<ExportingState>,
 }
@@ -75,6 +77,7 @@ impl App {
             pending_decompiles: Vec::new(),
             pending_compiles: Vec::new(),
             pending_cache_delete: None,
+            pending_vineflower_prepare: None,
             exporting: None,
         }
     }

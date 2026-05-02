@@ -553,11 +553,7 @@ fn effective_vineflower_dir(
 ) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
     path_option(&draft.java.vineflower_dir)
         .map(Ok)
-        .unwrap_or_else(|| {
-            Ok(effective_cache_root(draft)?
-                .join("tools")
-                .join("vineflower"))
-        })
+        .unwrap_or_else(|| Ok(effective_dependencies_root(draft)?.join("vineflower")))
 }
 
 fn effective_kotlin_dependencies_dir(
@@ -565,7 +561,17 @@ fn effective_kotlin_dependencies_dir(
 ) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
     path_option(&draft.java.kotlin_dependencies_dir)
         .map(Ok)
-        .unwrap_or_else(|| Ok(effective_cache_root(draft)?.join("tools").join("kotlin")))
+        .unwrap_or_else(|| Ok(effective_dependencies_root(draft)?.join("kotlin")))
+}
+
+fn effective_dependencies_root(
+    draft: &Settings,
+) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
+    let cache_root = effective_cache_root(draft)?;
+    Ok(cache_root
+        .parent()
+        .map(|parent| parent.join("dependencies"))
+        .unwrap_or_else(|| cache_root.join("dependencies")))
 }
 
 fn effective_cache_root(

@@ -83,16 +83,18 @@ impl App {
             .filter(|path| self.is_compile_classpath_drop(path))
             .cloned()
             .collect::<Vec<_>>();
-        if !classpath_entries.is_empty() {
-            self.add_classpath_paths(classpath_entries);
+        let dropped_on_explorer = self.layout.explorer_visible
+            && ctx
+                .input(|i| i.pointer.latest_pos().or(i.pointer.interact_pos()))
+                .is_some_and(|pos| self.layout.file_panel.contains_drop_target(pos));
+        if dropped_on_explorer && !classpath_entries.is_empty() {
+            if self.pending_confirm.is_none() {
+                self.pending_confirm = Some(ConfirmAction::DropClasspathChoice(paths));
+            }
             return;
         }
         if let Some(path) = paths.first() {
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            match ext.to_ascii_lowercase().as_str() {
-                "jar" | "zip" | "war" | "ear" => self.request_open_jar(path),
-                _ => self.open_standalone_file(path),
-            }
+            self.open_dropped_path(path);
         }
     }
 
@@ -209,16 +211,17 @@ impl App {
         }
     }
 
-    fn is_compile_classpath_drop(&self, path: &Path) -> bool {
-        if !self.workspace.is_loaded() {
-            return false;
+    pub(crate) fn is_compile_classpath_drop(&self, path: &Path) -> bool {
+        self.workspace.is_loaded() && is_classpath_path(path)
+    }
+
+    /// 按拖拽默认行为打开第一个路径。
+    pub(crate) fn open_dropped_path(&mut self, path: &Path) {
+        if is_jar_file(path) {
+            self.request_open_jar(path);
+        } else {
+            self.open_standalone_file(path);
         }
-        if path.is_dir() {
-            return true;
-        }
-        path.extension().and_then(|e| e.to_str()).is_some_and(|ext| {
-            matches!(ext.to_ascii_lowercase().as_str(), "jar" | "zip" | "war" | "ear")
-        })
     }
 
     /// 选择文件/目录并添加到当前会话 classpath。
@@ -231,7 +234,7 @@ impl App {
         }
     }
 
-    fn add_classpath_paths(&mut self, paths: Vec<std::path::PathBuf>) {
+    pub(crate) fn add_classpath_paths(&mut self, paths: Vec<std::path::PathBuf>) {
         let mut added = 0;
         for path in paths {
             if self.add_session_classpath_entry(path) {
@@ -345,6 +348,14 @@ impl App {
             self.decompile_class(&path_str, bytes, false);
         }
     }
+}
+
+/// 判断路径是否为可用编译 classpath（归档或目录）。
+fn is_classpath_path(path: &Path) -> bool {
+    if path.is_dir() {
+        return true;
+    }
+    is_jar_file(path)
 }
 
 /// 判断路径是否为 JAR 类归档文件
