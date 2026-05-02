@@ -190,40 +190,67 @@ fn patch_dollar_identifier_spans(spans: &mut Vec<Span>, source: &str) {
         return;
     }
     let mut dollar_spans = Vec::new();
-    for i in 0..spans.len() - 1 {
-        let (left_start, left_end, left_kind) = spans[i];
-        let (right_start, right_end, right_kind) = spans[i + 1];
-        if left_end >= right_start || right_start != left_end + 1 {
+    let mut i = 0usize;
+    while i + 1 < spans.len() {
+        if !has_dollar_identifier_boundary(spans[i], spans[i + 1], source) {
+            i += 1;
             continue;
         }
-        if source.as_bytes().get(left_end) != Some(&b'$') {
-            continue;
-        }
-        if !is_identifier_like_kind(left_kind) || !is_identifier_like_kind(right_kind) {
-            continue;
-        }
-        if source[..left_end]
-            .chars()
-            .next_back()
-            .map_or(true, |c| !is_identifier_char(c))
-            || source[right_start..]
-                .chars()
-                .next()
-                .map_or(true, |c| !is_identifier_char(c))
+        let chain_start = i;
+        let mut chain_end = i + 1;
+        while chain_end + 1 < spans.len()
+            && has_dollar_identifier_boundary(spans[chain_end], spans[chain_end + 1], source)
         {
-            continue;
+            chain_end += 1;
         }
-        let mut merged_kind = merge_identifier_kind(left_kind, right_kind);
+        let mut merged_kind = spans[chain_start..=chain_end]
+            .iter()
+            .fold(TokenKind::Plain, |kind, &(_, _, next_kind)| {
+                merge_identifier_kind(kind, next_kind)
+            });
+        let last_end = spans[chain_end].1;
         if merged_kind != TokenKind::MethodDeclaration
-            && next_non_whitespace_char(source, right_end) == Some('(')
+            && next_non_whitespace_char(source, last_end) == Some('(')
         {
             merged_kind = TokenKind::MethodCall;
         }
-        spans[i] = (left_start, left_end, merged_kind);
-        spans[i + 1] = (right_start, right_end, merged_kind);
-        dollar_spans.push((left_end, right_start, merged_kind));
+        for idx in chain_start..=chain_end {
+            spans[idx].2 = merged_kind;
+        }
+        for idx in chain_start..chain_end {
+            let left_end = spans[idx].1;
+            let right_start = spans[idx + 1].0;
+            dollar_spans.push((left_end, right_start, merged_kind));
+        }
+        i = chain_end + 1;
     }
     spans.extend(dollar_spans);
+}
+
+fn has_dollar_identifier_boundary(left: Span, right: Span, source: &str) -> bool {
+    let (_, left_end, left_kind) = left;
+    let (right_start, _, right_kind) = right;
+    if left_end >= right_start || right_start != left_end + 1 {
+        return false;
+    }
+    if source.as_bytes().get(left_end) != Some(&b'$') {
+        return false;
+    }
+    if !is_identifier_like_kind(left_kind) || !is_identifier_like_kind(right_kind) {
+        return false;
+    }
+    if source[..left_end]
+        .chars()
+        .next_back()
+        .map_or(true, |c| !is_identifier_char(c))
+        || source[right_start..]
+            .chars()
+            .next()
+            .map_or(true, |c| !is_identifier_char(c))
+    {
+        return false;
+    }
+    true
 }
 
 fn is_identifier_like_kind(kind: TokenKind) -> bool {
