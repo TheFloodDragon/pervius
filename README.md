@@ -12,7 +12,7 @@
 [![egui](https://img.shields.io/badge/egui-0.34-1ba7f5)](https://github.com/emilk/egui)
 [![Platform](https://img.shields.io/badge/Platform-Windows_·_macOS_·_Linux-8957e5)](#requirements)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)</br>
-[![Decompiler](https://img.shields.io/badge/Decompiler-Vineflower_1.11.2-e76f00?logo=openjdk&logoColor=white)](https://github.com/Vineflower/vineflower)
+[![Decompiler](https://img.shields.io/badge/Decompiler-Vineflower_1.12.0-e76f00?logo=openjdk&logoColor=white)](https://github.com/Vineflower/vineflower)
 [![Assembler](https://img.shields.io/badge/Assembler-ClassForge_1.1-b07219)](classforge/)
 
 [Features](#features) · [Requirements](#requirements) · [Build](#build) · [Shortcuts](#shortcuts) · [中文](README_CN.md)
@@ -63,7 +63,7 @@ Non-`.class` text files (XML, YAML, JSON, etc.) are editable directly with synta
 
 ### Archive Browsing
 
-The left-hand resource tree lists JAR contents and supports `jar`, `zip`, `war`, and `ear`. Type to filter (Speed Search) with filtering computed on a background thread. Modified and decompilation states are reflected in real time. Drag-and-drop opening and a recent-files list are supported.
+The left-hand resource tree lists JAR contents and supports `jar`, `zip`, `war`, and `ear`. Type to filter (Speed Search) with filtering computed on a background thread. Modified and decompilation states are reflected in real time. Files dropped onto the Explorer or Classpath area can be handled as normal opens or compile classpath additions, with hover feedback on the target area and a configurable drop policy in Settings. The Classpath panel is shown directly inside the explorer and its height can be resized by dragging the top edge. Recent files are also tracked.
 
 <img src="screenshots/5.png" width="600" alt="Screenshot" />
 
@@ -74,11 +74,11 @@ The left-hand resource tree lists JAR contents and supports `jar`, `zip`, `war`,
 
 ## Requirements
 
-- `JAVA_HOME` configured for decompilation / ClassForge execution
+- A working Java runtime is required for decompilation / ClassForge execution; Pervius can use the Java path configured in Settings, `JAVA_HOME`, or `java` from `PATH`
 - A **JDK** (not just a JRE) is required for Java and Kotlin source recompilation, because ClassForge calls the system `javac`
 - Vineflower and Kotlin compiler dependencies are downloaded automatically from the Huawei Cloud Maven mirror into the Environment tools directory (by default under the decompile cache root)
 
-ClassForge is bundled and extracted to the data directory on first launch. Vineflower is resolved from the configured Environment directory and downloaded on demand; a matching `vineflower-{version}.jar` next to the executable still takes priority for local/offline override. Kotlin dependencies (`kotlin-stdlib` and `kotlin-compiler-embeddable`) are intentionally not bundled to keep the default distribution small and are downloaded only when Kotlin source recompilation is used.
+ClassForge is bundled and extracted to the data directory on first launch. Vineflower is resolved from the configured Environment directory and downloaded on demand; a matching `vineflower-{version}.jar` next to the executable still takes priority for local/offline override. Kotlin dependencies (`kotlin-stdlib` and `kotlin-compiler-embeddable`) are intentionally not bundled to keep the default distribution small and are downloaded only when Kotlin source recompilation is used. Download progress is surfaced in the status bar, and non-JAR Maven artifacts declared only as POM metadata are skipped automatically during dependency resolution.
 
 ## Build
 
@@ -86,7 +86,7 @@ ClassForge is bundled and extracted to the data directory on first launch. Vinef
 cargo build --release
 ```
 
-ClassForge is embedded via `include_bytes!`; Vineflower and Kotlin dependencies are resolved by the Environment settings and downloaded on demand.
+ClassForge is embedded via `include_bytes!`; Vineflower and Kotlin dependencies are resolved by the Environment settings and downloaded on demand, with progress shown in the status bar.
 
 Build ClassForge (only required after modifying ClassForge sources):
 
