@@ -38,6 +38,22 @@ impl App {
         let Some(tab) = self.layout.editor.focused_tab_mut() else {
             return;
         };
+        // 独立 class 源码编辑同样必须走编译通道；只有结构化字节码编辑才会走 apply_structure/patch_methods。
+        if tab.standalone_path.is_some()
+            && tab.is_class
+            && tab.is_source_unlocked()
+            && tab.source_modified
+        {
+            if tab.is_modified {
+                self.toasts
+                    .warning(t!("editor.source_vs_struct_conflict"));
+                return;
+            }
+            if let Some(entry_path) = tab.entry_path.clone() {
+                self.compile_source_tab(&entry_path);
+            }
+            return;
+        }
         // 独立文件：直接写回磁盘，不参与 JAR modified 管理
         if let Some(disk_path) = tab.standalone_path.clone() {
             let new_bytes = match tab.serialize_bytes(None) {

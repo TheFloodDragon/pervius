@@ -47,7 +47,7 @@ impl App {
         if let Some(name) = re_decompile_name {
             self.layout.status_bar.sync_decompile_single(name);
         } else if !self.pending_compiles.is_empty() {
-            let name = &self.pending_compiles.last().unwrap().0;
+            let name = &self.pending_compiles.last().unwrap().entry_path;
             let short = name.rsplit('/').next().unwrap_or(name);
             self.layout.status_bar.sync_decompile_single(short);
         } else if !self.pending_decompiles.is_empty() {

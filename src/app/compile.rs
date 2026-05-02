@@ -6,7 +6,16 @@ use super::App;
 use crate::task::{Poll, Pollable, Task};
 use egui_editor::highlight::Language;
 use pervius_java_bridge::compiler::{self, CompileOutcome, DiagSeverity, KotlinSource};
+use pervius_java_bridge::error::BridgeError;
 use rust_i18n::t;
+
+pub(crate) struct PendingCompile {
+    /// 触发编译的 tab/class 路径。
+    pub entry_path: String,
+    /// 编译开始时的源码快照，用于避免异步完成后覆盖用户的新编辑。
+    pub source_snapshot: String,
+    pub task: Task<Result<CompileOutcome, BridgeError>>,
+}
 
 fn class_info_release(version: Option<&str>) -> Option<u8> {
     let version = version?;
@@ -65,6 +74,7 @@ impl App {
         let jar_path = self.workspace.jar().map(|j| j.path.clone());
         let target = Some(target);
         let source_entry = entry_path.to_string();
+        let source_snapshot = source.clone();
         let task = Task::spawn(move || {
             if language == Language::Kotlin {
                 let kt_path = kotlin_source_path(&source_entry);
@@ -83,8 +93,22 @@ impl App {
                 )
             }
         });
-        self.pending_compiles.push((entry_path.to_string(), task));
+        self.pending_compiles.push(PendingCompile {
+            entry_path: entry_path.to_string(),
+            source_snapshot,
+            task,
+        });
         log::info!("Compiling source: {entry_path}");
+    }
+
+    fn compile_source_snapshot_is_current(&self, entry_path: &str, source_snapshot: &str) -> bool {
+        self.layout
+            .editor
+            .dock_state
+            .iter_all_tabs()
+            .find(|(_, tab)| tab.entry_path.as_deref() == Some(entry_path))
+            .map(|(_, tab)| tab.decompiled == source_snapshot)
+            .unwrap_or(true)
     }
 
     /// 轮询 class 源码编译结果，成功后写回 JAR 并刷新反编译源码
@@ -94,7 +118,7 @@ impl App {
         }
         let mut i = 0;
         while i < self.pending_compiles.len() {
-            let result = match self.pending_compiles[i].1.poll() {
+            let result = match self.pending_compiles[i].task.poll() {
                 Poll::Ready(r) => r,
                 Poll::Pending => {
                     i += 1;
@@ -105,9 +129,15 @@ impl App {
                     continue;
                 }
             };
-            let entry_path = self.pending_compiles.swap_remove(i).0;
+            let pending = self.pending_compiles.swap_remove(i);
+            let entry_path = pending.entry_path;
+            let source_snapshot = pending.source_snapshot;
             match result {
                 Ok(CompileOutcome::Success(classes)) => {
+                    if !self.compile_source_snapshot_is_current(&entry_path, &source_snapshot) {
+                        log::warn!("Discarding stale compile result: {entry_path}");
+                        continue;
+                    }
                     let mut main_bytes = None;
                     let main_binary = entry_path.trim_end_matches(".class");
                     let count = classes.len();
@@ -122,9 +152,11 @@ impl App {
                         for (_, tab) in self.layout.editor.dock_state.iter_all_tabs_mut() {
                             if tab.entry_path.as_deref() == Some(&class_path) {
                                 tab.commit_save(class.bytes.clone());
+                                tab.source_modified = false;
                                 if class_path == entry_path {
-                                    tab.source_modified = false;
-                                    tab.original_source = tab.decompiled.clone();
+                                    tab.decompiled = source_snapshot.clone();
+                                    tab.original_source = source_snapshot.clone();
+                                    tab.refresh_decompiled_data();
                                     tab.compile_diagnostics.clear();
                                 }
                             }
