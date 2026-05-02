@@ -564,6 +564,38 @@ where
     changed
 }
 
+fn elide_middle(ui: &egui::Ui, text: &str, font: egui::FontId, max_width: f32) -> String {
+    let fits = |s: &str| {
+        ui.painter()
+            .layout_no_wrap(s.to_owned(), font.clone(), egui::Color32::WHITE)
+            .rect
+            .width()
+            <= max_width
+    };
+    if max_width <= 0.0 || fits(text) {
+        return text.to_owned();
+    }
+    let chars = text.chars().collect::<Vec<_>>();
+    if chars.len() <= 3 {
+        return "…".to_owned();
+    }
+    let mut keep = chars.len().saturating_sub(1);
+    while keep > 1 {
+        let head = keep / 2;
+        let tail = keep - head;
+        let candidate = format!(
+            "{}…{}",
+            chars[..head].iter().collect::<String>(),
+            chars[chars.len() - tail..].iter().collect::<String>()
+        );
+        if fits(&candidate) {
+            return candidate;
+        }
+        keep -= 1;
+    }
+    "…".to_owned()
+}
+
 fn paint_classpath_entries(
     ui: &mut egui::Ui,
     st: &SettingsTheme,
@@ -588,27 +620,39 @@ fn paint_classpath_entries(
         let color = if exists { st.text_primary } else { st.text_muted };
         let left = rect.left() + 16.0;
         let mid_y = rect.center().y;
+        let btn_w = 22.0;
+        let btn_rect = egui::Rect::from_center_size(
+            egui::pos2(rect.right() - 16.0 - btn_w * 0.5, mid_y),
+            egui::vec2(btn_w, btn_w),
+        );
+        let missing_w = if exists { 0.0 } else { 48.0 };
+        let text_right = (btn_rect.left() - 8.0 - missing_w).max(left + 24.0);
+        let text_rect = egui::Rect::from_min_max(
+            egui::pos2(left, rect.top()),
+            egui::pos2(text_right, rect.bottom()),
+        );
+        let display_entry = elide_middle(
+            ui,
+            entry,
+            egui::FontId::monospace(11.0),
+            text_rect.width(),
+        );
         ui.painter().text(
             egui::pos2(left, mid_y),
             egui::Align2::LEFT_CENTER,
-            entry,
+            display_entry,
             egui::FontId::monospace(11.0),
             color,
         );
         if !exists {
             ui.painter().text(
-                egui::pos2(rect.right() - 48.0, mid_y),
+                egui::pos2(btn_rect.left() - 8.0, mid_y),
                 egui::Align2::RIGHT_CENTER,
                 t!("settings.classpath_missing").to_string(),
                 egui::FontId::proportional(10.5),
                 st.text_muted,
             );
         }
-        let btn_w = 22.0;
-        let btn_rect = egui::Rect::from_center_size(
-            egui::pos2(rect.right() - 16.0 - btn_w * 0.5, mid_y),
-            egui::vec2(btn_w, btn_w),
-        );
         let mut btn_ui = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(btn_rect)

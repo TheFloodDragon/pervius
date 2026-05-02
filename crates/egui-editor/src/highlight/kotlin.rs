@@ -7,8 +7,13 @@ use super::{Span, TokenKind};
 /// 返回 Some 表示命中着色，None 表示继续深入子节点
 pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
     let kind = node.kind();
-    if is_inside_string_literal(node) && !is_string_interpolation_node(node, kind) {
+    if is_inside_string_literal(node)
+        && (is_literal_dollar_identifier(node, source) || !is_string_interpolation_node(node, kind))
+    {
         return Some(TokenKind::String);
+    }
+    if let Some(token) = classify_jvm_identifier_suffix(node, source) {
+        return Some(token);
     }
     match kind {
         // 关键字（叶节点）
@@ -123,6 +128,36 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
         return Some(TokenKind::Type);
     }
     None
+}
+
+fn is_literal_dollar_identifier(node: &tree_sitter::Node, source: &[u8]) -> bool {
+    (node.kind() == "interpolated_identifier"
+        || node.kind() == "interpolation_identifier_start"
+        || ancestors_contain(node, "interpolated_identifier", 4))
+        && dollar_is_inside_identifier(node.start_byte(), source)
+}
+
+fn classify_jvm_identifier_suffix(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
+    if !dollar_is_inside_identifier(node.start_byte(), source) {
+        return None;
+    }
+    let text = node.utf8_text(source).unwrap_or("");
+    Some(if text.starts_with(|c: char| c.is_uppercase()) {
+        TokenKind::Type
+    } else {
+        TokenKind::MethodCall
+    })
+}
+
+fn dollar_is_inside_identifier(start: usize, source: &[u8]) -> bool {
+    let Some(dollar) = start.checked_sub(1).filter(|&idx| source.get(idx) == Some(&b'$')) else {
+        return false;
+    };
+    dollar > 0 && source.get(dollar - 1).is_some_and(|&b| is_kotlin_identifier_byte(b))
+}
+
+fn is_kotlin_identifier_byte(b: u8) -> bool {
+    b == b'_' || b.is_ascii_alphanumeric()
 }
 
 /// 补齐 Kotlin 字符串中 tree-sitter 未覆盖的片段（常见为引号或错误恢复产生的空白区）。
