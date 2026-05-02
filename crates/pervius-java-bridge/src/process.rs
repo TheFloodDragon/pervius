@@ -53,7 +53,7 @@ fn resolve_java_exe(root: &Path) -> PathBuf {
 }
 
 /// 按给定配置解析 java 可执行文件（空值表示使用系统 JAVA_HOME / PATH）。
-fn resolve_java_path(configured: &str) -> Result<PathBuf, BridgeError> {
+pub fn resolve_java_path(configured: &str) -> Result<PathBuf, BridgeError> {
     let configured = configured.trim();
     if !configured.is_empty() {
         let java = resolve_java_exe(Path::new(configured));
