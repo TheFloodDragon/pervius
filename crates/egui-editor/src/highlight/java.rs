@@ -32,13 +32,24 @@ pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
         // annotation 含参数（可能有字符串），递归进子节点分别着色
         "annotation" => None,
         "@" => Some(TokenKind::Annotation),
-        "type_identifier" => Some(TokenKind::Type),
+        "type_identifier" => Some(classify_type_identifier(node)),
         "identifier" => classify_identifier(node, source),
         _ => None,
     }
 }
 
+fn classify_type_identifier(node: &tree_sitter::Node) -> TokenKind {
+    if ancestors_contain(node, "import_declaration", 8) {
+        TokenKind::Plain
+    } else {
+        TokenKind::Type
+    }
+}
+
 fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
+    if ancestors_contain(node, "import_declaration", 8) {
+        return Some(TokenKind::Plain);
+    }
     let parent = node.parent()?;
     match parent.kind() {
         // 注解名称 @Foo / @Foo(...)
@@ -123,4 +134,16 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
         }
     }
     None
+}
+
+fn ancestors_contain(node: &tree_sitter::Node, kind: &str, max_depth: usize) -> bool {
+    let mut cur = node.parent();
+    for _ in 0..max_depth {
+        match cur {
+            Some(n) if n.kind() == kind => return true,
+            Some(n) => cur = n.parent(),
+            None => return false,
+        }
+    }
+    false
 }

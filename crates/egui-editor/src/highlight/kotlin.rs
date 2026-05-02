@@ -58,7 +58,9 @@ pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
         "@" => Some(TokenKind::Annotation),
         // 类型（注解内的类型标识符着色为注解色）
         "type_identifier" => {
-            if ancestors_contain(node, "annotation", 6) {
+            if ancestors_contain(node, "import_header", 8) {
+                Some(TokenKind::Plain)
+            } else if ancestors_contain(node, "annotation", 6) {
                 Some(TokenKind::Annotation)
             } else {
                 Some(TokenKind::Type)
@@ -73,6 +75,9 @@ pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
 }
 
 fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
+    if ancestors_contain(node, "import_header", 8) {
+        return Some(TokenKind::Plain);
+    }
     let parent = node.parent()?;
     match parent.kind() {
         // 类型声明名称

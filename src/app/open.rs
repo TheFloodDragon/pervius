@@ -5,10 +5,9 @@
 use super::workspace::{DecompilePhase, LoadedState, LoadingState, Workspace};
 use super::App;
 use crate::app::ConfirmAction;
-use crate::settings::ClasspathDropBehavior;
 use crate::task::{Poll, Pollable, Task};
 use crate::ui::editor::EditorArea;
-use crate::ui::explorer::{tree, DropTargetKind};
+use crate::ui::explorer::tree;
 use eframe::egui;
 use egui_shell::components::SettingsFile;
 use pervius_java_bridge::{decompiler, environment};
@@ -77,24 +76,6 @@ impl App {
             .filter_map(|file| file.path)
             .collect::<Vec<_>>();
         if paths.is_empty() {
-            return;
-        }
-        let classpath_entries = paths
-            .iter()
-            .filter(|path| self.is_compile_classpath_drop(path))
-            .cloned()
-            .collect::<Vec<_>>();
-        let drop_target = self.current_drop_target(ctx);
-        if drop_target.is_some() && !classpath_entries.is_empty() {
-            match self.settings.compile.classpath_drop_behavior {
-                ClasspathDropBehavior::Ask => {
-                    if self.pending_confirm.is_none() {
-                        self.pending_confirm = Some(ConfirmAction::DropClasspathChoice(paths));
-                    }
-                }
-                ClasspathDropBehavior::Add => self.add_classpath_paths(classpath_entries),
-                ClasspathDropBehavior::Open => self.open_first_dropped_path(&paths),
-            }
             return;
         }
         self.open_first_dropped_path(&paths);
@@ -210,17 +191,6 @@ impl App {
         if let Err(e) = self.settings.save() {
             log::warn!("保存最近打开记录失败: {e}");
         }
-    }
-
-    pub(crate) fn is_compile_classpath_drop(&self, path: &Path) -> bool {
-        self.workspace.is_loaded() && is_classpath_path(path)
-    }
-
-    fn current_drop_target(&self, ctx: &egui::Context) -> Option<DropTargetKind> {
-        if !self.layout.explorer_visible {
-            return None;
-        }
-        self.layout.file_panel.active_drop_target(ctx)
     }
 
     fn open_first_dropped_path(&mut self, paths: &[std::path::PathBuf]) {
@@ -362,14 +332,6 @@ impl App {
             self.decompile_class(&path_str, bytes, false);
         }
     }
-}
-
-/// 判断路径是否为可用编译 classpath（归档或目录）。
-fn is_classpath_path(path: &Path) -> bool {
-    if path.is_dir() {
-        return true;
-    }
-    is_jar_file(path)
 }
 
 /// 判断路径是否为 JAR 类归档文件

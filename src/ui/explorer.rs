@@ -27,15 +27,6 @@ pub enum ClasspathAction {
     RemoveGlobal(String),
 }
 
-/// 拖拽到资源管理器中的目标区域。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DropTargetKind {
-    /// 资源树区域。
-    Explorer,
-    /// Classpath 面板区域。
-    Classpath,
-}
-
 tabookit::class! {
     /// 文件面板状态
     pub struct FilePanel {
@@ -65,14 +56,6 @@ tabookit::class! {
         classpath_expanded: bool,
         /// Classpath 面板当前高度（0 表示使用自动高度）
         classpath_height: f32,
-        /// 上一帧资源管理器整体区域（用于判断拖拽落点）
-        pub last_explorer_rect: Option<egui::Rect>,
-        /// 上一帧资源树区域（用于判断拖拽落点）
-        last_tree_rect: Option<egui::Rect>,
-        /// 上一帧 Classpath 区域（用于判断拖拽落点）
-        last_classpath_rect: Option<egui::Rect>,
-        /// 当前外部文件拖拽命中的目标区域（用于悬停反馈和 drop 判定）
-        last_drop_target: Option<DropTargetKind>,
         /// 待处理 Classpath UI 动作
         pending_classpath_action: Option<ClasspathAction>,
     }
@@ -92,10 +75,6 @@ tabookit::class! {
             filter_gen: 0,
             classpath_expanded: true,
             classpath_height: 0.0,
-            last_explorer_rect: None,
-            last_tree_rect: None,
-            last_classpath_rect: None,
-            last_drop_target: None,
             pending_classpath_action: None,
         }
     }
@@ -112,7 +91,6 @@ tabookit::class! {
         global_classpath: &[String],
     ) {
         let rect = ui.max_rect();
-        self.last_explorer_rect = Some(rect);
         self.update_focus(ui.ctx(), rect);
         if self.focused {
             self.capture_input(ui.ctx());
@@ -138,12 +116,6 @@ tabookit::class! {
         );
         let classpath_rect = self.classpath_rect(body_rect, current_jar, project_classpath, global_classpath);
         let tree_rect = egui::Rect::from_min_max(body_rect.left_top(), egui::pos2(body_rect.right(), classpath_rect.top()));
-        self.last_tree_rect = Some(tree_rect);
-        self.last_classpath_rect = Some(classpath_rect);
-        self.last_drop_target = self.current_drop_hover(ui.ctx());
-        if let Some(target) = self.last_drop_target {
-            self.paint_drop_highlight(ui, target, tree_rect, classpath_rect);
-        }
         self.render_classpath_resize_handle(ui, body_rect, classpath_rect);
         let mut body_ui = ui.new_child(
             egui::UiBuilder::new()
@@ -159,36 +131,6 @@ tabookit::class! {
     /// 取出 Classpath 面板动作。
     pub fn take_classpath_action(&mut self) -> Option<ClasspathAction> {
         self.pending_classpath_action.take()
-    }
-
-    /// 获取给定屏幕坐标命中的拖拽区域。
-    pub fn drop_target_at(&self, pos: egui::Pos2) -> Option<DropTargetKind> {
-        if self.last_classpath_rect.is_some_and(|r| r.contains(pos)) {
-            return Some(DropTargetKind::Classpath);
-        }
-        if self.last_tree_rect.is_some_and(|r| r.contains(pos)) {
-            return Some(DropTargetKind::Explorer);
-        }
-        None
-    }
-
-    pub fn active_drop_target(&self, ctx: &egui::Context) -> Option<DropTargetKind> {
-        let has_dropped_files = ctx.input(|i| !i.raw.dropped_files.is_empty());
-        self.current_drop_hover(ctx)
-            .or_else(|| has_dropped_files.then_some(self.last_drop_target).flatten())
-    }
-
-    fn current_drop_hover(&self, ctx: &egui::Context) -> Option<DropTargetKind> {
-        if ctx.input(|i| i.raw.hovered_files.is_empty()) {
-            return None;
-        }
-        let pos = ctx.input(|i| {
-            i.pointer
-                .hover_pos()
-                .or(i.pointer.latest_pos())
-                .or(i.pointer.interact_pos())
-        })?;
-        self.drop_target_at(pos)
     }
 
     fn classpath_height_bounds(body_rect: egui::Rect) -> (f32, f32) {
@@ -221,27 +163,6 @@ tabookit::class! {
             egui::pos2(body_rect.left(), body_rect.bottom() - height),
             body_rect.right_bottom(),
         )
-    }
-
-    fn paint_drop_highlight(
-        &self,
-        ui: &egui::Ui,
-        target: DropTargetKind,
-        tree_rect: egui::Rect,
-        classpath_rect: egui::Rect,
-    ) {
-        let (rect, rounding) = match target {
-            DropTargetKind::Explorer => (tree_rect.shrink2(egui::vec2(2.0, 2.0)), 6.0),
-            DropTargetKind::Classpath => (classpath_rect.shrink2(egui::vec2(2.0, 2.0)), 6.0),
-        };
-        ui.painter()
-            .rect_filled(rect, rounding, theme::VERDIGRIS.linear_multiply(0.10));
-        ui.painter().rect_stroke(
-            rect,
-            rounding,
-            egui::Stroke::new(1.5, theme::VERDIGRIS.linear_multiply(0.9)),
-            egui::StrokeKind::Inside,
-        );
     }
 
     fn render_classpath_resize_handle(

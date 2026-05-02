@@ -27,8 +27,6 @@ pub enum ConfirmAction {
     DecompileAll,
     /// 选择在哪个窗口打开 JAR（Ask 模式）
     OpenWindowChoice(PathBuf),
-    /// 拖拽 classpath 到资源管理器时选择操作。
-    DropClasspathChoice(Vec<PathBuf>),
 }
 
 impl App {
@@ -143,7 +141,7 @@ impl App {
             ConfirmAction::DecompileAll => {
                 self.start_confirmed_decompile();
             }
-            ConfirmAction::OpenWindowChoice(_) | ConfirmAction::DropClasspathChoice(_) => {
+            ConfirmAction::OpenWindowChoice(_) => {
                 // 由独立的多选项弹窗处理，不经过此分支
             }
         }
@@ -156,10 +154,6 @@ impl App {
         };
         if matches!(action, ConfirmAction::OpenWindowChoice(_)) {
             self.render_window_choice(ctx);
-            return;
-        }
-        if matches!(action, ConfirmAction::DropClasspathChoice(_)) {
-            self.render_drop_classpath_choice(ctx);
             return;
         }
         let is_decompile = matches!(action, ConfirmAction::DecompileAll);
@@ -323,115 +317,4 @@ impl App {
         }
     }
 
-    /// 渲染拖拽 Classpath 操作选择（添加 classpath / 打开项目 / 取消）
-    fn render_drop_classpath_choice(&mut self, ctx: &egui::Context) {
-        let ct = theme::confirm_theme();
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.pending_confirm = None;
-            return;
-        }
-        let backdrop_layer =
-            egui::LayerId::new(egui::Order::Foreground, egui::Id::new("confirm_backdrop"));
-        ctx.layer_painter(backdrop_layer)
-            .rect_filled(ctx.content_rect(), 0.0, ct.backdrop);
-        let mut choice: Option<u8> = None;
-        let dialog_rect = egui::Area::new(egui::Id::new("drop_classpath_choice_dialog"))
-            .order(egui::Order::Foreground)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .show(ctx, |ui| {
-                ct.frame.show(ui, |ui| {
-                    ui.set_width(400.0);
-                    egui::Frame::NONE
-                        .inner_margin(egui::Margin {
-                            left: 20,
-                            right: 20,
-                            top: 20,
-                            bottom: 16,
-                        })
-                        .show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new(t!("confirm.drop_classpath_title"))
-                                    .size(13.0)
-                                    .color(ct.title_color)
-                                    .strong(),
-                            );
-                            ui.add_space(6.0);
-                            ui.label(
-                                egui::RichText::new(t!("confirm.drop_classpath_message"))
-                                    .size(12.0)
-                                    .color(ct.message_color),
-                            );
-                        });
-                    egui::Frame::NONE
-                        .inner_margin(egui::Margin {
-                            left: 20,
-                            right: 20,
-                            top: 12,
-                            bottom: 12,
-                        })
-                        .show(ui, |ui| {
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    let cancel_text = t!("confirm.cancel");
-                                    let cancel = FlatButton::new(&cancel_text, &ct.button)
-                                        .min_size(egui::vec2(72.0, 28.0));
-                                    if ui.add(cancel).clicked() {
-                                        choice = Some(0);
-                                    }
-                                    ui.add_space(6.0);
-                                    let open_text = t!("confirm.drop_open_project");
-                                    let open = FlatButton::new(&open_text, &ct.button)
-                                        .min_size(egui::vec2(96.0, 28.0));
-                                    if ui.add(open).clicked() {
-                                        choice = Some(2);
-                                    }
-                                    ui.add_space(6.0);
-                                    let add_text = t!("confirm.drop_add_classpath");
-                                    let add = FlatButton::new(&add_text, &ct.button)
-                                        .min_size(egui::vec2(112.0, 28.0));
-                                    if ui.add(add).clicked() {
-                                        choice = Some(1);
-                                    }
-                                },
-                            );
-                        });
-                });
-            })
-            .response
-            .rect;
-        if choice.is_none() && ctx.input(|i| i.pointer.any_pressed()) {
-            if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()) {
-                if !dialog_rect.contains(pos) {
-                    choice = Some(0);
-                }
-            }
-        }
-        match choice {
-            Some(0) => {
-                self.pending_confirm = None;
-            }
-            Some(1) => {
-                let paths = match self.pending_confirm.take() {
-                    Some(ConfirmAction::DropClasspathChoice(paths)) => paths,
-                    _ => unreachable!(),
-                };
-                let entries = paths
-                    .into_iter()
-                    .filter(|path| self.is_compile_classpath_drop(path))
-                    .collect::<Vec<_>>();
-                self.add_classpath_paths(entries);
-            }
-            Some(2) => {
-                let paths = match self.pending_confirm.take() {
-                    Some(ConfirmAction::DropClasspathChoice(paths)) => paths,
-                    _ => unreachable!(),
-                };
-                if let Some(path) = paths.first() {
-                    self.open_dropped_path(path);
-                }
-            }
-            _ => {}
-        }
-    }
 }

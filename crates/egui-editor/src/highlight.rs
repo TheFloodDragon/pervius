@@ -213,7 +213,12 @@ fn patch_dollar_identifier_spans(spans: &mut Vec<Span>, source: &str) {
         {
             continue;
         }
-        let merged_kind = merge_identifier_kind(left_kind, right_kind);
+        let mut merged_kind = merge_identifier_kind(left_kind, right_kind);
+        if merged_kind != TokenKind::MethodDeclaration
+            && next_non_whitespace_char(source, right_end) == Some('(')
+        {
+            merged_kind = TokenKind::MethodCall;
+        }
         spans[i] = (left_start, left_end, merged_kind);
         spans[i + 1] = (right_start, right_end, merged_kind);
         dollar_spans.push((left_end, right_start, merged_kind));
@@ -241,6 +246,10 @@ fn merge_identifier_kind(left: TokenKind, right: TokenKind) -> TokenKind {
         (Constant, _) | (_, Constant) => Constant,
         _ => Plain,
     }
+}
+
+fn next_non_whitespace_char(source: &str, from: usize) -> Option<char> {
+    source[from..].chars().find(|c| !c.is_whitespace())
 }
 
 fn is_identifier_char(c: char) -> bool {
