@@ -38,12 +38,8 @@ pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
     }
 }
 
-fn classify_type_identifier(node: &tree_sitter::Node) -> TokenKind {
-    if ancestors_contain(node, "import_declaration", 8) {
-        TokenKind::Plain
-    } else {
-        TokenKind::Type
-    }
+fn classify_type_identifier(_node: &tree_sitter::Node) -> TokenKind {
+    TokenKind::Plain
 }
 
 fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
@@ -55,85 +51,73 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
         // 注解名称 @Foo / @Foo(...)
         "annotation" | "marker_annotation" => return Some(TokenKind::Annotation),
         // 注解限定名称 @java.lang.Override
-        "scoped_identifier" => {
+        "scoped_identifier"
             if parent
                 .parent()
-                .is_some_and(|gp| gp.kind() == "annotation" || gp.kind() == "marker_annotation")
-            {
-                return Some(TokenKind::Annotation);
-            }
+                .is_some_and(|gp| gp.kind() == "annotation" || gp.kind() == "marker_annotation") =>
+        {
+            return Some(TokenKind::Annotation);
         }
         // 类型声明名称
         "class_declaration"
         | "enum_declaration"
         | "interface_declaration"
         | "record_declaration"
-        | "annotation_type_declaration" => {
-            if parent
-                .child_by_field_name("name")
-                .is_some_and(|n| n.id() == node.id())
-            {
-                return Some(TokenKind::Type);
-            }
+        | "annotation_type_declaration"
+            if is_name_field(&parent, node) =>
+        {
+            return Some(TokenKind::Plain);
         }
         // enum 常量声明
-        "enum_constant" => {
-            if parent
-                .child_by_field_name("name")
-                .is_some_and(|n| n.id() == node.id())
-            {
-                return Some(TokenKind::Constant);
-            }
+        "enum_constant" if is_name_field(&parent, node) => {
+            return Some(TokenKind::Constant);
         }
         // 方法声明 / 构造器
-        "method_declaration" | "constructor_declaration" => {
-            if parent
-                .child_by_field_name("name")
-                .is_some_and(|n| n.id() == node.id())
-            {
-                return Some(TokenKind::MethodDeclaration);
-            }
+        "method_declaration" | "constructor_declaration" if is_name_field(&parent, node) => {
+            return Some(TokenKind::MethodDeclaration);
         }
         // 方法调用
-        "method_invocation" => {
-            if parent
-                .child_by_field_name("name")
-                .is_some_and(|n| n.id() == node.id())
-            {
-                return Some(TokenKind::MethodCall);
-            }
+        "method_invocation" if is_name_field(&parent, node) => {
+            return Some(TokenKind::MethodCall);
         }
-        // 字段访问 object.field
-        "field_access" => {
-            if parent
-                .child_by_field_name("field")
-                .is_some_and(|n| n.id() == node.id())
-            {
-                return Some(TokenKind::Constant);
-            }
+        // 普通字段声明 / 访问不再强制用 Constant；仅 ALL_CAPS 保持常量色
+        "field_access" if is_field_name(&parent, node) && is_upper_snake_case(node, source) => {
+            return Some(TokenKind::Constant);
         }
-        // 字段声明 private final boolean successful;
-        // AST: field_declaration > variable_declarator > identifier(name)
-        "variable_declarator" => {
+        "variable_declarator"
             if parent
                 .parent()
                 .is_some_and(|gp| gp.kind() == "field_declaration")
-                && parent
-                    .child_by_field_name("name")
-                    .is_some_and(|n| n.id() == node.id())
-            {
-                return Some(TokenKind::Constant);
-            }
+                && is_name_field(&parent, node)
+                && is_upper_snake_case(node, source) =>
+        {
+            return Some(TokenKind::Constant);
         }
         _ => {}
     }
-    // ALL_CAPS 启发式：UPPER_SNAKE_CASE 识别为常量（enum 引用、static final 等）
-    if let Ok(text) = node.utf8_text(source) {
-        if text.len() >= 2 && text.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
-            return Some(TokenKind::Constant);
-        }
+    if is_upper_snake_case(node, source) {
+        return Some(TokenKind::Constant);
     }
     None
+}
+
+fn is_name_field(parent: &tree_sitter::Node, node: &tree_sitter::Node) -> bool {
+    parent
+        .child_by_field_name("name")
+        .is_some_and(|n| n.id() == node.id())
+}
+
+fn is_field_name(parent: &tree_sitter::Node, node: &tree_sitter::Node) -> bool {
+    parent
+        .child_by_field_name("field")
+        .is_some_and(|n| n.id() == node.id())
+}
+
+fn is_upper_snake_case(node: &tree_sitter::Node, source: &[u8]) -> bool {
+    let Ok(text) = node.utf8_text(source) else {
+        return false;
+    };
+    text.len() >= 2 && text.chars().all(|c| c.is_ascii_uppercase() || c == '_')
 }
 
 fn ancestors_contain(node: &tree_sitter::Node, kind: &str, max_depth: usize) -> bool {

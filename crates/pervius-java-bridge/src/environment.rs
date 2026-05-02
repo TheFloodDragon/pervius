@@ -38,7 +38,7 @@ use std::sync::Mutex;
 /// 默认 Vineflower 版本
 pub const DEFAULT_VINEFLOWER_VERSION: &str = "1.12.0";
 /// 默认 Kotlin 版本
-pub const DEFAULT_KOTLIN_VERSION: &str = "2.0.21";
+pub const DEFAULT_KOTLIN_VERSION: &str = "2.3.0";
 
 /// 外部依赖配置（由 UI 设置同步到 bridge 层）。
 #[derive(Clone, Debug)]

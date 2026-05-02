@@ -58,12 +58,10 @@ pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
         "@" => Some(TokenKind::Annotation),
         // 类型（注解内的类型标识符着色为注解色）
         "type_identifier" => {
-            if ancestors_contain(node, "import_header", 8) {
-                Some(TokenKind::Plain)
-            } else if ancestors_contain(node, "annotation", 6) {
+            if ancestors_contain(node, "annotation", 6) {
                 Some(TokenKind::Annotation)
             } else {
-                Some(TokenKind::Type)
+                Some(TokenKind::Plain)
             }
         }
         // 标识符
@@ -81,61 +79,52 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
     let parent = node.parent()?;
     match parent.kind() {
         // 类型声明名称
-        "class_declaration" | "object_declaration" => {
-            if is_first_identifier_child(&parent, node) {
-                return Some(TokenKind::Type);
-            }
+        "class_declaration" | "object_declaration" if is_first_identifier_child(&parent, node) => {
+            return Some(TokenKind::Plain);
         }
         // enum 条目
-        "enum_entry" => {
-            if is_first_identifier_child(&parent, node) {
-                return Some(TokenKind::Constant);
-            }
-        }
-        // 函数声明的名称
-        "function_declaration" => {
-            if is_first_identifier_child(&parent, node) {
-                return Some(TokenKind::MethodDeclaration);
-            }
-        }
-        // 函数调用
-        "call_expression" => {
-            if is_first_child(&parent, node) {
-                return Some(TokenKind::MethodCall);
-            }
-        }
-        // object.func() / object.field 中 navigation_suffix 内的标识符
-        "navigation_suffix" => {
-            // 向上查找是否处于 call_expression 中（AST 层级可能是 call > nav_expr > nav_suffix）
-            let is_call = ancestors_contain(&parent, "call_expression", 3);
-            if is_call {
-                return Some(TokenKind::MethodCall);
-            }
-            // 非调用 → 属性/字段访问
-            let text = node.utf8_text(source).unwrap_or("");
-            if text.len() >= 2 && text.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
-                return Some(TokenKind::Constant);
-            }
-            if text.starts_with(|c: char| c.is_uppercase()) {
-                return Some(TokenKind::Type);
-            }
+        "enum_entry" if is_first_identifier_child(&parent, node) => {
             return Some(TokenKind::Constant);
         }
+        // 函数声明的名称
+        "function_declaration" if is_first_identifier_child(&parent, node) => {
+            return Some(TokenKind::MethodDeclaration);
+        }
+        // 函数调用
+        "call_expression" if is_first_child(&parent, node) => {
+            return Some(TokenKind::MethodCall);
+        }
+        // object.func() / object.field 中 navigation_suffix 内的标识符
+        "navigation_suffix" => return classify_navigation_suffix(node, &parent, source),
         _ => {}
     }
     let text = node.utf8_text(source).unwrap_or("");
     if is_keyword_identifier(text) {
         return Some(TokenKind::Keyword);
     }
-    // ALL_CAPS → 常量
-    if text.len() >= 2 && text.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
+    if is_upper_snake_case(text) {
         return Some(TokenKind::Constant);
     }
-    // 大写开头 → 类型
-    if text.starts_with(|c: char| c.is_uppercase()) {
-        return Some(TokenKind::Type);
+    None
+}
+
+fn classify_navigation_suffix(
+    node: &tree_sitter::Node,
+    parent: &tree_sitter::Node,
+    source: &[u8],
+) -> Option<TokenKind> {
+    if ancestors_contain(parent, "call_expression", 3) {
+        return Some(TokenKind::MethodCall);
+    }
+    let text = node.utf8_text(source).unwrap_or("");
+    if is_upper_snake_case(text) {
+        return Some(TokenKind::Constant);
     }
     None
+}
+
+fn is_upper_snake_case(text: &str) -> bool {
+    text.len() >= 2 && text.chars().all(|c| c.is_ascii_uppercase() || c == '_')
 }
 
 fn is_keyword_identifier(text: &str) -> bool {
@@ -194,9 +183,6 @@ fn classify_jvm_identifier_suffix(node: &tree_sitter::Node, source: &[u8]) -> Op
         return None;
     }
     let text = node.utf8_text(source).unwrap_or("");
-    if text.starts_with(|c: char| c.is_uppercase()) {
-        return Some(TokenKind::Type);
-    }
     if ancestors_contain(node, "function_declaration", 4) {
         return Some(TokenKind::MethodDeclaration);
     }
