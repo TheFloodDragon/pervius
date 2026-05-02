@@ -70,29 +70,17 @@ impl App {
         if !matches!(loaded.decompile, DecompilePhase::Pending) {
             return;
         }
-        match decompiler::start(
-            &loaded.jar.path,
-            &loaded.jar.name,
-            &loaded.jar.hash,
-            loaded.jar.class_count(),
-        ) {
-            Ok(task) => {
-                log::info!(
-                    "Starting decompilation: {} ({} classes)",
-                    loaded.jar.name,
-                    loaded.jar.class_count()
-                );
-                loaded.decompile = DecompilePhase::Running {
-                    task,
-                    completed: HashSet::new(),
-                };
-            }
-            Err(e) => {
-                log::warn!("Cannot start decompiler: {e}");
-                self.toasts
-                    .warning(t!("layout.decompiler_unavailable", error = e));
-            }
+        if loaded.pending_re_decompile.is_some() {
+            return;
         }
+        let path = loaded.jar.path.clone();
+        let name = loaded.jar.name.clone();
+        let hash = loaded.jar.hash.clone();
+        let class_count = loaded.jar.class_count();
+        let thread_name = name.clone();
+        let task = Task::spawn(move || decompiler::start(&path, &thread_name, &hash, class_count));
+        log::info!("Preparing decompilation: {name} ({class_count} classes)");
+        loaded.pending_re_decompile = Some((name, task));
     }
 
     /// 清除缓存并重新反编译整个 JAR

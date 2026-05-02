@@ -100,6 +100,9 @@ impl App {
     /// 轮询所有后台任务
     fn poll_tasks(&mut self) {
         self.check_loading();
+        if matches!(self.workspace, Workspace::Loading(_)) {
+            return;
+        }
         self.poll_jar_decompile();
         self.poll_redecompile();
         self.poll_class_decompiles();

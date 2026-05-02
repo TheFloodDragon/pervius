@@ -4,6 +4,7 @@
 
 use super::class_info::ClassInfoItem;
 use super::decompile_progress::DecompileProgressItem;
+use super::download_progress::DownloadProgressItem;
 use super::export_progress::ExportProgressItem;
 use super::index_progress::IndexProgressItem;
 use super::modified_count::ModifiedCountItem;
@@ -12,7 +13,7 @@ use crate::appearance::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
 use egui_shell::components::panel::status_bar::{Alignment, StatusBarWidget, StatusItem, TextItem};
-use pervius_java_bridge::{assembler, decompiler};
+use pervius_java_bridge::{assembler, decompiler, environment::DownloadProgressSnapshot};
 use rust_i18n::t;
 
 tabookit::class! {
@@ -77,6 +78,13 @@ tabookit::class! {
     pub fn sync_decompile(&mut self, info: Option<(&str, u32, u32)>) {
         if let Some(item) = self.item_mut::<DecompileProgressItem>() {
             item.set_progress(info);
+        }
+    }
+
+    /// 同步外部工具下载进度，None 表示无任务
+    pub fn sync_download(&mut self, progress: Option<DownloadProgressSnapshot>) {
+        if let Some(item) = self.item_mut::<DownloadProgressItem>() {
+            item.set_progress(progress);
         }
     }
 
@@ -149,6 +157,7 @@ impl Default for StatusBar {
         }
         widget.add(ModifiedCountItem::new());
         widget.add(ViewToggleItem::new());
+        widget.add(DownloadProgressItem::new());
         widget.add(DecompileProgressItem::new());
         widget.add(ExportProgressItem::new());
         widget.add(IndexProgressItem::new());

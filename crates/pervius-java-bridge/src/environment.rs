@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// 默认 Vineflower 版本
@@ -50,6 +51,27 @@ pub struct KotlinDependencies {
     pub compiler_embeddable: PathBuf,
 }
 
+/// 当前下载进度快照。
+#[derive(Clone, Debug)]
+pub struct DownloadProgressSnapshot {
+    /// 正在下载的文件名。
+    pub file_name: String,
+    /// 已下载字节数。
+    pub downloaded: u64,
+    /// 总字节数；服务器未返回 Content-Length 时为 None。
+    pub total: Option<u64>,
+}
+
+#[derive(Clone, Debug)]
+struct ActiveDownload {
+    id: u64,
+    snapshot: DownloadProgressSnapshot,
+}
+
+struct DownloadProgressGuard {
+    id: u64,
+}
+
 #[derive(Clone, Copy)]
 struct MavenJar<'a> {
     group_path: &'a str,
@@ -85,6 +107,9 @@ static ENVIRONMENT_CONFIG: Mutex<EnvironmentConfig> = Mutex::new(EnvironmentConf
     kotlin_dependencies_dir: None,
 });
 
+static DOWNLOAD_PROGRESS: Mutex<Option<ActiveDownload>> = Mutex::new(None);
+static NEXT_DOWNLOAD_ID: AtomicU64 = AtomicU64::new(1);
+
 /// 设置外部依赖配置。
 pub fn set_environment_config(config: EnvironmentConfig) {
     let mut lock = ENVIRONMENT_CONFIG.lock().unwrap_or_else(|p| p.into_inner());
@@ -108,6 +133,15 @@ pub fn vineflower_version() -> String {
 /// 获取当前 Kotlin 版本。
 pub fn kotlin_version() -> String {
     environment_config().kotlin_version
+}
+
+/// 获取当前下载进度快照。
+pub fn download_progress() -> Option<DownloadProgressSnapshot> {
+    DOWNLOAD_PROGRESS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .map(|active| active.snapshot.clone())
 }
 
 /// 当前生效 Vineflower 存储目录。
@@ -137,6 +171,13 @@ pub fn ensure_vineflower() -> Result<PathBuf, BridgeError> {
         version: &version,
     };
     resolve_maven_jar(&current_vineflower_dir()?, artifact)
+}
+
+/// 准备打开项目后的基础外部资源。
+pub fn ensure_project_resources() -> Result<(), BridgeError> {
+    crate::process::find_java()?;
+    ensure_vineflower()?;
+    Ok(())
 }
 
 /// 定位并按需下载 Kotlin 编译依赖。
@@ -294,9 +335,32 @@ fn download_to_file(url: &str, path: &Path) -> Result<(), BridgeError> {
     let response = ureq::get(url)
         .call()
         .map_err(|e| BridgeError::Download(format!("failed to download {url}: {e}")))?;
+    let total = response
+        .header("Content-Length")
+        .and_then(|value| value.parse::<u64>().ok());
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.trim_start_matches('.').trim_end_matches(".download"))
+        .filter(|name| !name.is_empty())
+        .unwrap_or("download")
+        .to_string();
+    let progress = begin_download_progress(file_name, total);
     let mut reader = response.into_reader();
     let mut file = File::create(path)?;
-    std::io::copy(&mut reader, &mut file)?;
+    let mut buf = [0_u8; 64 * 1024];
+    let mut downloaded = 0_u64;
+    loop {
+        let read = reader
+            .read(&mut buf)
+            .map_err(|e| BridgeError::Download(format!("failed to read {url}: {e}")))?;
+        if read == 0 {
+            break;
+        }
+        file.write_all(&buf[..read])?;
+        downloaded += read as u64;
+        progress.update(downloaded);
+    }
     file.flush()?;
     if !is_non_empty_file(path) {
         cleanup_file(path);
@@ -306,6 +370,39 @@ fn download_to_file(url: &str, path: &Path) -> Result<(), BridgeError> {
         )));
     }
     Ok(())
+}
+
+fn begin_download_progress(file_name: String, total: Option<u64>) -> DownloadProgressGuard {
+    let id = NEXT_DOWNLOAD_ID.fetch_add(1, Ordering::Relaxed);
+    let snapshot = DownloadProgressSnapshot {
+        file_name,
+        downloaded: 0,
+        total,
+    };
+    let mut lock = DOWNLOAD_PROGRESS.lock().unwrap_or_else(|p| p.into_inner());
+    *lock = Some(ActiveDownload { id, snapshot });
+    DownloadProgressGuard { id }
+}
+
+impl DownloadProgressGuard {
+    fn update(&self, downloaded: u64) {
+        let mut lock = DOWNLOAD_PROGRESS.lock().unwrap_or_else(|p| p.into_inner());
+        let Some(active) = lock.as_mut() else {
+            return;
+        };
+        if active.id == self.id {
+            active.snapshot.downloaded = downloaded;
+        }
+    }
+}
+
+impl Drop for DownloadProgressGuard {
+    fn drop(&mut self) {
+        let mut lock = DOWNLOAD_PROGRESS.lock().unwrap_or_else(|p| p.into_inner());
+        if lock.as_ref().is_some_and(|active| active.id == self.id) {
+            *lock = None;
+        }
+    }
 }
 
 fn sha256_file(path: &Path) -> Result<String, BridgeError> {

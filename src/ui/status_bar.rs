@@ -5,6 +5,7 @@
 mod bar;
 mod class_info;
 mod decompile_progress;
+mod download_progress;
 mod export_progress;
 mod index_progress;
 mod modified_count;
@@ -38,6 +39,11 @@ impl App {
         self.layout
             .status_bar
             .sync_modified_count(saved_paths, unsaved_paths);
+        // 外部工具下载进度（英文固定文案）
+        let download_info = pervius_java_bridge::environment::download_progress();
+        self.layout
+            .status_bar
+            .sync_download(download_info.clone());
         // 反编译进度
         let re_decompile_name = self
             .workspace
@@ -87,7 +93,8 @@ impl App {
         });
         self.layout.status_bar.sync_index(index_info);
         // 有后台任务运行时持续刷新
-        let has_bg_work = self.workspace.is_decompiling()
+        let has_bg_work = download_info.is_some()
+            || self.workspace.is_decompiling()
             || !self.pending_decompiles.is_empty()
             || !self.pending_compiles.is_empty()
             || self

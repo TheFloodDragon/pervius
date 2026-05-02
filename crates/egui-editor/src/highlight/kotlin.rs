@@ -21,7 +21,7 @@ pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
         | "else" | "when" | "for" | "do" | "while" | "try" | "catch" | "throw" | "finally"
         | "import" | "package" | "is" | "!is" | "in" | "!in" | "as" | "as?" | "constructor"
         | "init" | "get" | "set" | "return" | "continue" | "break" | "return_at"
-        | "continue_at" | "break_at" | "new" => Some(TokenKind::Keyword),
+        | "continue_at" | "break_at" | "new" | "companion" | "by" | "where" => Some(TokenKind::Keyword),
         // 修饰符关键字
         "class_modifier"
         | "member_modifier"
@@ -119,6 +119,9 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
         _ => {}
     }
     let text = node.utf8_text(source).unwrap_or("");
+    if is_keyword_identifier(text) {
+        return Some(TokenKind::Keyword);
+    }
     // ALL_CAPS → 常量
     if text.len() >= 2 && text.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
         return Some(TokenKind::Constant);
@@ -128,6 +131,50 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
         return Some(TokenKind::Type);
     }
     None
+}
+
+fn is_keyword_identifier(text: &str) -> bool {
+    matches!(
+        text,
+        "abstract"
+            | "actual"
+            | "annotation"
+            | "by"
+            | "companion"
+            | "const"
+            | "crossinline"
+            | "data"
+            | "delegate"
+            | "dynamic"
+            | "expect"
+            | "external"
+            | "field"
+            | "file"
+            | "final"
+            | "infix"
+            | "inline"
+            | "inner"
+            | "internal"
+            | "lateinit"
+            | "noinline"
+            | "open"
+            | "operator"
+            | "out"
+            | "override"
+            | "param"
+            | "private"
+            | "property"
+            | "protected"
+            | "public"
+            | "receiver"
+            | "sealed"
+            | "setparam"
+            | "suspend"
+            | "tailrec"
+            | "value"
+            | "vararg"
+            | "where"
+    )
 }
 
 fn is_literal_dollar_identifier(node: &tree_sitter::Node, source: &[u8]) -> bool {

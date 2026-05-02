@@ -30,6 +30,12 @@ pub(crate) struct LoadingState {
     pub progress: Arc<LoadProgress>,
     /// 后台加载任务
     pub task: Task<Result<JarArchive, BridgeError>>,
+    /// 已完成的 JAR 加载结果，等待资源准备完成后再继续。
+    pub jar_result: Option<Result<JarArchive, BridgeError>>,
+    /// 项目基础资源准备任务（Java / Vineflower 等）。
+    pub resource_task: Task<Result<(), BridgeError>>,
+    /// 基础资源是否已准备完成。
+    pub resources_ready: bool,
 }
 
 /// JAR 已加载后的工作状态

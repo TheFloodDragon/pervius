@@ -14,7 +14,7 @@ use egui_shell::components::{
 };
 use egui_shell::keybind_rows;
 use pervius_java_bridge::decompiler::{self, CacheEntry};
-use pervius_java_bridge::environment;
+use pervius_java_bridge::{environment, process};
 use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -498,6 +498,7 @@ fn render_environment(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsThem
                 .map(|p| p.to_string_lossy().into_owned())
         },
     );
+    paint_java_path_hint(ui, st, &draft.java.java_home);
     ui.add_space(10.0);
     section_header(ui, st, &t!("settings.vineflower_tools"));
     changed |= text_field_row(
@@ -604,6 +605,14 @@ fn text_field_row(
     changed
 }
 
+fn paint_java_path_hint(ui: &mut egui::Ui, st: &SettingsTheme, configured: &str) {
+    let text = match process::resolve_java_path(configured) {
+        Ok(path) => t!("settings.java_current_path", path = path.display()).to_string(),
+        Err(error) => t!("settings.java_current_path_failed", error = error.to_string()).to_string(),
+    };
+    paint_hint_line(ui, st, text);
+}
+
 fn paint_tool_dir_hint(
     ui: &mut egui::Ui,
     st: &SettingsTheme,
@@ -613,6 +622,10 @@ fn paint_tool_dir_hint(
         Ok(path) => t!("settings.tool_current_dir", path = path.display()).to_string(),
         Err(error) => t!("settings.tool_current_dir_failed", error = error.to_string()).to_string(),
     };
+    paint_hint_line(ui, st, text);
+}
+
+fn paint_hint_line(ui: &mut egui::Ui, st: &SettingsTheme, text: String) {
     ui.horizontal(|ui| {
         ui.add_space(16.0);
         ui.label(
