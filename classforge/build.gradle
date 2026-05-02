@@ -3,7 +3,7 @@ plugins {
 }
 
 group = 'pervius'
-version = '1.0'
+version = '1.1'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
@@ -24,7 +24,11 @@ dependencies {
 jar {
     archiveFileName = "classforge-${version}.jar"
     manifest {
-        attributes 'Main-Class': 'pervius.asm.ClassForge'
+        attributes(
+                'Main-Class': 'pervius.asm.ClassForge',
+                'Implementation-Title': 'ClassForge',
+                'Implementation-Version': project.version
+        )
     }
     from {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }

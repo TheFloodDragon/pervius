@@ -31,9 +31,9 @@ const BUNDLED_VINEFLOWER: &[u8] = include_bytes!("../libs/vineflower-1.11.2.jar"
 const BUNDLED_VINEFLOWER_NAME: &str = "vineflower-1.11.2.jar";
 
 /// 内置 ClassForge JAR（编译时嵌入）
-const BUNDLED_CLASSFORGE: &[u8] = include_bytes!("../libs/classforge-1.0.jar");
+const BUNDLED_CLASSFORGE: &[u8] = include_bytes!("../libs/classforge-1.1.jar");
 /// 内置 ClassForge 文件名
-const BUNDLED_CLASSFORGE_NAME: &str = "classforge-1.0.jar";
+const BUNDLED_CLASSFORGE_NAME: &str = "classforge-1.1.jar";
 
 /// 内置 JAR 释放目标目录（`<data_dir>/pervius/libs/`）
 fn bundled_libs_dir() -> Result<PathBuf, error::BridgeError> {
