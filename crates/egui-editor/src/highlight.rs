@@ -153,6 +153,9 @@ fn collect_treesitter_spans_checked(source: &str, lang: Language) -> (Vec<Span>,
         color_fn,
         source.as_bytes(),
     );
+    if lang == Language::Kotlin {
+        kotlin::patch_string_spans(&mut spans, source);
+    }
     spans.sort_by_key(|&(start, _, _)| start);
     normalize_spans(&mut spans);
     (spans, has_errors)

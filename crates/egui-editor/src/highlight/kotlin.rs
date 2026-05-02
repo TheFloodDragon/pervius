@@ -2,10 +2,13 @@
 //!
 //! @author sky
 
-use super::TokenKind;
+use super::{Span, TokenKind};
 
 /// 返回 Some 表示命中着色，None 表示继续深入子节点
 pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
+    if is_inside_string_literal(node) && !is_string_interpolation_node(node) {
+        return Some(TokenKind::String);
+    }
     match node.kind() {
         // 关键字（叶节点）
         "val" | "var" | "fun" | "class" | "object" | "interface" | "enum" | "typealias" | "if"
@@ -119,6 +122,101 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
         return Some(TokenKind::Type);
     }
     None
+}
+
+/// 补齐 tree-sitter-kotlin 对字符串引号/普通片段拆分不稳定导致的漏色。
+pub(super) fn patch_string_spans(spans: &mut Vec<Span>, source: &str) {
+    let bytes = source.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => {
+                if source[i..].starts_with("\"\"\"") {
+                    if let Some(end) = find_raw_string_end(source, i + 3) {
+                        push_string_gaps(spans, source, i, end);
+                        i = end;
+                    } else {
+                        push_string_gaps(spans, source, i, bytes.len());
+                        break;
+                    }
+                } else {
+                    let end = find_line_string_end(bytes, i + 1);
+                    push_string_gaps(spans, source, i, end);
+                    i = end;
+                }
+            }
+            _ => i += 1,
+        }
+    }
+}
+
+fn push_string_gaps(spans: &mut Vec<Span>, source: &str, start: usize, end: usize) {
+    let mut cursor = start;
+    let mut existing = spans
+        .iter()
+        .copied()
+        .filter(|&(s, e, k)| s < end && e > start && k != TokenKind::Plain)
+        .filter(|&(s, e, kind)| kind != TokenKind::String || !is_whole_range(start, end, s, e))
+        .collect::<Vec<_>>();
+    existing.sort_by_key(|&(s, e, _)| (s, e));
+    for (s, e, _) in existing {
+        let s = s.max(start).min(end);
+        let e = e.max(start).min(end);
+        if cursor < s {
+            push_string_span(spans, source, cursor, s);
+        }
+        cursor = e;
+    }
+    if cursor < end {
+        push_string_span(spans, source, cursor, end);
+    }
+}
+
+fn is_whole_range(start: usize, end: usize, span_start: usize, span_end: usize) -> bool {
+    span_start <= start && span_end >= end
+}
+
+fn push_string_span(spans: &mut Vec<Span>, source: &str, start: usize, end: usize) {
+    if start < end && source.is_char_boundary(start) && source.is_char_boundary(end) {
+        spans.push((start, end, TokenKind::String));
+    }
+}
+
+fn find_raw_string_end(source: &str, from: usize) -> Option<usize> {
+    source[from..].find("\"\"\"").map(|offset| from + offset + 3)
+}
+
+fn find_line_string_end(bytes: &[u8], mut i: usize) -> usize {
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i = (i + 2).min(bytes.len()),
+            b'"' => return i + 1,
+            b'\n' | b'\r' => return i,
+            _ => i += 1,
+        }
+    }
+    bytes.len()
+}
+
+fn is_inside_string_literal(node: &tree_sitter::Node) -> bool {
+    ancestors_contain(node, "string_literal", 16)
+        || ancestors_contain(node, "line_string_literal", 16)
+        || ancestors_contain(node, "multi_line_string_literal", 16)
+        || ancestors_contain(node, "multiline_string_literal", 16)
+}
+
+fn is_string_interpolation_node(node: &tree_sitter::Node) -> bool {
+    matches!(
+        node.kind(),
+        "interpolated_expression"
+            | "interpolated_identifier"
+            | "interpolation_expression_start"
+            | "interpolation_expression_end"
+            | "interpolation_identifier_start"
+            | "line_str_ref"
+            | "multi_line_str_ref"
+    ) || ancestors_contain(node, "interpolated_expression", 16)
+        || ancestors_contain(node, "interpolated_identifier", 16)
 }
 
 fn is_first_child(parent: &tree_sitter::Node, node: &tree_sitter::Node) -> bool {
