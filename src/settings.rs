@@ -141,12 +141,42 @@ fn path_option(path: &str) -> Option<std::path::PathBuf> {
     }
 }
 
+/// 拖拽到资源管理器 / Classpath 区域时的 Classpath 处理策略。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClasspathDropBehavior {
+    /// 每次询问是否添加到当前会话 classpath。
+    #[default]
+    #[serde(rename = "ask")]
+    Ask,
+    /// 直接添加到当前会话 classpath。
+    #[serde(rename = "add")]
+    Add,
+    /// 始终按普通文件/JAR 打开。
+    #[serde(rename = "open")]
+    Open,
+}
+
+impl ClasspathDropBehavior {
+    pub const ALL: &[Self] = &[Self::Ask, Self::Add, Self::Open];
+
+    /// 返回显示名称
+    pub fn label(self) -> String {
+        match self {
+            Self::Ask => t!("settings.classpath_drop_behavior_ask").to_string(),
+            Self::Add => t!("settings.classpath_drop_behavior_add").to_string(),
+            Self::Open => t!("settings.classpath_drop_behavior_open").to_string(),
+        }
+    }
+}
+
 /// 编译配置
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CompileSettings {
     /// Kotlin 编译时跳过依赖元数据版本检查
     pub kotlin_skip_metadata_version_check: bool,
+    /// 拖拽到资源管理器 / Classpath 区域时的处理策略。
+    pub classpath_drop_behavior: ClasspathDropBehavior,
     /// 全局编译 classpath 条目（JAR / ZIP / 目录）。
     pub classpath_entries: Vec<String>,
 }
@@ -155,6 +185,7 @@ impl Default for CompileSettings {
     fn default() -> Self {
         Self {
             kotlin_skip_metadata_version_check: true,
+            classpath_drop_behavior: ClasspathDropBehavior::default(),
             classpath_entries: Vec::new(),
         }
     }
@@ -662,9 +693,53 @@ fn render_compile(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -
     });
     ui.add_space(10.0);
     section_header(ui, st, &t!("settings.compile_classpath"));
+    changed |= render_classpath_drop_behavior(draft, ui, st);
     paint_classpath_hint(ui, st);
     changed |= paint_classpath_actions(ui, st, &mut draft.compile.classpath_entries);
     changed |= paint_classpath_entries(ui, st, &mut draft.compile.classpath_entries);
+    changed
+}
+
+fn render_classpath_drop_behavior(
+    draft: &mut Settings,
+    ui: &mut egui::Ui,
+    st: &SettingsTheme,
+) -> bool {
+    let mut changed = false;
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(t!("settings.classpath_drop_behavior").to_string())
+                .size(13.0)
+                .color(st.text_primary),
+        );
+        ui.add_space(8.0);
+        let current = draft.compile.classpath_drop_behavior;
+        egui::ComboBox::from_id_salt("classpath_drop_behavior_combo")
+            .selected_text(current.label())
+            .width(190.0)
+            .show_ui(ui, |ui| {
+                for &behavior in ClasspathDropBehavior::ALL {
+                    if ui
+                        .selectable_label(current == behavior, behavior.label())
+                        .clicked()
+                    {
+                        draft.compile.classpath_drop_behavior = behavior;
+                        changed = true;
+                    }
+                }
+            });
+    });
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(t!("settings.classpath_drop_behavior_hint").to_string())
+                .size(11.0)
+                .color(st.text_secondary),
+        );
+    });
+    ui.add_space(8.0);
     changed
 }
 

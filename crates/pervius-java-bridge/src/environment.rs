@@ -2,7 +2,7 @@
 //!
 //! 依赖下载、校验与 POM 解析实现在 `crate::deps` 中。
 //!
-//! @author sky
+//! @author TheFloodDragon
 
 use std::path::PathBuf;
 
@@ -18,16 +18,6 @@ pub struct KotlinDependencies {
     pub compiler_embeddable: PathBuf,
     /// Kotlin 编译器运行时依赖（按 POM 声明顺序）
     pub runtime_dependencies: Vec<PathBuf>,
-}
-
-impl KotlinDependencies {
-    /// 生成 Kotlin 编译器所需的运行时 classpath（不含 ClassForge 本身）。
-    pub fn compiler_runtime_classpath(&self) -> Vec<PathBuf> {
-        let mut classpath = Vec::with_capacity(1 + self.runtime_dependencies.len());
-        classpath.push(self.compiler_embeddable.clone());
-        classpath.extend(self.runtime_dependencies.iter().cloned());
-        classpath
-    }
 }
 
 /// 当前下载进度快照。
@@ -96,42 +86,18 @@ pub fn environment_config() -> EnvironmentConfig {
     normalize_config(config)
 }
 
-/// 获取当前 Vineflower 版本。
-pub fn vineflower_version() -> String {
-    environment_config().vineflower_version
-}
-
-/// 获取当前 Kotlin 版本。
-pub fn kotlin_version() -> String {
-    environment_config().kotlin_version
-}
-
 /// 获取当前下载进度快照。
 pub fn download_progress() -> Option<DownloadProgressSnapshot> {
     crate::deps::download_progress()
 }
 
-/// 当前生效 Vineflower 存储目录。
-pub fn current_vineflower_dir() -> Result<PathBuf, BridgeError> {
-    Ok(
-        environment_config()
-            .vineflower_dir
-            .unwrap_or(default_environment_root()?.join("vineflower")),
-    )
-}
-
-/// 当前生效 Kotlin 依赖存储目录。
-pub fn current_kotlin_dependencies_dir() -> Result<PathBuf, BridgeError> {
-    Ok(
-        environment_config()
-            .kotlin_dependencies_dir
-            .unwrap_or(default_environment_root()?.join("kotlin")),
-    )
-}
-
 /// 定位并按需下载 Vineflower。
 pub fn ensure_vineflower() -> Result<PathBuf, BridgeError> {
-    crate::deps::ensure_vineflower_in_dir(&current_vineflower_dir()?, &vineflower_version())
+    let config = environment_config();
+    let dir = config
+        .vineflower_dir
+        .unwrap_or(default_environment_root()?.join("vineflower"));
+    crate::deps::ensure_vineflower_in_dir(&dir, &config.vineflower_version)
 }
 
 /// 准备打开项目后的基础外部资源。
@@ -143,7 +109,11 @@ pub fn ensure_project_resources() -> Result<(), BridgeError> {
 
 /// 定位并按需下载 Kotlin 编译依赖。
 pub fn ensure_kotlin_dependencies() -> Result<KotlinDependencies, BridgeError> {
-    crate::deps::ensure_kotlin_dependencies_in_dir(&current_kotlin_dependencies_dir()?, &kotlin_version())
+    let config = environment_config();
+    let dir = config
+        .kotlin_dependencies_dir
+        .unwrap_or(default_environment_root()?.join("kotlin"));
+    crate::deps::ensure_kotlin_dependencies_in_dir(&dir, &config.kotlin_version)
 }
 
 fn normalize_config(mut config: EnvironmentConfig) -> EnvironmentConfig {

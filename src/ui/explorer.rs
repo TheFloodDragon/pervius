@@ -27,6 +27,15 @@ pub enum ClasspathAction {
     RemoveGlobal(String),
 }
 
+/// 拖拽到资源管理器中的目标区域。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DropTargetKind {
+    /// 资源树区域。
+    Explorer,
+    /// Classpath 面板区域。
+    Classpath,
+}
+
 tabookit::class! {
     /// 文件面板状态
     pub struct FilePanel {
@@ -54,10 +63,14 @@ tabookit::class! {
         filter_gen: u64,
         /// Classpath 面板是否展开
         classpath_expanded: bool,
+        /// Classpath 面板当前高度（0 表示使用自动高度）
+        classpath_height: f32,
         /// 上一帧资源管理器整体区域（用于判断拖拽落点）
         pub last_explorer_rect: Option<egui::Rect>,
-        /// 上一帧 Classpath 面板区域（用于判断拖拽落点）
-        pub last_classpath_rect: Option<egui::Rect>,
+        /// 上一帧资源树区域（用于判断拖拽落点）
+        last_tree_rect: Option<egui::Rect>,
+        /// 上一帧 Classpath 区域（用于判断拖拽落点）
+        last_classpath_rect: Option<egui::Rect>,
         /// 待处理 Classpath UI 动作
         pending_classpath_action: Option<ClasspathAction>,
     }
@@ -76,7 +89,9 @@ tabookit::class! {
             filter_task: None,
             filter_gen: 0,
             classpath_expanded: true,
+            classpath_height: 0.0,
             last_explorer_rect: None,
+            last_tree_rect: None,
             last_classpath_rect: None,
             pending_classpath_action: None,
         }
@@ -119,8 +134,13 @@ tabookit::class! {
             egui::pos2(rect.right() - 8.0, rect.bottom()),
         );
         let classpath_rect = self.classpath_rect(body_rect, current_jar, project_classpath, global_classpath);
-        self.last_classpath_rect = Some(classpath_rect);
         let tree_rect = egui::Rect::from_min_max(body_rect.left_top(), egui::pos2(body_rect.right(), classpath_rect.top()));
+        self.last_tree_rect = Some(tree_rect);
+        self.last_classpath_rect = Some(classpath_rect);
+        if let Some(target) = self.current_drop_hover(ui.ctx()) {
+            self.paint_drop_highlight(ui, target, tree_rect, classpath_rect);
+        }
+        self.render_classpath_resize_handle(ui, body_rect, classpath_rect);
         let mut body_ui = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(tree_rect)
@@ -137,10 +157,23 @@ tabookit::class! {
         self.pending_classpath_action.take()
     }
 
-    /// 判断屏幕位置是否落在上一帧资源管理器/Classpath 区域内。
-    pub fn contains_drop_target(&self, pos: egui::Pos2) -> bool {
-        self.last_explorer_rect.is_some_and(|r| r.contains(pos))
-            || self.last_classpath_rect.is_some_and(|r| r.contains(pos))
+    /// 获取给定屏幕坐标命中的拖拽区域。
+    pub fn drop_target_at(&self, pos: egui::Pos2) -> Option<DropTargetKind> {
+        if self.last_classpath_rect.is_some_and(|r| r.contains(pos)) {
+            return Some(DropTargetKind::Classpath);
+        }
+        if self.last_tree_rect.is_some_and(|r| r.contains(pos)) {
+            return Some(DropTargetKind::Explorer);
+        }
+        None
+    }
+
+    fn current_drop_hover(&self, ctx: &egui::Context) -> Option<DropTargetKind> {
+        if ctx.input(|i| i.raw.hovered_files.is_empty()) {
+            return None;
+        }
+        let pos = ctx.input(|i| i.pointer.latest_pos().or(i.pointer.interact_pos()))?;
+        self.drop_target_at(pos)
     }
 
     fn classpath_rect(
@@ -151,16 +184,84 @@ tabookit::class! {
         global_classpath: &[String],
     ) -> egui::Rect {
         let entries = current_jar.map_or(0, |_| 1) + project_classpath.len() + global_classpath.len();
+        let auto_height = 34.0 + entries.max(1) as f32 * 24.0 + 8.0;
+        let max_height = (body_rect.height() - 48.0).max(32.0);
+        let min_height = 58.0_f32.min(max_height);
         let height = if self.classpath_expanded {
-            (34.0 + entries.max(1) as f32 * 24.0 + 8.0).clamp(58.0, 220.0)
+            let preferred = if self.classpath_height > 0.0 {
+                self.classpath_height
+            } else {
+                auto_height
+            };
+            preferred.clamp(min_height, max_height)
         } else {
-            32.0
-        }
-        .min((body_rect.height() * 0.45).max(32.0));
+            32.0_f32.min(max_height)
+        };
         egui::Rect::from_min_max(
             egui::pos2(body_rect.left(), body_rect.bottom() - height),
             body_rect.right_bottom(),
         )
+    }
+
+    fn paint_drop_highlight(
+        &self,
+        ui: &egui::Ui,
+        target: DropTargetKind,
+        tree_rect: egui::Rect,
+        classpath_rect: egui::Rect,
+    ) {
+        let (rect, rounding) = match target {
+            DropTargetKind::Explorer => (tree_rect.shrink2(egui::vec2(2.0, 2.0)), 6.0),
+            DropTargetKind::Classpath => (classpath_rect.shrink2(egui::vec2(2.0, 2.0)), 6.0),
+        };
+        ui.painter()
+            .rect_filled(rect, rounding, theme::VERDIGRIS.linear_multiply(0.10));
+        ui.painter().rect_stroke(
+            rect,
+            rounding,
+            egui::Stroke::new(1.5, theme::VERDIGRIS.linear_multiply(0.9)),
+            egui::StrokeKind::Inside,
+        );
+    }
+
+    fn render_classpath_resize_handle(
+        &mut self,
+        ui: &mut egui::Ui,
+        body_rect: egui::Rect,
+        classpath_rect: egui::Rect,
+    ) {
+        if !self.classpath_expanded {
+            return;
+        }
+        let handle_rect = egui::Rect::from_min_max(
+            egui::pos2(body_rect.left() + 6.0, classpath_rect.top() - 3.0),
+            egui::pos2(body_rect.right(), classpath_rect.top() + 3.0),
+        );
+        let resp = ui.interact(
+            handle_rect,
+            egui::Id::new("classpath_resize_handle"),
+            egui::Sense::drag(),
+        );
+        if resp.hovered() || resp.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+            ui.painter().line_segment(
+                [
+                    egui::pos2(handle_rect.left(), classpath_rect.top()),
+                    egui::pos2(handle_rect.right(), classpath_rect.top()),
+                ],
+                egui::Stroke::new(2.0, theme::VERDIGRIS.linear_multiply(0.9)),
+            );
+        }
+        if resp.dragged() {
+            let max_height = (body_rect.height() - 48.0).max(32.0);
+            let min_height = 58.0_f32.min(max_height);
+            let base_height = if self.classpath_height > 0.0 {
+                self.classpath_height
+            } else {
+                classpath_rect.height()
+            };
+            self.classpath_height = (base_height - resp.drag_delta().y).clamp(min_height, max_height);
+        }
     }
 
     fn render_classpath_panel(
@@ -241,29 +342,26 @@ tabookit::class! {
                     any = true;
                     self.render_classpath_row(
                         ui,
-                        "jar",
                         &path.to_string_lossy(),
                         Some(t!("explorer.classpath_tag_jar").to_string()),
                         theme::ACCENT_GREEN,
                         None,
                     );
                 }
-                for (idx, path) in project_classpath.iter().enumerate() {
+                for path in project_classpath {
                     any = true;
                     self.render_classpath_row(
                         ui,
-                        &format!("project_{idx}"),
                         &path.to_string_lossy(),
                         Some(t!("explorer.classpath_tag_project").to_string()),
                         theme::TEXT_MUTED,
                         Some(ClasspathAction::RemoveProject(path.clone())),
                     );
                 }
-                for (idx, entry) in global_classpath.iter().enumerate() {
+                for entry in global_classpath {
                     any = true;
                     self.render_classpath_row(
                         ui,
-                        &format!("global_{idx}"),
                         entry,
                         Some(t!("explorer.classpath_tag_global").to_string()),
                         theme::ACCENT_CYAN,
@@ -284,7 +382,6 @@ tabookit::class! {
     fn render_classpath_row(
         &mut self,
         ui: &mut egui::Ui,
-        id: &str,
         path: &str,
         tag: Option<String>,
         tag_color: egui::Color32,
@@ -296,15 +393,50 @@ tabookit::class! {
         if resp.hovered() {
             ui.painter().rect_filled(rect, 3.0, theme::BG_HOVER);
         }
-        let mid_y = rect.center().y;
         let tag_w = if tag.is_some() { 54.0 } else { 0.0 };
-        ui.painter().text(
-            egui::pos2(rect.left() + 10.0, mid_y),
-            egui::Align2::LEFT_CENTER,
-            path,
-            egui::FontId::monospace(10.5),
-            if Path::new(path).exists() { theme::TEXT_SECONDARY } else { theme::TEXT_MUTED },
+        let exists = Path::new(path).exists();
+        let path_buf = Path::new(path);
+        let file_name = path_buf
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| !name.is_empty())
+            .unwrap_or(path);
+        let path_detail = path_buf
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .map(|parent| parent.display().to_string())
+            .unwrap_or_default();
+        let text_rect = egui::Rect::from_min_max(
+            egui::pos2(rect.left() + 10.0, rect.top()),
+            egui::pos2(rect.right() - tag_w - 8.0, rect.bottom()),
         );
+        let mut text_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(text_rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center))
+                .id_salt(("classpath_row_text", path)),
+        );
+        text_ui.add(
+            egui::Label::new(
+                egui::RichText::new(file_name)
+                    .size(11.0)
+                    .strong()
+                    .color(if exists { theme::TEXT_PRIMARY } else { theme::TEXT_MUTED }),
+            )
+            .truncate(),
+        );
+        if !path_detail.is_empty() {
+            text_ui.add_space(6.0);
+            text_ui.add(
+                egui::Label::new(
+                    egui::RichText::new(path_detail)
+                        .size(10.5)
+                        .monospace()
+                        .color(if exists { theme::TEXT_SECONDARY } else { theme::TEXT_MUTED }),
+                )
+                .truncate(),
+            );
+        }
         if let Some(tag) = tag {
             let tag_rect = egui::Rect::from_min_max(
                 egui::pos2(rect.right() - tag_w, rect.top() + 4.0),
@@ -327,8 +459,6 @@ tabookit::class! {
                     ui.close();
                 }
             });
-        } else {
-            let _ = id;
         }
     }
 

@@ -94,10 +94,6 @@ impl App {
             return;
         }
         // class 文件：apply structure → 重建 CS → 写入 JAR → 重反编译
-        if decompiler::vineflower_version().is_none() {
-            self.toasts.error(t!("status.vineflower_not_found"));
-            return;
-        }
         let jar_path = self.workspace.jar().map(|j| j.path.as_path());
         match tab.serialize_bytes(jar_path) {
             Ok(new_bytes) => {

@@ -79,7 +79,7 @@ public class ClassForge {
      */
     private static void runCompileKtEntrypoint(String[] args) throws Exception {
         try {
-            byte[] output = runCompileKt(args);
+            byte[] output = pervius.compile.KotlincCompiler.run(args);
             System.out.write(output);
             System.out.flush();
         } catch (Throwable e) {
@@ -87,13 +87,6 @@ public class ClassForge {
             e.printStackTrace(System.err);
             System.exit(2);
         }
-    }
-
-    /**
-     * 独立方法：保持 main 的非 Kotlin 分支不触碰 Kotlin 编译器类型。
-     */
-    private static byte[] runCompileKt(String[] args) throws Exception {
-        return pervius.compile.KotlincCompiler.run(args);
     }
 
     /**

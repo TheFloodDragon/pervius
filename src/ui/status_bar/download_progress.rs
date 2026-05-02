@@ -1,6 +1,6 @@
 //! 外部工具下载进度状态栏 item
 //!
-//! @author sky
+//! @author TheFloodDragon
 
 use crate::appearance::theme;
 use egui_shell::components::panel::status_bar::{Alignment, ProgressItem};

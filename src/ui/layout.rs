@@ -222,7 +222,7 @@ impl App {
         if environment_changed || cache_changed {
             environment::set_environment_config(new_settings.java.environment_config());
         }
-        if vineflower_changed || (cache_changed && use_default_vineflower_dir) {
+        if should_prepare_vineflower {
             self.layout.status_bar = StatusBar::default();
         }
         self.settings = new_settings;

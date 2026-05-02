@@ -1,6 +1,6 @@
 //! Maven 依赖下载、校验与 POM 解析。
 //!
-//! @author sky
+//! @author TheFloodDragon
 
 use crate::environment::{DownloadProgressSnapshot, KotlinDependencies, MAVEN_BASE};
 use crate::error::BridgeError;
@@ -156,16 +156,17 @@ fn collect_dependency_closure(
             "{}:{}:{}",
             dependency.group_path, dependency.artifact_id, dependency.version
         );
-        let path = resolve_maven_jar(dir, jar)?;
-        let inserted = seen.insert(key);
-        if inserted {
+        if !seen.insert(key) {
+            continue;
+        }
+        if let Some(path) = resolve_optional_maven_jar(dir, jar)? {
             if dependency.artifact_id == "kotlin-stdlib" {
                 *stdlib = Some(path.clone());
             }
-            out.push(path.clone());
-            if dependency.allow_transitive {
-                collect_dependency_closure(dir, jar, false, seen, out, stdlib)?;
-            }
+            out.push(path);
+        }
+        if dependency.allow_transitive {
+            collect_dependency_closure(dir, jar, false, seen, out, stdlib)?;
         }
     }
     Ok(())
@@ -228,11 +229,7 @@ fn xml_section<'a>(xml: &'a str, tag: &str) -> Option<&'a str> {
 }
 
 fn xml_tag_text(xml: &str, tag: &str) -> Option<String> {
-    let start_tag = format!("<{tag}>");
-    let end_tag = format!("</{tag}>");
-    let start = xml.find(&start_tag)? + start_tag.len();
-    let end = xml[start..].find(&end_tag)? + start;
-    Some(xml[start..end].trim().to_string())
+    xml_section(xml, tag).map(|section| section.trim().to_string())
 }
 
 fn resolve_maven_jar(dir: &Path, artifact: MavenJar<'_>) -> Result<PathBuf, BridgeError> {
@@ -241,6 +238,36 @@ fn resolve_maven_jar(dir: &Path, artifact: MavenJar<'_>) -> Result<PathBuf, Brid
         return Ok(path);
     }
     ensure_verified_download(dir, &file_name, &artifact.jar_url(), &artifact.sha256_url())
+}
+
+fn resolve_optional_maven_jar(
+    dir: &Path,
+    artifact: MavenJar<'_>,
+) -> Result<Option<PathBuf>, BridgeError> {
+    match resolve_maven_jar(dir, artifact) {
+        Ok(path) => Ok(Some(path)),
+        Err(BridgeError::Download(message)) if message.contains("status code 404") => {
+            if artifact_publishes_jar(artifact)? {
+                Err(BridgeError::Download(message))
+            } else {
+                log::info!(
+                    "Skipping non-JAR Maven artifact {}:{}:{}",
+                    artifact.group_path,
+                    artifact.artifact_id,
+                    artifact.version
+                );
+                Ok(None)
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn artifact_publishes_jar(artifact: MavenJar<'_>) -> Result<bool, BridgeError> {
+    let pom = download_text(&artifact.pom_url())?;
+    Ok(xml_tag_text(&pom, "packaging")
+        .map(|packaging| packaging.eq_ignore_ascii_case("jar"))
+        .unwrap_or(true))
 }
 
 fn jar_next_to_exe(file_name: &str) -> Option<PathBuf> {
@@ -282,24 +309,22 @@ fn verify_existing_file(path: &Path, expected: &str) -> Result<bool, BridgeError
         return Ok(false);
     }
     match sha256_file(path) {
-        Ok(actual) if actual.eq_ignore_ascii_case(expected) => Ok(true),
+        Ok(actual) if actual.eq_ignore_ascii_case(expected) => return Ok(true),
         Ok(actual) => {
             log::warn!(
                 "Checksum mismatch for {}, expected {expected}, got {actual}; re-downloading",
                 path.display()
             );
-            cleanup_file(path);
-            Ok(false)
         }
         Err(error) => {
             log::warn!(
                 "Failed to verify existing download {}: {error}; re-downloading",
                 path.display()
             );
-            cleanup_file(path);
-            Ok(false)
         }
     }
+    cleanup_file(path);
+    Ok(false)
 }
 
 fn verify_sha256_file(path: &Path, expected: &str, file_name: &str) -> Result<(), BridgeError> {

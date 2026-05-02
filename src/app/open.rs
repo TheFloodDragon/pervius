@@ -5,9 +5,10 @@
 use super::workspace::{DecompilePhase, LoadedState, LoadingState, Workspace};
 use super::App;
 use crate::app::ConfirmAction;
+use crate::settings::ClasspathDropBehavior;
 use crate::task::{Poll, Pollable, Task};
 use crate::ui::editor::EditorArea;
-use crate::ui::explorer::tree;
+use crate::ui::explorer::{tree, DropTargetKind};
 use eframe::egui;
 use egui_shell::components::SettingsFile;
 use pervius_java_bridge::{decompiler, environment};
@@ -83,13 +84,20 @@ impl App {
             .filter(|path| self.is_compile_classpath_drop(path))
             .cloned()
             .collect::<Vec<_>>();
-        let dropped_on_explorer = self.layout.explorer_visible
-            && ctx
-                .input(|i| i.pointer.latest_pos().or(i.pointer.interact_pos()))
-                .is_some_and(|pos| self.layout.file_panel.contains_drop_target(pos));
-        if dropped_on_explorer && !classpath_entries.is_empty() {
-            if self.pending_confirm.is_none() {
-                self.pending_confirm = Some(ConfirmAction::DropClasspathChoice(paths));
+        let drop_target = self.current_drop_target(ctx);
+        if drop_target.is_some() && !classpath_entries.is_empty() {
+            match self.settings.compile.classpath_drop_behavior {
+                ClasspathDropBehavior::Ask => {
+                    if self.pending_confirm.is_none() {
+                        self.pending_confirm = Some(ConfirmAction::DropClasspathChoice(paths));
+                    }
+                }
+                ClasspathDropBehavior::Add => self.add_classpath_paths(classpath_entries),
+                ClasspathDropBehavior::Open => {
+                    if let Some(path) = paths.first() {
+                        self.open_dropped_path(path);
+                    }
+                }
             }
             return;
         }
@@ -168,9 +176,8 @@ impl App {
                 self.layout.file_panel.selected = None;
                 self.layout.file_panel.filter.clear();
                 // 小文件或已有缓存时自动反编译，大文件则弹窗确认
-                let auto =
-                    decompiler::is_cached(&jar.hash) || jar.file_size <= FULL_DECOMPILE_THRESHOLD;
                 let cache_hit = decompiler::is_cached(&jar.hash);
+                let auto = cache_hit || jar.file_size <= FULL_DECOMPILE_THRESHOLD;
                 let decompile = if cache_hit {
                     log::info!("Decompiled cache hit for {}", jar.name);
                     DecompilePhase::Done
@@ -213,6 +220,14 @@ impl App {
 
     pub(crate) fn is_compile_classpath_drop(&self, path: &Path) -> bool {
         self.workspace.is_loaded() && is_classpath_path(path)
+    }
+
+    fn current_drop_target(&self, ctx: &egui::Context) -> Option<DropTargetKind> {
+        if !self.layout.explorer_visible {
+            return None;
+        }
+        let pos = ctx.input(|i| i.pointer.latest_pos().or(i.pointer.interact_pos()))?;
+        self.layout.file_panel.drop_target_at(pos)
     }
 
     /// 按拖拽默认行为打开第一个路径。

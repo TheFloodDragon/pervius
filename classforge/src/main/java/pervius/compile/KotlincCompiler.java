@@ -29,6 +29,8 @@ import java.util.Map;
  *
  * This class intentionally contains all org.jetbrains.kotlin.* references so
  * ClassForge can keep the Kotlin compiler off the normal -jar path.
+ *
+ * @author TheFloodDragon
  */
 public final class KotlincCompiler {
     private static final int STATUS_OK = 0;
@@ -278,8 +280,6 @@ public final class KotlincCompiler {
                     parsed.apiVersion = args[++i];
                 } else if ("--language-version".equals(args[i]) && i + 1 < args.length) {
                     parsed.languageVersion = args[++i];
-                } else if ("--skip-metadata-version-check".equals(args[i])) {
-                    parsed.skipMetadataVersionCheck = true;
                 } else if ("--no-skip-metadata-version-check".equals(args[i])) {
                     parsed.skipMetadataVersionCheck = false;
                 }

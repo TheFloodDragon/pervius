@@ -139,16 +139,6 @@ pub fn compile_source(
     parse_compile_output(&output.stdout)
 }
 
-/// 调用 classforge --compile-kt 编译 Kotlin 源码
-pub fn compile_kotlin_sources(
-    sources: &[KotlinSource],
-    classpath: &CompileClasspath,
-    target: Option<u8>,
-    module_name: Option<&str>,
-) -> Result<CompileOutcome, BridgeError> {
-    compile_kotlin_sources_with_options(sources, classpath, target, module_name, true)
-}
-
 /// 调用 classforge --compile-kt 编译 Kotlin 源码（可配置 Kotlin 编译器兼容选项）
 pub fn compile_kotlin_sources_with_options(
     sources: &[KotlinSource],
@@ -163,8 +153,10 @@ pub fn compile_kotlin_sources_with_options(
         Some((crate::BUNDLED_CLASSFORGE, crate::BUNDLED_CLASSFORGE_NAME)),
     )?;
     let kotlin_dependencies = crate::environment::ensure_kotlin_dependencies()?;
-    let mut runtime_classpath = vec![classforge.clone()];
-    runtime_classpath.extend(kotlin_dependencies.compiler_runtime_classpath());
+    let mut runtime_classpath = Vec::with_capacity(2 + kotlin_dependencies.runtime_dependencies.len());
+    runtime_classpath.push(classforge.clone());
+    runtime_classpath.push(kotlin_dependencies.compiler_embeddable.clone());
+    runtime_classpath.extend(kotlin_dependencies.runtime_dependencies.iter().cloned());
     let mut cmd =
         process::JavaCommand::with_classpath(&runtime_classpath, "pervius.asm.ClassForge")?;
     cmd.arg("--compile-kt");
@@ -179,9 +171,7 @@ pub fn compile_kotlin_sources_with_options(
     if let Some(module_name) = module_name {
         cmd.arg("--module-name").arg(module_name);
     }
-    if skip_metadata_version_check {
-        cmd.arg("--skip-metadata-version-check");
-    } else {
+    if !skip_metadata_version_check {
         cmd.arg("--no-skip-metadata-version-check");
     }
     let mut child = cmd.spawn_with_stdin().map_err(BridgeError::SpawnFailed)?;

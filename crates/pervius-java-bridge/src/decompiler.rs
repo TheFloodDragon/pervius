@@ -85,14 +85,6 @@ impl Drop for DecompileTask {
     }
 }
 
-/// 获取 Vineflower 版本号（从 JAR 文件名解析）
-///
-/// 返回版本字符串（如 `"1.11.1"`），未找到时返回 `None`。
-/// 调用方负责 i18n 格式化。
-pub fn vineflower_version() -> Option<String> {
-    Some(crate::environment::vineflower_version())
-}
-
 /// 设置缓存根目录（空值表示回退到系统默认目录）
 pub fn set_cache_root(path: Option<&Path>) {
     let mut lock = CUSTOM_CACHE_ROOT.lock().unwrap_or_else(|p| p.into_inner());
@@ -110,13 +102,6 @@ pub fn current_cache_root() -> Result<PathBuf, BridgeError> {
     }
     let base = dirs::cache_dir().ok_or(BridgeError::NoCacheDir)?;
     Ok(base.join("pervius").join("decompiled"))
-}
-
-/// 定位 vineflower JAR
-///
-/// 搜索顺序：exe 同目录匹配版本 JAR → 环境配置目录（缺失则下载）。
-pub fn find_vineflower() -> Result<PathBuf, BridgeError> {
-    crate::environment::ensure_vineflower()
 }
 
 /// 获取缓存根目录
@@ -430,7 +415,7 @@ pub fn start(
     _class_count: u32,
 ) -> Result<DecompileTask, BridgeError> {
     process::find_java()?;
-    let vineflower = find_vineflower()?;
+    let vineflower = crate::environment::ensure_vineflower()?;
     let output_dir = cache_dir(hash)?;
     std::fs::create_dir_all(&output_dir)?;
     write_cache_meta(&output_dir, jar_path, jar_name, hash);
@@ -578,7 +563,7 @@ pub fn decompile_single_class(
     jar_name: Option<&str>,
     cache_hash: Option<&str>,
 ) -> Result<CachedSource, BridgeError> {
-    let vineflower = find_vineflower()?;
+    let vineflower = crate::environment::ensure_vineflower()?;
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let id = COUNTER.fetch_add(1, Ordering::Relaxed);
     let tmp_input = TempDirGuard {

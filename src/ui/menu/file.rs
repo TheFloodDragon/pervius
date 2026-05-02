@@ -67,16 +67,6 @@ pub fn render(ui: &mut egui::Ui, app: &mut App) {
     if menu_item_if(
         ui,
         mt,
-        &t!("menu.add_classpath"),
-        None,
-        state.has_jar && state.is_idle,
-    ) {
-        app.add_classpath_dialog();
-    }
-    ui.separator();
-    if menu_item_if(
-        ui,
-        mt,
         &t!("menu.export_jar"),
         Some(&app.settings.keymap.export_jar),
         state.has_jar && state.is_idle,
