@@ -585,25 +585,25 @@ mod tests {
     }
 
     #[test]
-    fn kotlin_type_like_callee_uses_type_token() {
-        assert_eq!(only_token_kind("Foo()", Language::Kotlin, "Foo"), TokenKind::Type);
-        assert_eq!(only_token_kind("Foo.Bar()", Language::Kotlin, "Foo"), TokenKind::Type);
-        assert_eq!(only_token_kind("Foo.Bar()", Language::Kotlin, "Bar"), TokenKind::Type);
+    fn kotlin_type_like_callee_uses_plain_token() {
+        assert_eq!(only_token_kind("Foo()", Language::Kotlin, "Foo"), TokenKind::Plain);
+        assert_eq!(only_token_kind("Foo.Bar()", Language::Kotlin, "Foo"), TokenKind::Plain);
+        assert_eq!(only_token_kind("Foo.Bar()", Language::Kotlin, "Bar"), TokenKind::Plain);
     }
 
     #[test]
     fn kotlin_only_last_navigation_segment_becomes_method_call() {
-        assert_eq!(only_token_kind("Foo.bar.baz()", Language::Kotlin, "Foo"), TokenKind::Type);
+        assert_eq!(only_token_kind("Foo.bar.baz()", Language::Kotlin, "Foo"), TokenKind::Plain);
         assert_ne!(only_token_kind("Foo.bar.baz()", Language::Kotlin, "bar"), TokenKind::MethodCall);
         assert_eq!(only_token_kind("Foo.bar.baz()", Language::Kotlin, "baz"), TokenKind::MethodCall);
-        assert_eq!(only_token_kind("Foo.bar().baz()", Language::Kotlin, "Foo"), TokenKind::Type);
+        assert_eq!(only_token_kind("Foo.bar().baz()", Language::Kotlin, "Foo"), TokenKind::Plain);
         assert_eq!(only_token_kind("Foo.bar().baz()", Language::Kotlin, "bar"), TokenKind::MethodCall);
         assert_eq!(only_token_kind("Foo.bar().baz()", Language::Kotlin, "baz"), TokenKind::MethodCall);
     }
 
     #[test]
     fn kotlin_static_field_calls_keep_constant_color() {
-        assert_eq!(only_token_kind("Foo.BAR()", Language::Kotlin, "Foo"), TokenKind::Type);
+        assert_eq!(only_token_kind("Foo.BAR()", Language::Kotlin, "Foo"), TokenKind::Plain);
         assert_eq!(
             only_token_kind("Foo.BAR.baz()", Language::Kotlin, "BAR"),
             TokenKind::Constant
@@ -619,13 +619,13 @@ mod tests {
     }
 
     #[test]
-    fn kotlin_type_references_follow_type_token() {
-        assert_eq!(only_token_kind("val x: Foo.Bar = foo", Language::Kotlin, "Foo"), TokenKind::Type);
-        assert_eq!(only_token_kind("val x: Foo.Bar = foo", Language::Kotlin, "Bar"), TokenKind::Type);
-        assert_eq!(only_token_kind("val x = Foo.Bar", Language::Kotlin, "Foo"), TokenKind::Type);
-        assert_eq!(only_token_kind("val x = Foo.Bar", Language::Kotlin, "Bar"), TokenKind::Type);
+    fn kotlin_type_references_follow_plain_token() {
+        assert_eq!(only_token_kind("val x: Foo.Bar = foo", Language::Kotlin, "Foo"), TokenKind::Plain);
+        assert_eq!(only_token_kind("val x: Foo.Bar = foo", Language::Kotlin, "Bar"), TokenKind::Plain);
+        assert_eq!(only_token_kind("val x = Foo.Bar", Language::Kotlin, "Foo"), TokenKind::Plain);
+        assert_eq!(only_token_kind("val x = Foo.Bar", Language::Kotlin, "Bar"), TokenKind::Plain);
         assert_eq!(only_token_kind("@Foo class Bar", Language::Kotlin, "Foo"), TokenKind::Annotation);
-        assert_eq!(only_token_kind("@Foo class Bar", Language::Kotlin, "Bar"), TokenKind::Type);
+        assert_eq!(only_token_kind("@Foo class Bar", Language::Kotlin, "Bar"), TokenKind::Plain);
     }
 
     #[test]

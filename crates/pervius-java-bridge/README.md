@@ -98,7 +98,7 @@ if decompiler::is_cached(&jar.hash) {
     let src = decompiler::cached_source(&jar.hash, "com/example/Main.class");
     if let Some(src) = src {
         println!("{}", src.source);       // 反编译源码
-        println!("kotlin: {}", src.is_kotlin); // 是否 Kotlin
+        println!("language: {:?}", src.language); // Java / Kotlin
         // src.line_mapping: 每行对应的原始字节码行号
     }
 }

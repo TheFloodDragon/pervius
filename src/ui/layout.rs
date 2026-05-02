@@ -210,6 +210,8 @@ impl App {
         let kotlin_changed = new_settings.java.kotlin_version != self.settings.java.kotlin_version
             || new_settings.java.kotlin_dependencies_dir
                 != self.settings.java.kotlin_dependencies_dir;
+        let kotlin_decompiler_changed =
+            new_settings.compile.kotlin_decompiler != self.settings.compile.kotlin_decompiler;
         let environment_changed = vineflower_changed || kotlin_changed;
         let cache_changed = new_settings.cache.decompiled_dir != self.settings.cache.decompiled_dir;
         let use_default_vineflower_dir = new_settings.java.vineflower_dir.trim().is_empty();
@@ -217,7 +219,17 @@ impl App {
         if cache_changed {
             decompiler::set_cache_root(new_settings.cache.root_path());
             settings::refresh_cache_state(&mut self.layout.settings_state);
-            self.sync_cache_state();
+        }
+        if kotlin_decompiler_changed {
+            decompiler::set_kotlin_decompiler_mode(new_settings.compile.kotlin_decompiler.to_bridge());
+            settings::refresh_cache_state(&mut self.layout.settings_state);
+            self.pending_decompiles.clear();
+            if let Some(loaded) = self.workspace.loaded_mut() {
+                loaded.pending_re_decompile = None;
+                if matches!(loaded.decompile, DecompilePhase::Running { .. }) {
+                    loaded.decompile = DecompilePhase::Pending;
+                }
+            }
         }
         if environment_changed || cache_changed {
             environment::set_environment_config(new_settings.java.environment_config());
@@ -231,6 +243,9 @@ impl App {
         }
         if should_prepare_vineflower {
             self.start_vineflower_prepare();
+        }
+        if cache_changed || kotlin_decompiler_changed {
+            self.sync_cache_state();
         }
     }
 
@@ -273,12 +288,11 @@ impl App {
             return;
         }
         match action {
-            SettingsAction::DeleteCache { hash, label } => {
+            SettingsAction::DeleteCache { dir, label } => {
                 self.layout.settings_state.cache_busy = true;
-                self.pending_cache_delete = Some(Task::spawn(move || CacheDeleteResult::Single {
-                    deleted: decompiler::clear_cache_entry(&hash),
-                    hash,
-                    label,
+                self.pending_cache_delete = Some(Task::spawn(move || {
+                    let deleted = decompiler::clear_cache_entry_dir(&dir);
+                    CacheDeleteResult::Single { label, deleted }
                 }));
             }
             SettingsAction::DeleteAllCaches { count } => {
@@ -309,21 +323,11 @@ impl App {
         self.layout.settings_state.cache_busy = false;
         settings::refresh_cache_state(&mut self.layout.settings_state);
         match result {
-            CacheDeleteResult::Single {
-                hash,
-                label,
-                deleted,
-            } => {
+            CacheDeleteResult::Single { label, deleted } => {
                 if deleted {
                     self.toasts
                         .info(t!("layout.cache_deleted", name = label.as_str()));
-                    if self
-                        .workspace
-                        .jar()
-                        .is_some_and(|jar| jar.hash == hash || jar.hash.starts_with(&hash))
-                    {
-                        self.sync_cache_state();
-                    }
+                    self.sync_cache_state();
                 } else {
                     self.toasts
                         .error(t!("layout.cache_delete_failed", name = label.as_str()));

@@ -27,7 +27,6 @@ pub(crate) use export::ExportingState;
 
 pub(crate) enum CacheDeleteResult {
     Single {
-        hash: String,
         label: String,
         deleted: bool,
     },
@@ -66,6 +65,9 @@ impl App {
         // 传递用户配置给 bridge 层
         pervius_java_bridge::process::set_java_home(&settings.java.java_home);
         pervius_java_bridge::decompiler::set_cache_root(settings.cache.root_path());
+        pervius_java_bridge::decompiler::set_kotlin_decompiler_mode(
+            settings.compile.kotlin_decompiler.to_bridge(),
+        );
         pervius_java_bridge::environment::set_environment_config(settings.java.environment_config());
         let toasts = Toasts::default();
         Self {

@@ -61,7 +61,7 @@ pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
             if ancestors_contain(node, "annotation", 6) {
                 Some(TokenKind::Annotation)
             } else {
-                Some(TokenKind::Type)
+                Some(TokenKind::Plain)
             }
         }
         // 标识符
@@ -80,7 +80,7 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
     match parent.kind() {
         // 类型声明名称
         "class_declaration" | "object_declaration" if is_first_identifier_child(&parent, node) => {
-            return Some(TokenKind::Type);
+            return Some(TokenKind::Plain);
         }
         // enum 条目
         "enum_entry" if is_first_identifier_child(&parent, node) => {
@@ -101,14 +101,14 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
             return Some(TokenKind::Constant);
         }
         if is_type_like_identifier(text) {
-            return Some(TokenKind::Type);
+            return Some(TokenKind::Plain);
         }
     }
     if parent.kind() == "navigation_expression"
         && is_first_identifier_child(&parent, node)
         && is_type_like_identifier(text)
     {
-        return Some(TokenKind::Type);
+        return Some(TokenKind::Plain);
     }
     if is_keyword_identifier(text) {
         return Some(TokenKind::Keyword);
@@ -131,7 +131,7 @@ fn classify_called_identifier_text(text: &str) -> TokenKind {
     if is_upper_snake_case(text) {
         TokenKind::Constant
     } else if is_type_like_identifier(text) {
-        TokenKind::Type
+        TokenKind::Plain
     } else {
         TokenKind::MethodCall
     }

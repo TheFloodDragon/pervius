@@ -139,8 +139,11 @@ impl App {
                 .cloned()
                 .or_else(|| jar_hash.and_then(|h| decompiler::cached_source(h, entry_path)));
             let lang = match &cached {
-                Some(c) if c.is_kotlin => Language::Kotlin,
-                _ => Language::Java,
+                Some(c) => match c.language {
+                    pervius_java_bridge::decompiler::DecompiledSourceLanguage::Kotlin => Language::Kotlin,
+                    pervius_java_bridge::decompiler::DecompiledSourceLanguage::Java => Language::Java,
+                },
+                None => Language::Java,
             };
             let mut tab = EditorTab::new_class(title, entry_path, bytes.to_vec(), lang);
             if let Some(c) = cached {

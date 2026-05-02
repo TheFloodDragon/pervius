@@ -23,7 +23,7 @@
 
 ### 反编译
 
-基于 Vineflower，支持 JAR 批量反编译和单文件按需反编译。小体积 JAR 自动全量反编译，大 JAR 按需逐类反编译。Vineflower 输出实时解析进度，逐类跟踪。结果按 JAR 的 SHA-256 缓存，重复打开不重编译。Kotlin 类自动检测并输出 `.kt`，保留原始行号映射。
+基于 Vineflower，支持 JAR 批量反编译和单文件按需反编译。小体积 JAR 自动全量反编译，大 JAR 按需逐类反编译。Vineflower 输出实时解析进度，逐类跟踪。结果按 JAR 的 SHA-256 缓存，重复打开不重编译。Kotlin 类可配置输出为 `.kt`（Vineflower/Kotlin 输出）或 `.java`（Java 输出模式），并保留原始行号映射。
 
 <img src="screenshots/1.png" width="600" alt="截图" />
 

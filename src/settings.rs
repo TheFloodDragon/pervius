@@ -81,6 +81,36 @@ impl OpenBehavior {
     }
 }
 
+/// Kotlin 类反编译输出模式
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KotlinDecompilerKind {
+    /// 输出 Kotlin 源码
+    #[default]
+    #[serde(rename = "vineflower")]
+    Vineflower,
+    /// 统一回退为 Java 源码
+    #[serde(rename = "java")]
+    Java,
+}
+
+impl KotlinDecompilerKind {
+    pub const ALL: &[Self] = &[Self::Vineflower, Self::Java];
+
+    pub fn label(self) -> String {
+        match self {
+            Self::Vineflower => t!("settings.kotlin_decompiler_vineflower").to_string(),
+            Self::Java => t!("settings.kotlin_decompiler_java").to_string(),
+        }
+    }
+
+    pub fn to_bridge(self) -> decompiler::KotlinDecompilerMode {
+        match self {
+            Self::Vineflower => decompiler::KotlinDecompilerMode::Vineflower,
+            Self::Java => decompiler::KotlinDecompilerMode::Java,
+        }
+    }
+}
+
 /// 最近打开的文件条目
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecentEntry {
@@ -151,6 +181,8 @@ fn pick_folder_string() -> Option<String> {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CompileSettings {
+    /// Kotlin 类反编译输出模式
+    pub kotlin_decompiler: KotlinDecompilerKind,
     /// Kotlin 编译时跳过依赖元数据版本检查
     pub kotlin_skip_metadata_version_check: bool,
     /// 全局编译 classpath 条目（JAR / ZIP / 目录）。
@@ -160,6 +192,7 @@ pub struct CompileSettings {
 impl Default for CompileSettings {
     fn default() -> Self {
         Self {
+            kotlin_decompiler: KotlinDecompilerKind::Vineflower,
             kotlin_skip_metadata_version_check: true,
             classpath_entries: Vec::new(),
         }
@@ -326,8 +359,8 @@ tabookit::class! {
 pub enum SettingsAction {
     /// 删除指定缓存
     DeleteCache {
-        /// 完整 hash
-        hash: String,
+        /// 缓存目录
+        dir: std::path::PathBuf,
         /// 展示名称
         label: String,
     },
@@ -657,6 +690,34 @@ fn paint_hint_line(ui: &mut egui::Ui, st: &SettingsTheme, text: String) {
 fn render_compile(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> bool {
     let mut changed = false;
     section_header(ui, st, &t!("settings.section_compile"));
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(t!("settings.kotlin_decompiler").to_string())
+                .size(13.0)
+                .color(st.text_primary),
+        );
+        ui.add_space(8.0);
+        let current = draft.compile.kotlin_decompiler;
+        egui::ComboBox::from_id_salt("kotlin_decompiler_combo")
+            .selected_text(current.label())
+            .width(180.0)
+            .show_ui(ui, |ui| {
+                for &mode in KotlinDecompilerKind::ALL {
+                    if ui.selectable_label(current == mode, mode.label()).clicked() {
+                        draft.compile.kotlin_decompiler = mode;
+                        changed = true;
+                    }
+                }
+            });
+    });
+    paint_secondary_hint_line(
+        ui,
+        st,
+        t!("settings.kotlin_decompiler_hint").to_string(),
+    );
+    ui.add_space(8.0);
     changed |= toggle(
         ui,
         st,
@@ -1017,8 +1078,13 @@ fn paint_cache_entry(ui: &mut egui::Ui, st: &SettingsTheme, entry: &CacheEntry, 
         st.text_primary,
     );
     // 次级信息：大小 + hash
+    let mode_text = match entry.kotlin_mode {
+        decompiler::KotlinDecompilerMode::Vineflower => t!("settings.kotlin_decompiler_vineflower_short").to_string(),
+        decompiler::KotlinDecompilerMode::Java => t!("settings.kotlin_decompiler_java_short").to_string(),
+    };
     let meta_text = format!(
-        "{}  {}",
+        "{}  {}  {}",
+        &mode_text,
         format_optional_bytes(entry.size_bytes),
         short_hash(&entry.hash),
     );
@@ -1038,7 +1104,7 @@ fn paint_cache_entry(ui: &mut egui::Ui, st: &SettingsTheme, entry: &CacheEntry, 
     let mut btn_ui = ui.new_child(
         egui::UiBuilder::new()
             .max_rect(btn_rect)
-            .id_salt(egui::Id::new("cache_del").with(&entry.hash)),
+            .id_salt(egui::Id::new("cache_del").with(entry.dir.display().to_string())),
     );
     let delete = btn_ui.add_enabled(
         !cache_busy,
@@ -1051,8 +1117,8 @@ fn paint_cache_entry(ui: &mut egui::Ui, st: &SettingsTheme, entry: &CacheEntry, 
         queue_settings_action(
             ui.ctx(),
             SettingsAction::DeleteCache {
-                hash: entry.hash.clone(),
-                label: entry.jar_name.clone(),
+                dir: entry.dir.clone(),
+                label: format!("{} ({})", entry.jar_name.as_str(), mode_text),
             },
         );
     }

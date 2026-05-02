@@ -185,10 +185,9 @@ impl App {
             let entry_path = self.pending_decompiles.swap_remove(i).0;
             match result {
                 Ok(cached) => {
-                    let lang = if cached.is_kotlin {
-                        Language::Kotlin
-                    } else {
-                        Language::Java
+                    let lang = match cached.language {
+                        pervius_java_bridge::decompiler::DecompiledSourceLanguage::Kotlin => Language::Kotlin,
+                        pervius_java_bridge::decompiler::DecompiledSourceLanguage::Java => Language::Java,
                     };
                     for (_, tab) in self.layout.editor.dock_state.iter_all_tabs_mut() {
                         if tab.entry_path.as_deref() == Some(&entry_path) {

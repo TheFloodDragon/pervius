@@ -14,6 +14,8 @@ use crate::process;
 
 /// 用户设置的反编译缓存根目录（优先于系统 cache_dir）
 static CUSTOM_CACHE_ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
+/// 当前 Kotlin 类反编译输出模式。
+static CURRENT_KOTLIN_MODE: Mutex<KotlinDecompilerMode> = Mutex::new(KotlinDecompilerMode::Vineflower);
 
 /// 缓存完成标记文件名
 const CACHE_COMPLETE_MARKER: &str = ".complete";
@@ -28,6 +30,54 @@ pub struct DecompileProgress {
     pub total: AtomicU32,
     /// 已完成反编译的类路径及其文件夹前缀
     pub decompiled: Mutex<HashSet<String>>,
+}
+
+/// Kotlin 类的反编译输出模式。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KotlinDecompilerMode {
+    /// 启用 Vineflower Kotlin 输出，Kotlin 类会生成 `.kt`。
+    #[default]
+    #[serde(rename = "vineflower")]
+    Vineflower,
+    /// 关闭 Kotlin 输出，统一回退到 Java 反编译结果。
+    #[serde(rename = "java")]
+    Java,
+}
+
+impl KotlinDecompilerMode {
+    fn cache_dir_name(self) -> Option<&'static str> {
+        match self {
+            Self::Vineflower => None,
+            Self::Java => Some("java"),
+        }
+    }
+
+    fn vineflower_args(self, cmd: &mut process::JavaCommand) {
+        if matches!(self, Self::Java) {
+            cmd.arg("--kt-enable=0");
+        }
+    }
+}
+
+/// 反编译得到的源码语言。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DecompiledSourceLanguage {
+    Java,
+    Kotlin,
+}
+
+impl DecompiledSourceLanguage {
+    pub fn is_kotlin(self) -> bool {
+        matches!(self, Self::Kotlin)
+    }
+
+    fn from_extension(ext: &str) -> Option<Self> {
+        match ext {
+            ".java" => Some(Self::Java),
+            ".kt" => Some(Self::Kotlin),
+            _ => None,
+        }
+    }
 }
 
 /// 后台反编译任务句柄
@@ -51,6 +101,8 @@ struct CacheMeta {
     pub jar_path: String,
     /// 完整哈希
     pub hash: String,
+    /// Kotlin 类反编译输出模式
+    pub kotlin_mode: Option<KotlinDecompilerMode>,
     /// 已缓存的目录总大小（字节）
     pub size_bytes: Option<u64>,
 }
@@ -64,6 +116,8 @@ pub struct CacheEntry {
     pub jar_path: String,
     /// 完整哈希
     pub hash: String,
+    /// Kotlin 类反编译输出模式
+    pub kotlin_mode: KotlinDecompilerMode,
     /// 缓存目录路径
     pub dir: PathBuf,
     /// 最后修改时间（unix epoch 秒）
@@ -104,14 +158,35 @@ pub fn current_cache_root() -> Result<PathBuf, BridgeError> {
     Ok(base.join("pervius").join("decompiled"))
 }
 
+/// 设置 Kotlin 类反编译输出模式。
+pub fn set_kotlin_decompiler_mode(mode: KotlinDecompilerMode) {
+    let mut lock = CURRENT_KOTLIN_MODE.lock().unwrap_or_else(|p| p.into_inner());
+    *lock = mode;
+}
+
+/// 获取当前 Kotlin 类反编译输出模式。
+pub fn current_kotlin_decompiler_mode() -> KotlinDecompilerMode {
+    *CURRENT_KOTLIN_MODE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+}
+
 /// 获取缓存根目录
 fn cache_root() -> Result<PathBuf, BridgeError> {
     current_cache_root()
 }
 
+fn mode_cache_root(mode: KotlinDecompilerMode) -> Result<PathBuf, BridgeError> {
+    let root = cache_root()?;
+    Ok(match mode.cache_dir_name() {
+        Some(dir) => root.join(dir),
+        None => root,
+    })
+}
+
 /// 获取指定 JAR 哈希的缓存目录
 pub fn cache_dir(hash: &str) -> Result<PathBuf, BridgeError> {
-    Ok(cache_root()?.join(hash_prefix(hash)))
+    Ok(mode_cache_root(current_kotlin_decompiler_mode())?.join(hash_prefix(hash)))
 }
 
 /// 检查缓存是否完整（存在 .complete 标记文件）
@@ -127,6 +202,11 @@ pub fn clear_cache(hash: &str) {
     if let Ok(dir) = cache_dir(hash) {
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// 清除指定缓存目录。
+pub fn clear_cache_entry_dir(dir: &Path) -> bool {
+    std::fs::remove_dir_all(dir).is_ok()
 }
 
 /// 清除全部反编译缓存
@@ -146,10 +226,28 @@ pub fn list_cache_entries() -> Result<Vec<CacheEntry>, BridgeError> {
         return Ok(Vec::new());
     }
     let mut entries = Vec::new();
-    for entry in std::fs::read_dir(&root)? {
+    collect_cache_entries_from_root(&mut entries, &root, KotlinDecompilerMode::Vineflower)?;
+    let java_root = root.join("java");
+    if java_root.exists() {
+        collect_cache_entries_from_root(&mut entries, &java_root, KotlinDecompilerMode::Java)?;
+    }
+    entries.sort_by(|a, b| {
+        b.modified_at
+            .cmp(&a.modified_at)
+            .then_with(|| a.jar_name.cmp(&b.jar_name))
+    });
+    Ok(entries)
+}
+
+fn collect_cache_entries_from_root(
+    entries: &mut Vec<CacheEntry>,
+    root: &Path,
+    fallback_mode: KotlinDecompilerMode,
+) -> Result<(), BridgeError> {
+    for entry in std::fs::read_dir(root)? {
         let entry = entry?;
         let dir = entry.path();
-        if !dir.is_dir() {
+        if !dir.is_dir() || dir.file_name().and_then(|name| name.to_str()) == Some("java") {
             continue;
         }
         let meta = read_cache_meta(&dir).unwrap_or_default();
@@ -171,18 +269,14 @@ pub fn list_cache_entries() -> Result<Vec<CacheEntry>, BridgeError> {
             jar_name,
             jar_path: meta.jar_path,
             hash,
-            dir,
-            modified_at: file_modified_at(&entry.path()),
+            kotlin_mode: meta.kotlin_mode.unwrap_or(fallback_mode),
+            dir: dir.clone(),
+            modified_at: file_modified_at(&dir),
             size_bytes: meta.size_bytes,
             complete,
         });
     }
-    entries.sort_by(|a, b| {
-        b.modified_at
-            .cmp(&a.modified_at)
-            .then_with(|| a.jar_name.cmp(&b.jar_name))
-    });
-    Ok(entries)
+    Ok(())
 }
 
 /// 根据完整 hash 删除指定缓存目录
@@ -195,7 +289,7 @@ pub fn clear_cache_entry(hash: &str) -> bool {
     }) else {
         return false;
     };
-    std::fs::remove_dir_all(&entry.dir).is_ok()
+    clear_cache_entry_dir(&entry.dir)
 }
 
 /// 缓存查找结果
@@ -203,8 +297,8 @@ pub fn clear_cache_entry(hash: &str) -> bool {
 pub struct CachedSource {
     /// 反编译后的源码（已清理行号标记）
     pub source: String,
-    /// 是否为 Kotlin 类
-    pub is_kotlin: bool,
+    /// 当前反编译结果的源码语言
+    pub language: DecompiledSourceLanguage,
     /// 反编译行 → 原始源码行号（1-indexed），None 表示无映射
     pub line_mapping: Vec<Option<u32>>,
 }
@@ -213,7 +307,7 @@ pub struct CachedSource {
 pub fn cached_source_path(hash: &str, class_path: &str) -> Option<PathBuf> {
     let dir = cache_dir(hash).ok()?;
     let base = class_to_base_path(class_path);
-    for ext in &[".java", ".kt"] {
+    for ext in preferred_source_extensions() {
         let file = dir.join(format!("{base}{ext}"));
         log::debug!("cached_source_path: trying {}", file.display());
         if file.exists() {
@@ -297,16 +391,23 @@ fn class_to_base_path(class_path: &str) -> &str {
     }
 }
 
+fn preferred_source_extensions() -> &'static [&'static str] {
+    match current_kotlin_decompiler_mode() {
+        KotlinDecompilerMode::Vineflower => &[".kt", ".java"],
+        KotlinDecompilerMode::Java => &[".java", ".kt"],
+    }
+}
+
 /// 在目录中尝试读取 .java 或 .kt 反编译源码
 fn try_read_source(dir: &Path, base: &str) -> Option<CachedSource> {
-    for (ext, is_kt) in &[(".java", false), (".kt", true)] {
+    for ext in preferred_source_extensions() {
         let file = dir.join(format!("{base}{ext}"));
         if let Ok(raw) = std::fs::read_to_string(&file) {
             log::debug!("Source found: {}", file.display());
             let (source, line_mapping) = strip_line_markers(&raw);
             return Some(CachedSource {
                 source,
-                is_kotlin: *is_kt,
+                language: DecompiledSourceLanguage::from_extension(ext)?,
                 line_mapping,
             });
         }
@@ -346,6 +447,7 @@ fn write_cache_meta(output_dir: &Path, jar_path: &Path, jar_name: &str, hash: &s
         jar_name: jar_name.to_string(),
         jar_path: jar_path.to_string_lossy().into_owned(),
         hash: hash.to_string(),
+        kotlin_mode: Some(current_kotlin_decompiler_mode()),
         size_bytes: None,
     };
     write_cache_meta_file(output_dir, &meta);
@@ -442,6 +544,12 @@ pub fn start(
 }
 
 /// 执行 vineflower 进程并解析进度
+fn apply_vineflower_source_options(cmd: &mut process::JavaCommand) {
+    cmd.arg("--bytecode-source-mapping=1")
+        .arg("--__dump_original_lines__=1");
+    current_kotlin_decompiler_mode().vineflower_args(cmd);
+}
+
 fn run_vineflower(
     vineflower: &Path,
     jar_path: &Path,
@@ -453,9 +561,8 @@ fn run_vineflower(
         .map(|n| n.get().max(2) / 2)
         .unwrap_or(2);
     let mut cmd = process::JavaCommand::new(vineflower)?;
-    cmd.arg("--bytecode-source-mapping=1")
-        .arg("--__dump_original_lines__=1")
-        .arg(format!("-thr={thr}"))
+    apply_vineflower_source_options(&mut cmd);
+    cmd.arg(format!("-thr={thr}"))
         .arg(jar_path)
         .arg(output_dir);
     let mut child = cmd.spawn().map_err(BridgeError::SpawnFailed)?;
@@ -606,8 +713,7 @@ pub fn decompile_single_class(
     }
     std::fs::write(&class_file, bytes)?;
     let mut cmd = process::JavaCommand::new(&vineflower)?;
-    cmd.arg("--bytecode-source-mapping=1")
-        .arg("--__dump_original_lines__=1");
+    apply_vineflower_source_options(&mut cmd);
     if let Some(jp) = jar_path {
         cmd.arg(format!("-e={}", jp.display()));
     }

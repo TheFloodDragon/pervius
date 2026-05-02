@@ -314,10 +314,9 @@ tabookit::class! {
                 continue;
             };
             if let Some(cached) = decompiler::cached_source(hash, &entry) {
-                let lang = if cached.is_kotlin {
-                    egui_editor::Language::Kotlin
-                } else {
-                    egui_editor::Language::Java
+                let lang = match cached.language {
+                    decompiler::DecompiledSourceLanguage::Kotlin => egui_editor::Language::Kotlin,
+                    decompiler::DecompiledSourceLanguage::Java => egui_editor::Language::Java,
                 };
                 tab.set_decompiled(cached.source, lang, cached.line_mapping);
                 if tab.active_view == ActiveView::Hex {

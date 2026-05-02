@@ -23,7 +23,7 @@
 
 ### Decompilation
 
-Powered by Vineflower, with both batch JAR decompilation and on-demand single-class decompilation. Small JARs are fully decompiled upfront; large JARs decompile class-by-class on demand. Vineflower progress is parsed in real time and tracked per class. Results are cached by the JAR's SHA-256, so reopening never triggers a rebuild. Kotlin classes are auto-detected and emitted as `.kt` with original line-number mapping preserved.
+Powered by Vineflower, with both batch JAR decompilation and on-demand single-class decompilation. Small JARs are fully decompiled upfront; large JARs decompile class-by-class on demand. Vineflower progress is parsed in real time and tracked per class. Results are cached by the JAR's SHA-256, so reopening never triggers a rebuild. Kotlin classes can be emitted either as `.kt` (Vineflower/Kotlin output) or as `.java` (Java output mode), with original line-number mapping preserved.
 
 <img src="screenshots/1.png" width="600" alt="Screenshot" />
 
