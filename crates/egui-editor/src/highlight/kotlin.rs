@@ -30,7 +30,18 @@ pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
         "boolean_literal" | "null_literal" => Some(TokenKind::Keyword),
         "integer_literal" | "long_literal" | "hex_literal" | "bin_literal" | "unsigned_literal"
         | "real_literal" => Some(TokenKind::Number),
-        "string_literal" | "character_literal" | "character_escape_seq" => Some(TokenKind::String),
+        "string_literal"
+        | "line_string_literal"
+        | "multi_line_string_literal"
+        | "multiline_string_literal"
+        | "string_content"
+        | "line_str_text"
+        | "multi_line_str_text"
+        | "line_str_ref"
+        | "multi_line_str_ref"
+        | "character_literal"
+        | "character_escape_seq"
+        | "escape_sequence" => Some(TokenKind::String),
         // 注释
         "line_comment" | "multiline_comment" | "shebang_line" => Some(TokenKind::Comment),
         // 注解：递归进子节点，让内部字符串正确着色

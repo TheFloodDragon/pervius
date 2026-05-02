@@ -109,6 +109,17 @@ pub fn compile_kotlin_sources(
     target: Option<u8>,
     module_name: Option<&str>,
 ) -> Result<CompileOutcome, BridgeError> {
+    compile_kotlin_sources_with_options(sources, classpath_jar, target, module_name, true)
+}
+
+/// 调用 classforge --compile-kt 编译 Kotlin 源码（可配置 Kotlin 编译器兼容选项）
+pub fn compile_kotlin_sources_with_options(
+    sources: &[KotlinSource],
+    classpath_jar: Option<&Path>,
+    target: Option<u8>,
+    module_name: Option<&str>,
+    skip_metadata_version_check: bool,
+) -> Result<CompileOutcome, BridgeError> {
     let classforge = crate::find_jar(
         "classforge",
         |_| true,
@@ -124,6 +135,11 @@ pub fn compile_kotlin_sources(
     }
     if let Some(module_name) = module_name {
         cmd.arg("--module-name").arg(module_name);
+    }
+    if skip_metadata_version_check {
+        cmd.arg("--skip-metadata-version-check");
+    } else {
+        cmd.arg("--no-skip-metadata-version-check");
     }
     let mut child = cmd.spawn_with_stdin().map_err(BridgeError::SpawnFailed)?;
     if let Some(mut stdin) = child.stdin.take() {

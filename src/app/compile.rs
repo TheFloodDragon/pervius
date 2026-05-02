@@ -73,6 +73,10 @@ impl App {
         };
         let jar_path = self.workspace.jar().map(|j| j.path.clone());
         let target = Some(target);
+        let kotlin_skip_metadata_version_check = self
+            .settings
+            .java
+            .kotlin_skip_metadata_version_check;
         let source_entry = entry_path.to_string();
         let source_snapshot = source.clone();
         let task = Task::spawn(move || {
@@ -82,7 +86,13 @@ impl App {
                     path: kt_path,
                     source,
                 }];
-                compiler::compile_kotlin_sources(&sources, jar_path.as_deref(), target, None)
+                compiler::compile_kotlin_sources_with_options(
+                    &sources,
+                    jar_path.as_deref(),
+                    target,
+                    None,
+                    kotlin_skip_metadata_version_check,
+                )
             } else {
                 compiler::compile_source(
                     &source,

@@ -9,7 +9,7 @@ use crate::appearance::{codicon, theme};
 use eframe::egui;
 use egui_keybind::KeyBind;
 use egui_shell::components::{
-    path_picker_with, section_header, FlatButton, SectionDef, SettingsFile, SettingsPanel,
+    path_picker_with, section_header, toggle, FlatButton, SectionDef, SettingsFile, SettingsPanel,
     SettingsTheme,
 };
 use egui_shell::keybind_rows;
@@ -97,12 +97,15 @@ pub struct RecentEntry {
 pub struct JavaSettings {
     /// JAVA_HOME 路径（空字符串表示使用系统环境变量）
     pub java_home: String,
+    /// Kotlin 编译时跳过依赖元数据版本检查
+    pub kotlin_skip_metadata_version_check: bool,
 }
 
 impl Default for JavaSettings {
     fn default() -> Self {
         Self {
             java_home: String::new(),
+            kotlin_skip_metadata_version_check: true,
         }
     }
 }
@@ -437,6 +440,20 @@ fn render_java(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> b
                 .map(|p| p.to_string_lossy().into_owned())
         },
     );
+    changed |= toggle(
+        ui,
+        st,
+        &t!("settings.kotlin_skip_metadata_version_check"),
+        &mut draft.java.kotlin_skip_metadata_version_check,
+    );
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(t!("settings.kotlin_skip_metadata_version_check_hint").to_string())
+                .size(11.0)
+                .color(st.text_secondary),
+        );
+    });
     changed
 }
 

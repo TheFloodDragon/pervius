@@ -26,9 +26,9 @@ pub const KOTLIN_INTERNAL_ANNOTATIONS: &[&str] = &[
 ];
 
 /// 内置 Vineflower JAR（编译时嵌入）
-const BUNDLED_VINEFLOWER: &[u8] = include_bytes!("../libs/vineflower-1.11.2.jar");
+const BUNDLED_VINEFLOWER: &[u8] = include_bytes!("../libs/vineflower-1.12.0.jar");
 /// 内置 Vineflower 文件名
-const BUNDLED_VINEFLOWER_NAME: &str = "vineflower-1.11.2.jar";
+const BUNDLED_VINEFLOWER_NAME: &str = "vineflower-1.12.0.jar";
 
 /// 内置 ClassForge JAR（编译时嵌入）
 const BUNDLED_CLASSFORGE: &[u8] = include_bytes!("../libs/classforge-1.2.jar");

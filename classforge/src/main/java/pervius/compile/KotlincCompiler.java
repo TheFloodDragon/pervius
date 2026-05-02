@@ -63,6 +63,7 @@ public final class KotlincCompiler {
             compilerArgs.setNoStdlib(false);
             compilerArgs.setNoReflect(true);
             compilerArgs.setSuppressWarnings(false);
+            compilerArgs.setSkipMetadataVersionCheck(parsed.skipMetadataVersionCheck);
 
             ExitCode exit = new K2JVMCompiler().exec(collector, Services.EMPTY, compilerArgs);
             if (exit == ExitCode.OK) {
@@ -262,6 +263,7 @@ public final class KotlincCompiler {
         String moduleName = "pervius";
         String apiVersion;
         String languageVersion;
+        boolean skipMetadataVersionCheck = true;
 
         static Args parse(String[] args) {
             Args parsed = new Args();
@@ -276,6 +278,10 @@ public final class KotlincCompiler {
                     parsed.apiVersion = args[++i];
                 } else if ("--language-version".equals(args[i]) && i + 1 < args.length) {
                     parsed.languageVersion = args[++i];
+                } else if ("--skip-metadata-version-check".equals(args[i])) {
+                    parsed.skipMetadataVersionCheck = true;
+                } else if ("--no-skip-metadata-version-check".equals(args[i])) {
+                    parsed.skipMetadataVersionCheck = false;
                 }
             }
             return parsed;
