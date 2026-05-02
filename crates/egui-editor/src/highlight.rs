@@ -564,3 +564,79 @@ fn build_line_layout(
     }
     job
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Language, TokenKind, compute_spans};
+
+    fn only_token_kind(source: &str, lang: Language, token: &str) -> TokenKind {
+        let spans = compute_spans(source, lang);
+        let matches = spans
+            .iter()
+            .filter_map(|&(start, end, kind)| (source[start..end] == *token).then_some(kind))
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1, "expected exactly one `{token}` in {source:?}, got {matches:?}");
+        matches[0]
+    }
+
+    #[test]
+    fn kotlin_lowercase_callee_is_method_call() {
+        assert_eq!(only_token_kind("foo()", Language::Kotlin, "foo"), TokenKind::MethodCall);
+    }
+
+    #[test]
+    fn kotlin_type_like_callee_uses_type_token() {
+        assert_eq!(only_token_kind("Foo()", Language::Kotlin, "Foo"), TokenKind::Type);
+        assert_eq!(only_token_kind("Foo.Bar()", Language::Kotlin, "Foo"), TokenKind::Type);
+        assert_eq!(only_token_kind("Foo.Bar()", Language::Kotlin, "Bar"), TokenKind::Type);
+    }
+
+    #[test]
+    fn kotlin_only_last_navigation_segment_becomes_method_call() {
+        assert_eq!(only_token_kind("Foo.bar.baz()", Language::Kotlin, "Foo"), TokenKind::Type);
+        assert_ne!(only_token_kind("Foo.bar.baz()", Language::Kotlin, "bar"), TokenKind::MethodCall);
+        assert_eq!(only_token_kind("Foo.bar.baz()", Language::Kotlin, "baz"), TokenKind::MethodCall);
+        assert_eq!(only_token_kind("Foo.bar().baz()", Language::Kotlin, "Foo"), TokenKind::Type);
+        assert_eq!(only_token_kind("Foo.bar().baz()", Language::Kotlin, "bar"), TokenKind::MethodCall);
+        assert_eq!(only_token_kind("Foo.bar().baz()", Language::Kotlin, "baz"), TokenKind::MethodCall);
+    }
+
+    #[test]
+    fn kotlin_static_field_calls_keep_constant_color() {
+        assert_eq!(only_token_kind("Foo.BAR()", Language::Kotlin, "Foo"), TokenKind::Type);
+        assert_eq!(
+            only_token_kind("Foo.BAR.baz()", Language::Kotlin, "BAR"),
+            TokenKind::Constant
+        );
+        assert_eq!(
+            only_token_kind("Foo.BAR()", Language::Kotlin, "BAR"),
+            TokenKind::Constant
+        );
+        assert_eq!(
+            only_token_kind("Foo.BAR.baz()", Language::Kotlin, "baz"),
+            TokenKind::MethodCall
+        );
+    }
+
+    #[test]
+    fn kotlin_type_references_follow_type_token() {
+        assert_eq!(only_token_kind("val x: Foo.Bar = foo", Language::Kotlin, "Foo"), TokenKind::Type);
+        assert_eq!(only_token_kind("val x: Foo.Bar = foo", Language::Kotlin, "Bar"), TokenKind::Type);
+        assert_eq!(only_token_kind("val x = Foo.Bar", Language::Kotlin, "Foo"), TokenKind::Type);
+        assert_eq!(only_token_kind("val x = Foo.Bar", Language::Kotlin, "Bar"), TokenKind::Type);
+        assert_eq!(only_token_kind("@Foo class Bar", Language::Kotlin, "Foo"), TokenKind::Annotation);
+        assert_eq!(only_token_kind("@Foo class Bar", Language::Kotlin, "Bar"), TokenKind::Type);
+    }
+
+    #[test]
+    fn java_method_and_field_highlighting_stays_stable() {
+        let method_src = "class T { void f(){ Foo.bar(); } }";
+        assert_eq!(only_token_kind(method_src, Language::Java, "bar"), TokenKind::MethodCall);
+
+        let field_src = "class T { void f(){ Foo.BAR; } }";
+        assert_eq!(only_token_kind(field_src, Language::Java, "BAR"), TokenKind::Constant);
+
+        let ctor_src = "class T { void f(){ new Foo(); } }";
+        assert_ne!(only_token_kind(ctor_src, Language::Java, "Foo"), TokenKind::MethodCall);
+    }
+}

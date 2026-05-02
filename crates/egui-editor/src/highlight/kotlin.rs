@@ -61,7 +61,7 @@ pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
             if ancestors_contain(node, "annotation", 6) {
                 Some(TokenKind::Annotation)
             } else {
-                Some(TokenKind::Plain)
+                Some(TokenKind::Type)
             }
         }
         // 标识符
@@ -80,7 +80,7 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
     match parent.kind() {
         // 类型声明名称
         "class_declaration" | "object_declaration" if is_first_identifier_child(&parent, node) => {
-            return Some(TokenKind::Plain);
+            return Some(TokenKind::Type);
         }
         // enum 条目
         "enum_entry" if is_first_identifier_child(&parent, node) => {
@@ -90,15 +90,26 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
         "function_declaration" if is_first_identifier_child(&parent, node) => {
             return Some(TokenKind::MethodDeclaration);
         }
-        // 函数调用
-        "call_expression" if is_first_child(&parent, node) => {
-            return Some(TokenKind::MethodCall);
-        }
-        // object.func() / object.field 中 navigation_suffix 内的标识符
-        "navigation_suffix" => return classify_navigation_suffix(node, &parent, source),
         _ => {}
     }
     let text = node.utf8_text(source).unwrap_or("");
+    if is_called_expression_leaf(node) {
+        return Some(classify_called_identifier_text(text));
+    }
+    if parent.kind() == "navigation_suffix" {
+        if is_upper_snake_case(text) {
+            return Some(TokenKind::Constant);
+        }
+        if is_type_like_identifier(text) {
+            return Some(TokenKind::Type);
+        }
+    }
+    if parent.kind() == "navigation_expression"
+        && is_first_identifier_child(&parent, node)
+        && is_type_like_identifier(text)
+    {
+        return Some(TokenKind::Type);
+    }
     if is_keyword_identifier(text) {
         return Some(TokenKind::Keyword);
     }
@@ -108,23 +119,45 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
     None
 }
 
-fn classify_navigation_suffix(
-    node: &tree_sitter::Node,
-    parent: &tree_sitter::Node,
-    source: &[u8],
-) -> Option<TokenKind> {
-    if ancestors_contain(parent, "call_expression", 3) {
-        return Some(TokenKind::MethodCall);
-    }
-    let text = node.utf8_text(source).unwrap_or("");
-    if is_upper_snake_case(text) {
-        return Some(TokenKind::Constant);
-    }
-    None
-}
-
 fn is_upper_snake_case(text: &str) -> bool {
     text.len() >= 2 && text.chars().all(|c| c.is_ascii_uppercase() || c == '_')
+}
+
+fn is_type_like_identifier(text: &str) -> bool {
+    text.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+}
+
+fn classify_called_identifier_text(text: &str) -> TokenKind {
+    if is_upper_snake_case(text) {
+        TokenKind::Constant
+    } else if is_type_like_identifier(text) {
+        TokenKind::Type
+    } else {
+        TokenKind::MethodCall
+    }
+}
+
+fn is_called_expression_leaf(node: &tree_sitter::Node) -> bool {
+    let Some(call_expression) = first_ancestor_of_kind(node, "call_expression") else {
+        return false;
+    };
+    call_expression.child(0).is_some_and(|callee| {
+        callee.start_byte() <= node.start_byte() && callee.end_byte() == node.end_byte()
+    })
+}
+
+fn first_ancestor_of_kind<'tree>(
+    node: &tree_sitter::Node<'tree>,
+    kind: &str,
+) -> Option<tree_sitter::Node<'tree>> {
+    let mut cur = node.parent();
+    while let Some(parent) = cur {
+        if parent.kind() == kind {
+            return Some(parent);
+        }
+        cur = parent.parent();
+    }
+    None
 }
 
 fn is_keyword_identifier(text: &str) -> bool {
@@ -182,14 +215,17 @@ fn classify_jvm_identifier_suffix(node: &tree_sitter::Node, source: &[u8]) -> Op
     if !dollar_is_inside_identifier(node.start_byte(), source) {
         return None;
     }
-    let text = node.utf8_text(source).unwrap_or("");
     if ancestors_contain(node, "function_declaration", 4) {
         return Some(TokenKind::MethodDeclaration);
     }
-    if ancestors_contain(node, "call_expression", 4) || ancestors_contain(node, "navigation_suffix", 4) {
-        return Some(TokenKind::MethodCall);
+    let text = node.utf8_text(source).unwrap_or("");
+    if is_called_expression_leaf(node) {
+        return Some(classify_called_identifier_text(text));
     }
-    Some(TokenKind::MethodCall)
+    if is_upper_snake_case(text) {
+        return Some(TokenKind::Constant);
+    }
+    None
 }
 
 fn dollar_is_inside_identifier(start: usize, source: &[u8]) -> bool {
@@ -282,10 +318,6 @@ fn is_string_interpolation_node(node: &tree_sitter::Node, kind: &str) -> bool {
             | "multi_line_str_ref"
     ) || ancestors_contain(node, "interpolated_expression", 16)
         || ancestors_contain(node, "interpolated_identifier", 16)
-}
-
-fn is_first_child(parent: &tree_sitter::Node, node: &tree_sitter::Node) -> bool {
-    parent.child(0).is_some_and(|c| c.id() == node.id())
 }
 
 fn is_first_identifier_child(parent: &tree_sitter::Node, node: &tree_sitter::Node) -> bool {

@@ -442,6 +442,7 @@ impl App {
         };
         match action {
             ClasspathAction::AddProject => self.add_classpath_dialog(),
+            ClasspathAction::RevealPath(path) => self.reveal_filesystem_path(&path),
             ClasspathAction::RemoveProject(path) => {
                 if let Some(loaded) = self.workspace.loaded_mut() {
                     let before = loaded.compile_classpath_entries.len();

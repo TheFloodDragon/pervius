@@ -12,7 +12,7 @@ pub use egui::__run_test_ctx;
 use egui::text::TextWrapping;
 use egui::{
     vec2, Align, Color32, Context, CornerRadius, FontId, FontSelection, Id, LayerId, Order, Rect,
-    Shadow, Stroke, StrokeKind, TextWrapMode, Vec2, WidgetText,
+    Shadow, Stroke, TextWrapMode, Vec2, WidgetText,
 };
 
 pub(crate) const TOAST_WIDTH: f32 = 180.;
@@ -442,40 +442,10 @@ impl Toasts {
 
             toast.adjust_next_pos(&mut pos, *anchor, *spacing);
 
-            // 右键复制 toast 文本
+            // 右键复制 toast 文本（不再显示额外提示）
             if let Some(hp) = ctx.input(|i| i.pointer.hover_pos()) {
                 if rect.contains(hp) {
                     ctx.set_cursor_icon(egui::CursorIcon::ContextMenu);
-                    let tooltip_galley = WidgetText::from("右键复制").into_galley_impl(
-                        ctx,
-                        style.as_ref(),
-                        TextWrapping::from_wrap_mode_and_width(
-                            TextWrapMode::Extend,
-                            f32::INFINITY,
-                        ),
-                        FontSelection::Default,
-                        Align::LEFT,
-                    );
-                    let tooltip_padding = vec2(8., 5.);
-                    let tooltip_size = tooltip_galley.rect.size() + tooltip_padding * 2.;
-                    let tooltip_rect = Rect::from_min_size(hp + vec2(12., 12.), tooltip_size);
-                    let tooltip_visuals = ctx.global_style().visuals.widgets.noninteractive;
-                    let tooltip_painter = ctx.layer_painter(LayerId::new(
-                        Order::Tooltip,
-                        Id::new("toast_copy_hint"),
-                    ));
-                    tooltip_painter.rect(
-                        tooltip_rect,
-                        CornerRadius::same(4),
-                        tooltip_visuals.bg_fill,
-                        Stroke::new(1., tooltip_visuals.bg_stroke.color),
-                        StrokeKind::Outside,
-                    );
-                    tooltip_painter.galley(
-                        tooltip_rect.min + tooltip_padding,
-                        tooltip_galley,
-                        tooltip_visuals.fg_stroke.color,
-                    );
                     if ctx.input(|i| i.pointer.secondary_clicked()) {
                         ctx.copy_text(caption_text);
                     }

@@ -21,6 +21,8 @@ use tree::TreeNode;
 pub enum ClasspathAction {
     /// 为当前项目/会话添加 classpath。
     AddProject,
+    /// 在文件管理器中显示 classpath 条目。
+    RevealPath(PathBuf),
     /// 删除当前项目/会话 classpath。
     RemoveProject(PathBuf),
     /// 删除全局 classpath 配置。
@@ -391,12 +393,21 @@ tabookit::class! {
                 tag_color,
             );
         }
-        if let Some(action) = remove_action {
+        if exists || remove_action.is_some() {
             resp.context_menu(|ui| {
                 ui.style_mut().visuals.widgets.hovered.bg_fill = theme::BG_HOVER;
-                if menu_item_raw(ui, &theme::menu_theme(), &t!("explorer.classpath_remove"), "") {
-                    self.pending_classpath_action = Some(action.clone());
+                if exists && menu_item_raw(ui, &theme::menu_theme(), &t!("explorer.reveal"), "") {
+                    self.pending_classpath_action = Some(ClasspathAction::RevealPath(path_buf.to_path_buf()));
                     ui.close();
+                }
+                if exists && remove_action.is_some() {
+                    ui.separator();
+                }
+                if let Some(action) = &remove_action {
+                    if menu_item_raw(ui, &theme::menu_theme(), &t!("explorer.classpath_remove"), "") {
+                        self.pending_classpath_action = Some(action.clone());
+                        ui.close();
+                    }
                 }
             });
         }
