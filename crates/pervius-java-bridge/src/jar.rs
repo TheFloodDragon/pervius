@@ -126,6 +126,20 @@ tabookit::class! {
         self.modified_entries.clear();
     }
 
+    /// 将已修改条目提交为新的内存基线（覆盖源 JAR 成功后调用）。
+    pub fn commit_modified_from_file(&mut self, path: &Path) -> Result<(), BridgeError> {
+        for (entry_path, modified) in self.modified_entries.drain() {
+            self.entries.insert(entry_path, modified.data);
+        }
+        let data = std::fs::read(path)?;
+        self.file_size = data.len() as u64;
+        self.hash = Sha256::digest(&data)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        Ok(())
+    }
+
     /// 条目是否已修改
     pub fn is_modified(&self, path: &str) -> bool {
         self.modified_entries.contains_key(path)
