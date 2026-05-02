@@ -5,7 +5,7 @@
 use crate::error::BridgeError;
 use crate::process;
 use std::io::{Cursor, Read, Write};
-use std::path::Path;
+use std::path::PathBuf;
 
 /// Kotlin 源文件输入
 #[derive(Clone, Debug)]
@@ -14,6 +14,45 @@ pub struct KotlinSource {
     pub path: String,
     /// Kotlin 源码
     pub source: String,
+}
+
+/// 编译 classpath 条目
+#[derive(Clone, Debug, Default)]
+pub struct CompileClasspath {
+    /// 参与编译的 JAR / ZIP / 目录条目，按顺序传递给编译器。
+    pub entries: Vec<PathBuf>,
+}
+
+impl CompileClasspath {
+    /// 创建空 classpath。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 追加一个条目。
+    pub fn push(&mut self, path: impl Into<PathBuf>) {
+        self.entries.push(path.into());
+    }
+
+    /// 是否为空。
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// 按平台分隔符拼接为 Java classpath 字符串。
+    pub fn joined(&self) -> Option<String> {
+        if self.entries.is_empty() {
+            return None;
+        }
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        Some(
+            self.entries
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(sep),
+        )
+    }
 }
 
 /// 编译产物 class
@@ -66,7 +105,7 @@ pub fn is_jdk_available() -> bool {
 pub fn compile_source(
     source: &str,
     binary_name: &str,
-    classpath_jar: Option<&Path>,
+    classpath: &CompileClasspath,
     target: Option<u8>,
     debug: bool,
 ) -> Result<CompileOutcome, BridgeError> {
@@ -77,8 +116,8 @@ pub fn compile_source(
     )?;
     let mut cmd = process::JavaCommand::new(&classforge)?;
     cmd.arg("--compile");
-    if let Some(path) = classpath_jar {
-        cmd.arg("--classpath").arg(path);
+    if let Some(classpath) = classpath.joined() {
+        cmd.arg("--classpath").arg(classpath);
     }
     if let Some(target) = target {
         cmd.arg("--target").arg(target.to_string());
@@ -105,17 +144,17 @@ pub fn compile_source(
 /// 调用 classforge --compile-kt 编译 Kotlin 源码
 pub fn compile_kotlin_sources(
     sources: &[KotlinSource],
-    classpath_jar: Option<&Path>,
+    classpath: &CompileClasspath,
     target: Option<u8>,
     module_name: Option<&str>,
 ) -> Result<CompileOutcome, BridgeError> {
-    compile_kotlin_sources_with_options(sources, classpath_jar, target, module_name, true)
+    compile_kotlin_sources_with_options(sources, classpath, target, module_name, true)
 }
 
 /// 调用 classforge --compile-kt 编译 Kotlin 源码（可配置 Kotlin 编译器兼容选项）
 pub fn compile_kotlin_sources_with_options(
     sources: &[KotlinSource],
-    classpath_jar: Option<&Path>,
+    classpath: &CompileClasspath,
     target: Option<u8>,
     module_name: Option<&str>,
     skip_metadata_version_check: bool,
@@ -127,8 +166,8 @@ pub fn compile_kotlin_sources_with_options(
     )?;
     let mut cmd = process::JavaCommand::with_classpath(&[&classforge], "pervius.asm.ClassForge")?;
     cmd.arg("--compile-kt");
-    if let Some(path) = classpath_jar {
-        cmd.arg("--classpath").arg(path);
+    if let Some(classpath) = classpath.joined() {
+        cmd.arg("--classpath").arg(classpath);
     }
     if let Some(target) = target {
         cmd.arg("--target").arg(target.to_string());

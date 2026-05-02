@@ -48,7 +48,6 @@ pub struct Toasts {
     font: Option<FontId>,
     shadow: Option<Shadow>,
     held: bool,
-    copied_text: WidgetText,
 }
 
 impl Toasts {
@@ -66,7 +65,6 @@ impl Toasts {
             reverse: false,
             font: None,
             shadow: None,
-            copied_text: WidgetText::from_static("Copied"),
         }
     }
 
@@ -137,11 +135,6 @@ impl Toasts {
     /// Shortcut for adding a toast with no level.
     pub fn basic(&mut self, caption: impl Into<WidgetText>) -> &mut Toast {
         self.add(Toast::basic(caption))
-    }
-
-    /// Sets the success toast text shown after right-click copying a toast caption.
-    pub fn set_copied_text(&mut self, copied_text: impl Into<WidgetText>) {
-        self.copied_text = copied_text.into();
     }
 
     /// Shortcut for adding a toast with custom `level`.
@@ -224,7 +217,6 @@ impl Toasts {
 
         let visuals = ctx.global_style().visuals.widgets.noninteractive;
         let mut update = false;
-        let mut copied_toast = false;
 
         toasts.retain_mut(|toast| {
             // Start disappearing expired toasts
@@ -424,7 +416,6 @@ impl Toasts {
                     ctx.set_cursor_icon(egui::CursorIcon::ContextMenu);
                     if ctx.input(|i| i.pointer.secondary_clicked()) {
                         ctx.copy_text(caption_text);
-                        copied_toast = true;
                     }
                 }
             }
@@ -450,12 +441,6 @@ impl Toasts {
             // Remove disappeared toasts
             !toast.state.disappeared()
         });
-
-        if copied_toast {
-            let copied_text = self.copied_text.clone();
-            self.success(copied_text)
-                .duration(std::time::Duration::from_millis(1200));
-        }
 
         if update {
             ctx.request_repaint();

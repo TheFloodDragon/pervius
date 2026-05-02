@@ -14,7 +14,7 @@ use pervius_java_bridge::decompiler;
 use pervius_java_bridge::jar::{JarArchive, LoadProgress};
 use rust_i18n::t;
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// 自动全量反编译的文件大小阈值（1 MB）
@@ -71,13 +71,37 @@ impl App {
             return;
         }
         ctx.data_mut(|d| d.insert_temp(cache_id, frame));
-        if let Some(file) = dropped.into_iter().next() {
-            if let Some(path) = &file.path {
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                match ext.to_ascii_lowercase().as_str() {
-                    "jar" | "zip" | "war" | "ear" => self.request_open_jar(path),
-                    _ => self.open_standalone_file(path),
+
+        let paths = dropped
+            .into_iter()
+            .filter_map(|file| file.path)
+            .collect::<Vec<_>>();
+        if paths.is_empty() {
+            return;
+        }
+        let classpath_entries = paths
+            .iter()
+            .filter(|path| self.is_compile_classpath_drop(path))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !classpath_entries.is_empty() {
+            let mut added = 0;
+            for path in classpath_entries {
+                if self.add_session_classpath_entry(path) {
+                    added += 1;
                 }
+            }
+            if added > 0 {
+                self.toasts
+                    .success(t!("layout.classpath_added", count = added));
+            }
+            return;
+        }
+        if let Some(path) = paths.first() {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            match ext.to_ascii_lowercase().as_str() {
+                "jar" | "zip" | "war" | "ear" => self.request_open_jar(path),
+                _ => self.open_standalone_file(path),
             }
         }
     }
@@ -134,6 +158,41 @@ impl App {
         self.settings.remove_recent(path);
         if let Err(e) = self.settings.save() {
             log::warn!("保存最近打开记录失败: {e}");
+        }
+    }
+
+    fn is_compile_classpath_drop(&self, path: &Path) -> bool {
+        if !self.workspace.is_loaded() {
+            return false;
+        }
+        if path.is_dir() {
+            return true;
+        }
+        path.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "jar" | "zip"))
+    }
+
+    /// 选择文件/目录并添加到当前会话 classpath。
+    pub fn add_classpath_dialog(&mut self) {
+        if let Some(paths) = rfd::FileDialog::new()
+            .add_filter(&*t!("layout.java_archive"), &["jar", "zip", "war", "ear"])
+            .pick_files()
+        {
+            self.add_classpath_paths(paths);
+        }
+    }
+
+    fn add_classpath_paths(&mut self, paths: Vec<PathBuf>) {
+        let mut added = 0;
+        for path in paths {
+            if self.add_session_classpath_entry(path) {
+                added += 1;
+            }
+        }
+        if added > 0 {
+            self.toasts
+                .success(t!("layout.classpath_added", count = added));
         }
     }
 

@@ -113,12 +113,15 @@ impl Default for JavaSettings {
 pub struct CompileSettings {
     /// Kotlin 编译时跳过依赖元数据版本检查
     pub kotlin_skip_metadata_version_check: bool,
+    /// 全局编译 classpath 条目（JAR / ZIP / 目录）。
+    pub classpath_entries: Vec<String>,
 }
 
 impl Default for CompileSettings {
     fn default() -> Self {
         Self {
             kotlin_skip_metadata_version_check: true,
+            classpath_entries: Vec::new(),
         }
     }
 }
@@ -481,6 +484,146 @@ fn render_compile(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -
                 .color(st.text_secondary),
         );
     });
+    ui.add_space(10.0);
+    section_header(ui, st, &t!("settings.compile_classpath"));
+    paint_classpath_hint(ui, st);
+    changed |= paint_classpath_actions(ui, st, &mut draft.compile.classpath_entries);
+    changed |= paint_classpath_entries(ui, st, &mut draft.compile.classpath_entries);
+    changed
+}
+
+fn paint_classpath_hint(ui: &mut egui::Ui, st: &SettingsTheme) {
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(t!("settings.compile_classpath_hint").to_string())
+                .size(11.0)
+                .color(st.text_secondary),
+        );
+    });
+}
+
+fn paint_classpath_actions(
+    ui: &mut egui::Ui,
+    st: &SettingsTheme,
+    entries: &mut Vec<String>,
+) -> bool {
+    let mut changed = false;
+    let fbt = theme::flat_button_theme(theme::TEXT_SECONDARY);
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        if ui
+            .add(
+                FlatButton::new(&t!("settings.classpath_add_jar"), &fbt)
+                    .font_size(11.5)
+                    .min_size(egui::vec2(0.0, 22.0)),
+            )
+            .clicked()
+        {
+            if let Some(paths) = rfd::FileDialog::new()
+                .add_filter(&*t!("layout.java_archive"), &["jar", "zip", "war", "ear"])
+                .pick_files()
+            {
+                for path in paths {
+                    let path = path.to_string_lossy().into_owned();
+                    if !entries.iter().any(|p| p == &path) {
+                        entries.push(path);
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if ui
+            .add(
+                FlatButton::new(&t!("settings.classpath_add_dir"), &fbt)
+                    .font_size(11.5)
+                    .min_size(egui::vec2(0.0, 22.0)),
+            )
+            .clicked()
+        {
+            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                let path = path.to_string_lossy().into_owned();
+                if !entries.iter().any(|p| p == &path) {
+                    entries.push(path);
+                    changed = true;
+                }
+            }
+        }
+        ui.label(
+            egui::RichText::new(t!("settings.classpath_count", count = entries.len()).to_string())
+                .size(11.0)
+                .color(st.text_secondary),
+        );
+    });
+    changed
+}
+
+fn paint_classpath_entries(
+    ui: &mut egui::Ui,
+    st: &SettingsTheme,
+    entries: &mut Vec<String>,
+) -> bool {
+    let mut changed = false;
+    let fbt = theme::flat_button_theme(theme::TEXT_SECONDARY);
+    let mut remove = None;
+    if entries.is_empty() {
+        paint_cache_message(ui, st, &t!("settings.classpath_empty").to_string());
+        return false;
+    }
+    for (idx, entry) in entries.iter().enumerate() {
+        let avail_w = ui.available_width();
+        let row_height = 30.0;
+        let (rect, resp) =
+            ui.allocate_exact_size(egui::vec2(avail_w, row_height), egui::Sense::hover());
+        if resp.hovered() {
+            ui.painter().rect_filled(rect, 0.0, st.bg_hover);
+        }
+        let exists = Path::new(entry).exists();
+        let color = if exists { st.text_primary } else { st.text_muted };
+        let left = rect.left() + 16.0;
+        let mid_y = rect.center().y;
+        ui.painter().text(
+            egui::pos2(left, mid_y),
+            egui::Align2::LEFT_CENTER,
+            entry,
+            egui::FontId::monospace(11.0),
+            color,
+        );
+        if !exists {
+            ui.painter().text(
+                egui::pos2(rect.right() - 48.0, mid_y),
+                egui::Align2::RIGHT_CENTER,
+                t!("settings.classpath_missing").to_string(),
+                egui::FontId::proportional(10.5),
+                st.text_muted,
+            );
+        }
+        let btn_w = 22.0;
+        let btn_rect = egui::Rect::from_center_size(
+            egui::pos2(rect.right() - 16.0 - btn_w * 0.5, mid_y),
+            egui::vec2(btn_w, btn_w),
+        );
+        let mut btn_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(btn_rect)
+                .id_salt(egui::Id::new("classpath_del").with(idx)),
+        );
+        if btn_ui
+            .add(
+                FlatButton::new(codicon::CLOSE, &fbt)
+                    .font_size(12.0)
+                    .font_family(codicon::family())
+                    .min_size(egui::vec2(btn_w, btn_w)),
+            )
+            .clicked()
+        {
+            remove = Some(idx);
+        }
+    }
+    if let Some(idx) = remove {
+        entries.remove(idx);
+        changed = true;
+    }
     changed
 }
 

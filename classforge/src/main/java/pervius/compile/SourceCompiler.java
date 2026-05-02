@@ -14,6 +14,7 @@ import javax.tools.ToolProvider;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -23,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.jar.JarEntry;
@@ -47,7 +49,7 @@ public final class SourceCompiler {
     }
 
     public static void run(String[] args) throws Exception {
-        String classpathJar = null;
+        String classpath = null;
         String target = null;
         boolean debug = false;
         for (int i = 0; i < args.length; i++) {
@@ -55,7 +57,7 @@ public final class SourceCompiler {
                 continue;
             }
             if ("--classpath".equals(args[i]) && i + 1 < args.length) {
-                classpathJar = args[++i];
+                classpath = args[++i];
             } else if ("--target".equals(args[i]) && i + 1 < args.length) {
                 target = args[++i];
             } else if ("--debug".equals(args[i])) {
@@ -80,7 +82,7 @@ public final class SourceCompiler {
 
         DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<JavaFileObject>();
         StandardJavaFileManager standard = compiler.getStandardFileManager(diagnostics, null, StandardCharsets.UTF_8);
-        try (CompileFileManager fileManager = new CompileFileManager(standard, classpathJar)) {
+        try (CompileFileManager fileManager = new CompileFileManager(standard, classpath)) {
             JavaFileObject sourceObject = new SourceFileObject(dotBinaryName, source);
             List<String> options = buildOptions(target, debug);
             Boolean ok = compiler.getTask(
@@ -241,12 +243,21 @@ public final class SourceCompiler {
     }
 
     private static final class CompileFileManager extends ForwardingJavaFileManager<StandardJavaFileManager> {
-        private final JarFile jar;
+        private final List<JarFile> jars;
         private final Map<String, ByteArrayJavaFileObject> outputs = new LinkedHashMap<String, ByteArrayJavaFileObject>();
 
-        CompileFileManager(StandardJavaFileManager fileManager, String classpathJar) throws IOException {
+        CompileFileManager(StandardJavaFileManager fileManager, String classpath) throws IOException {
             super(fileManager);
-            this.jar = classpathJar == null ? null : new JarFile(classpathJar);
+            this.jars = openJars(classpath);
+            if (classpath != null && !classpath.isEmpty()) {
+                List<File> files = new ArrayList<File>();
+                for (String entry : classpath.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
+                    if (!entry.isEmpty()) {
+                        files.add(new File(entry));
+                    }
+                }
+                fileManager.setLocation(StandardLocation.CLASS_PATH, files);
+            }
         }
 
         @Override
@@ -257,7 +268,7 @@ public final class SourceCompiler {
                 boolean recurse
         ) throws IOException {
             Iterable<JavaFileObject> base = super.list(location, packageName, kinds, recurse);
-            if (jar == null || location != StandardLocation.CLASS_PATH || !kinds.contains(JavaFileObject.Kind.CLASS)) {
+            if (jars.isEmpty() || location != StandardLocation.CLASS_PATH || !kinds.contains(JavaFileObject.Kind.CLASS)) {
                 return base;
             }
             List<JavaFileObject> result = new ArrayList<JavaFileObject>();
@@ -265,16 +276,18 @@ public final class SourceCompiler {
                 result.add(object);
             }
             String prefix = packageName.isEmpty() ? "" : packageName.replace('.', '/') + "/";
-            java.util.Enumeration<JarEntry> entries = jar.entries();
-            while (entries.hasMoreElements()) {
-                JarEntry entry = entries.nextElement();
-                if (entry.isDirectory()) continue;
-                String name = entry.getName();
-                if (!name.endsWith(JavaFileObject.Kind.CLASS.extension)) continue;
-                if (!name.startsWith(prefix)) continue;
-                String rest = name.substring(prefix.length());
-                if (!recurse && rest.indexOf('/') >= 0) continue;
-                result.add(new JarClassFileObject(jar, entry));
+            for (JarFile jar : jars) {
+                java.util.Enumeration<JarEntry> entries = jar.entries();
+                while (entries.hasMoreElements()) {
+                    JarEntry entry = entries.nextElement();
+                    if (entry.isDirectory()) continue;
+                    String name = entry.getName();
+                    if (!name.endsWith(JavaFileObject.Kind.CLASS.extension)) continue;
+                    if (!name.startsWith(prefix)) continue;
+                    String rest = name.substring(prefix.length());
+                    if (!recurse && rest.indexOf('/') >= 0) continue;
+                    result.add(new JarClassFileObject(jar, entry));
+                }
             }
             return result;
         }
@@ -312,10 +325,25 @@ public final class SourceCompiler {
             try {
                 super.close();
             } finally {
-                if (jar != null) {
+                for (JarFile jar : jars) {
                     jar.close();
                 }
             }
+        }
+
+        private static List<JarFile> openJars(String classpath) throws IOException {
+            List<JarFile> result = new ArrayList<JarFile>();
+            if (classpath == null || classpath.isEmpty()) {
+                return result;
+            }
+            for (String entry : classpath.split(java.util.regex.Pattern.quote(File.pathSeparator))) {
+                if (entry.isEmpty()) continue;
+                File file = new File(entry);
+                if (file.isFile() && entry.toLowerCase(Locale.ROOT).endsWith(".jar")) {
+                    result.add(new JarFile(file));
+                }
+            }
+            return result;
         }
     }
 }

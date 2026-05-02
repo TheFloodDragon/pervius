@@ -5,7 +5,9 @@
 use super::App;
 use crate::task::{Poll, Pollable, Task};
 use egui_editor::highlight::Language;
-use pervius_java_bridge::compiler::{self, CompileOutcome, DiagSeverity, KotlinSource};
+use pervius_java_bridge::compiler::{
+    self, CompileClasspath, CompileOutcome, DiagSeverity, KotlinSource,
+};
 use pervius_java_bridge::error::BridgeError;
 use rust_i18n::t;
 
@@ -32,6 +34,35 @@ fn kotlin_source_path(entry_path: &str) -> String {
 }
 
 impl App {
+    /// 构建本次编译使用的 classpath：当前 JAR + 会话条目 + 全局设置条目。
+    pub(crate) fn compile_classpath(&self) -> CompileClasspath {
+        let mut classpath = CompileClasspath::new();
+        if let Some(jar) = self.workspace.jar() {
+            classpath.push(jar.path.clone());
+        }
+        if let Some(loaded) = self.workspace.loaded() {
+            for path in &loaded.compile_classpath_entries {
+                classpath.push(path.clone());
+            }
+        }
+        for path in &self.settings.compile.classpath_entries {
+            classpath.push(path);
+        }
+        classpath
+    }
+
+    /// 向当前会话 classpath 追加条目。
+    pub(crate) fn add_session_classpath_entry(&mut self, path: std::path::PathBuf) -> bool {
+        let Some(loaded) = self.workspace.loaded_mut() else {
+            return false;
+        };
+        if loaded.compile_classpath_entries.iter().any(|p| p == &path) {
+            return false;
+        }
+        loaded.compile_classpath_entries.push(path);
+        true
+    }
+
     /// 启动指定 class tab 的源码编译
     pub(crate) fn compile_source_tab(&mut self, entry_path: &str) {
         let mut source = None;
@@ -71,7 +102,7 @@ impl App {
             ));
             return;
         };
-        let jar_path = self.workspace.jar().map(|j| j.path.clone());
+        let classpath = self.compile_classpath();
         let target = Some(target);
         let kotlin_skip_metadata_version_check = self
             .settings
@@ -88,7 +119,7 @@ impl App {
                 }];
                 compiler::compile_kotlin_sources_with_options(
                     &sources,
-                    jar_path.as_deref(),
+                    &classpath,
                     target,
                     None,
                     kotlin_skip_metadata_version_check,
@@ -97,7 +128,7 @@ impl App {
                 compiler::compile_source(
                     &source,
                     &binary_name,
-                    jar_path.as_deref(),
+                    &classpath,
                     target,
                     true,
                 )

@@ -50,6 +50,8 @@ pub(crate) struct LoadedState {
     pub search_index_total: u32,
     /// 类名解析器（Shift+Click 导航用）
     pub class_resolver: ClassResolver,
+    /// 当前打开项目的临时编译 classpath 条目。
+    pub compile_classpath_entries: Vec<std::path::PathBuf>,
 }
 
 /// 反编译生命周期阶段
@@ -134,6 +136,7 @@ impl LoadedState {
             search_index_progress: None,
             search_index_total: 0,
             class_resolver,
+            compile_classpath_entries: Vec::new(),
         }
     }
 }

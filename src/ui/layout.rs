@@ -195,7 +195,6 @@ impl App {
         self.layout.keys = super::keybindings::build_keymap(&new_settings.keymap);
         if new_settings.language != self.settings.language {
             rust_i18n::set_locale(new_settings.language.code());
-            self.toasts.set_copied_text(t!("toast.copied"));
         }
         if new_settings.java.java_home != self.settings.java.java_home {
             process::set_java_home(&new_settings.java.java_home);
