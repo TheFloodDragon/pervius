@@ -44,6 +44,10 @@ impl MavenJar<'_> {
         format!("{}-{}.jar", self.artifact_id, self.version)
     }
 
+    fn pom_file_name(self) -> String {
+        format!("{}-{}.pom", self.artifact_id, self.version)
+    }
+
     fn jar_url(self) -> String {
         format!(
             "{}/{}/{}/{}/{}",
@@ -61,13 +65,12 @@ impl MavenJar<'_> {
 
     fn pom_url(self) -> String {
         format!(
-            "{}/{}/{}/{}/{}-{}.pom",
+            "{}/{}/{}/{}/{}",
             MAVEN_BASE,
             self.group_path,
             self.artifact_id,
             self.version,
-            self.artifact_id,
-            self.version
+            self.pom_file_name()
         )
     }
 }
@@ -131,8 +134,8 @@ pub(crate) fn ensure_kotlin_dependencies_in_dir(
     })
 }
 
-fn fetch_pom_dependencies(artifact: MavenJar<'_>) -> Result<Vec<PomDependency>, BridgeError> {
-    parse_pom_dependencies(&download_text(&artifact.pom_url())?)
+fn fetch_pom_dependencies(dir: &Path, artifact: MavenJar<'_>) -> Result<Vec<PomDependency>, BridgeError> {
+    parse_pom_dependencies(&load_cached_text_file(dir, &artifact.pom_file_name(), &artifact.pom_url())?)
 }
 
 fn collect_dependency_closure(
@@ -143,7 +146,7 @@ fn collect_dependency_closure(
     out: &mut Vec<PathBuf>,
     stdlib: &mut Option<PathBuf>,
 ) -> Result<(), BridgeError> {
-    for dependency in fetch_pom_dependencies(artifact)? {
+    for dependency in fetch_pom_dependencies(dir, artifact)? {
         if dependency.optional || !dependency_scope_matches(dependency.scope.as_deref(), runtime_only) {
             continue;
         }
@@ -247,7 +250,7 @@ fn resolve_optional_maven_jar(
     match resolve_maven_jar(dir, artifact) {
         Ok(path) => Ok(Some(path)),
         Err(BridgeError::Download(message)) if message.contains("status code 404") => {
-            if artifact_publishes_jar(artifact)? {
+            if artifact_publishes_jar(dir, artifact)? {
                 Err(BridgeError::Download(message))
             } else {
                 log::info!(
@@ -263,8 +266,8 @@ fn resolve_optional_maven_jar(
     }
 }
 
-fn artifact_publishes_jar(artifact: MavenJar<'_>) -> Result<bool, BridgeError> {
-    let pom = download_text(&artifact.pom_url())?;
+fn artifact_publishes_jar(dir: &Path, artifact: MavenJar<'_>) -> Result<bool, BridgeError> {
+    let pom = load_cached_text_file(dir, &artifact.pom_file_name(), &artifact.pom_url())?;
     Ok(xml_tag_text(&pom, "packaging")
         .map(|packaging| packaging.eq_ignore_ascii_case("jar"))
         .unwrap_or(true))
@@ -287,7 +290,8 @@ fn ensure_verified_download(
     checksum_url: &str,
 ) -> Result<PathBuf, BridgeError> {
     std::fs::create_dir_all(dir)?;
-    let expected = fetch_sha256(checksum_url)?;
+    let checksum_file = format!("{file_name}.sha256");
+    let expected = fetch_sha256(dir, &checksum_file, checksum_url)?;
     let target = dir.join(file_name);
     if verify_existing_file(&target, &expected)? {
         return Ok(target);
@@ -338,8 +342,20 @@ fn verify_sha256_file(path: &Path, expected: &str, file_name: &str) -> Result<()
     )))
 }
 
-fn fetch_sha256(url: &str) -> Result<String, BridgeError> {
-    let text = download_text(url)?;
+fn fetch_sha256(dir: &Path, file_name: &str, url: &str) -> Result<String, BridgeError> {
+    let path = dir.join(file_name);
+    let text = load_cached_text_file(dir, file_name, url)?;
+    let checksum = text
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if checksum.len() == 64 && checksum.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Ok(checksum);
+    }
+    cleanup_file(&path);
+    let text = load_cached_text_file(dir, file_name, url)?;
     let checksum = text
         .split_whitespace()
         .next()
@@ -352,6 +368,17 @@ fn fetch_sha256(url: &str) -> Result<String, BridgeError> {
         )));
     }
     Ok(checksum)
+}
+
+fn load_cached_text_file(dir: &Path, file_name: &str, url: &str) -> Result<String, BridgeError> {
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join(file_name);
+    if is_non_empty_file(&path) {
+        return std::fs::read_to_string(&path).map_err(BridgeError::Io);
+    }
+    let text = download_text(url)?;
+    std::fs::write(&path, &text)?;
+    Ok(text)
 }
 
 fn download_response(url: &str) -> Result<ureq::Response, BridgeError> {

@@ -516,6 +516,7 @@ fn render_general(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -
             });
     });
     ui.add_space(4.0);
+    changed |= render_classpath_drop_behavior(draft, ui, st);
     changed
 }
 
@@ -701,7 +702,6 @@ fn render_compile(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -
     );
     ui.add_space(10.0);
     section_header(ui, st, &t!("settings.compile_classpath"));
-    changed |= render_classpath_drop_behavior(draft, ui, st);
     paint_classpath_hint(ui, st);
     changed |= paint_classpath_actions(ui, st, &mut draft.compile.classpath_entries);
     changed |= paint_classpath_entries(ui, st, &mut draft.compile.classpath_entries);
@@ -714,7 +714,6 @@ fn render_classpath_drop_behavior(
     st: &SettingsTheme,
 ) -> bool {
     let mut changed = false;
-    ui.add_space(4.0);
     ui.horizontal(|ui| {
         ui.add_space(16.0);
         ui.label(
@@ -739,12 +738,7 @@ fn render_classpath_drop_behavior(
                 }
             });
     });
-    paint_secondary_hint_line(
-        ui,
-        st,
-        t!("settings.classpath_drop_behavior_hint").to_string(),
-    );
-    ui.add_space(8.0);
+    ui.add_space(4.0);
     changed
 }
 

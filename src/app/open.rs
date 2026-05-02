@@ -220,8 +220,7 @@ impl App {
         if !self.layout.explorer_visible {
             return None;
         }
-        let pos = ctx.input(|i| i.pointer.latest_pos().or(i.pointer.interact_pos()))?;
-        self.layout.file_panel.drop_target_at(pos)
+        self.layout.file_panel.active_drop_target(ctx)
     }
 
     fn open_first_dropped_path(&mut self, paths: &[std::path::PathBuf]) {

@@ -71,6 +71,8 @@ tabookit::class! {
         last_tree_rect: Option<egui::Rect>,
         /// 上一帧 Classpath 区域（用于判断拖拽落点）
         last_classpath_rect: Option<egui::Rect>,
+        /// 当前外部文件拖拽命中的目标区域（用于悬停反馈和 drop 判定）
+        last_drop_target: Option<DropTargetKind>,
         /// 待处理 Classpath UI 动作
         pending_classpath_action: Option<ClasspathAction>,
     }
@@ -93,6 +95,7 @@ tabookit::class! {
             last_explorer_rect: None,
             last_tree_rect: None,
             last_classpath_rect: None,
+            last_drop_target: None,
             pending_classpath_action: None,
         }
     }
@@ -137,7 +140,8 @@ tabookit::class! {
         let tree_rect = egui::Rect::from_min_max(body_rect.left_top(), egui::pos2(body_rect.right(), classpath_rect.top()));
         self.last_tree_rect = Some(tree_rect);
         self.last_classpath_rect = Some(classpath_rect);
-        if let Some(target) = self.current_drop_hover(ui.ctx()) {
+        self.last_drop_target = self.current_drop_hover(ui.ctx());
+        if let Some(target) = self.last_drop_target {
             self.paint_drop_highlight(ui, target, tree_rect, classpath_rect);
         }
         self.render_classpath_resize_handle(ui, body_rect, classpath_rect);
@@ -168,11 +172,22 @@ tabookit::class! {
         None
     }
 
+    pub fn active_drop_target(&self, ctx: &egui::Context) -> Option<DropTargetKind> {
+        let has_dropped_files = ctx.input(|i| !i.raw.dropped_files.is_empty());
+        self.current_drop_hover(ctx)
+            .or_else(|| has_dropped_files.then_some(self.last_drop_target).flatten())
+    }
+
     fn current_drop_hover(&self, ctx: &egui::Context) -> Option<DropTargetKind> {
         if ctx.input(|i| i.raw.hovered_files.is_empty()) {
             return None;
         }
-        let pos = ctx.input(|i| i.pointer.latest_pos().or(i.pointer.interact_pos()))?;
+        let pos = ctx.input(|i| {
+            i.pointer
+                .hover_pos()
+                .or(i.pointer.latest_pos())
+                .or(i.pointer.interact_pos())
+        })?;
         self.drop_target_at(pos)
     }
 

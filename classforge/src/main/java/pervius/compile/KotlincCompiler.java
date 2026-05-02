@@ -12,6 +12,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -67,7 +68,7 @@ public final class KotlincCompiler {
             compilerArgs.setSuppressWarnings(false);
             compilerArgs.setSkipMetadataVersionCheck(parsed.skipMetadataVersionCheck);
 
-            ExitCode exit = new K2JVMCompiler().execImpl(collector, Services.EMPTY, compilerArgs);
+            ExitCode exit = invokeCompiler(collector, compilerArgs);
             if (exit == ExitCode.OK) {
                 return success(outDir);
             }
@@ -75,6 +76,35 @@ public final class KotlincCompiler {
         } finally {
             deleteRecursively(workDir);
         }
+    }
+
+    private static ExitCode invokeCompiler(Collector collector, K2JVMCompilerArguments compilerArgs) throws IOException {
+        K2JVMCompiler compiler = new K2JVMCompiler();
+        for (String methodName : new String[]{"exec", "execImpl"}) {
+            for (Method method : compiler.getClass().getMethods()) {
+                if (!method.getName().equals(methodName)) {
+                    continue;
+                }
+                Class<?>[] params = method.getParameterTypes();
+                if (params.length != 3) {
+                    continue;
+                }
+                if (!params[0].isInstance(collector)
+                        || !params[1].isInstance(Services.EMPTY)
+                        || !params[2].isAssignableFrom(compilerArgs.getClass())) {
+                    continue;
+                }
+                try {
+                    Object result = method.invoke(compiler, collector, Services.EMPTY, compilerArgs);
+                    if (result instanceof ExitCode) {
+                        return (ExitCode) result;
+                    }
+                } catch (ReflectiveOperationException e) {
+                    throw new IOException("failed to invoke Kotlin compiler entrypoint " + methodName, e);
+                }
+            }
+        }
+        throw new IOException("no compatible Kotlin compiler entrypoint found");
     }
 
     private static List<String> readSources(java.io.InputStream in, Path srcDir) throws IOException {

@@ -250,8 +250,8 @@ fn is_identifier_char(c: char) -> bool {
 fn token_priority(kind: TokenKind) -> u8 {
     match kind {
         TokenKind::String | TokenKind::Comment => 0,
-        TokenKind::Plain | TokenKind::Muted => 1,
-        _ => 2,
+        TokenKind::Plain | TokenKind::Muted => 2,
+        _ => 1,
     }
 }
 
