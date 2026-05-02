@@ -71,13 +71,7 @@ impl App {
             ));
             return;
         };
-        // ClassForge 的 --classpath 必须指向磁盘上的原始 JAR，供 ASM 解析依赖类层次；
-        // 当前被编译类的原始/已修改字节则单独传入，用于校验和重算帧。
         let jar_path = self.workspace.jar().map(|j| j.path.clone());
-        let original_class = self
-            .workspace
-            .jar()
-            .and_then(|jar| jar.get(entry_path).map(<[u8]>::to_vec));
         let target = Some(target);
         let source_entry = entry_path.to_string();
         let source_snapshot = source.clone();
@@ -88,13 +82,7 @@ impl App {
                     path: kt_path,
                     source,
                 }];
-                compiler::compile_kotlin_sources(
-                    &sources,
-                    jar_path.as_deref(),
-                    target,
-                    None,
-                    original_class.as_deref(),
-                )
+                compiler::compile_kotlin_sources(&sources, jar_path.as_deref(), target, None)
             } else {
                 compiler::compile_source(
                     &source,
@@ -102,7 +90,6 @@ impl App {
                     jar_path.as_deref(),
                     target,
                     true,
-                    original_class.as_deref(),
                 )
             }
         });

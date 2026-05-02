@@ -2,7 +2,6 @@
 //!
 //! @author sky
 
-use crate::assembler;
 use crate::error::BridgeError;
 use crate::process;
 use std::io::{Cursor, Read, Write};
@@ -63,13 +62,6 @@ pub fn is_jdk_available() -> bool {
     javac.exists()
 }
 
-/// 定位 Kotlin compiler embeddable JAR（用户可放在 exe 同目录或数据目录）
-pub fn find_kotlinc() -> Result<std::path::PathBuf, BridgeError> {
-    crate::find_jar("kotlinc-embeddable", |_| true, None).or_else(|_| {
-        crate::find_jar("kotlin-compiler-embeddable", |_| true, None)
-    })
-}
-
 /// 调用 classforge --compile 编译 Java 源码
 pub fn compile_source(
     source: &str,
@@ -77,7 +69,6 @@ pub fn compile_source(
     classpath_jar: Option<&Path>,
     target: Option<u8>,
     debug: bool,
-    original_class: Option<&[u8]>,
 ) -> Result<CompileOutcome, BridgeError> {
     let classforge = crate::find_jar(
         "classforge",
@@ -108,8 +99,7 @@ pub fn compile_source(
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(BridgeError::Compile(stderr.into_owned()));
     }
-    let outcome = parse_compile_output(&output.stdout)?;
-    postprocess_compile_output(outcome, classpath_jar, original_class)
+    parse_compile_output(&output.stdout)
 }
 
 /// 调用 classforge --compile-kt 编译 Kotlin 源码
@@ -118,18 +108,13 @@ pub fn compile_kotlin_sources(
     classpath_jar: Option<&Path>,
     target: Option<u8>,
     module_name: Option<&str>,
-    original_class: Option<&[u8]>,
 ) -> Result<CompileOutcome, BridgeError> {
     let classforge = crate::find_jar(
         "classforge",
         |_| true,
         Some((crate::BUNDLED_CLASSFORGE, crate::BUNDLED_CLASSFORGE_NAME)),
     )?;
-    let kotlinc = find_kotlinc()?;
-    let mut cmd = process::JavaCommand::with_classpath(
-        &[&classforge, &kotlinc],
-        "pervius.asm.ClassForge",
-    )?;
+    let mut cmd = process::JavaCommand::with_classpath(&[&classforge], "pervius.asm.ClassForge")?;
     cmd.arg("--compile-kt");
     if let Some(path) = classpath_jar {
         cmd.arg("--classpath").arg(path);
@@ -149,50 +134,7 @@ pub fn compile_kotlin_sources(
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(BridgeError::Compile(stderr.into_owned()));
     }
-    let outcome = parse_compile_output(&output.stdout)?;
-    postprocess_compile_output(outcome, classpath_jar, original_class)
-}
-
-fn postprocess_compile_output(
-    outcome: CompileOutcome,
-    classpath_jar: Option<&Path>,
-    original_class: Option<&[u8]>,
-) -> Result<CompileOutcome, BridgeError> {
-    let CompileOutcome::Success(classes) = outcome else {
-        return Ok(outcome);
-    };
-    let target_major = original_class.and_then(assembler::class_major_version);
-    let mut processed = Vec::with_capacity(classes.len());
-    for mut class in classes {
-        assembler::validate_class_bytes(&class.bytes, &format!("compiled class {}", class.binary_name))
-            .map_err(|e| BridgeError::Compile(e.to_string()))?;
-        let major = assembler::class_major_version(&class.bytes);
-        if class.binary_name != "module-info" {
-            // javac/kotlinc 产物不一定包含完整 StackMapTable；统一交给 ASM 重算。
-            // module-info 没有普通方法体，部分 ASM 流程重算它没有收益，直接保留 javac 输出。
-            class.bytes = assembler::recompute_frames(&class.bytes, classpath_jar)?;
-        }
-        let new_major = assembler::class_major_version(&class.bytes);
-        if class.binary_name != "module-info" {
-            if let (Some(expected), Some(actual)) = (target_major, new_major) {
-                if actual != expected {
-                    return Err(BridgeError::Compile(format!(
-                        "compiled class {} has major version {}, expected {}",
-                        class.binary_name, actual, expected
-                    )));
-                }
-            }
-        }
-        log::debug!(
-            "compiled class {}: major {:?} -> {:?}, {} bytes",
-            class.binary_name,
-            major,
-            new_major,
-            class.bytes.len()
-        );
-        processed.push(class);
-    }
-    Ok(CompileOutcome::Success(processed))
+    parse_compile_output(&output.stdout)
 }
 
 fn parse_compile_output(stdout: &[u8]) -> Result<CompileOutcome, BridgeError> {

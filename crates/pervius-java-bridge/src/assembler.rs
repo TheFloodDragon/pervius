@@ -36,41 +36,6 @@ pub struct MethodEdit {
     pub bytecode: String,
 }
 
-const CLASS_MAGIC: [u8; 4] = [0xCA, 0xFE, 0xBA, 0xBE];
-
-/// 检查字节是否为 class 文件。
-pub fn is_class_file(bytes: &[u8]) -> bool {
-    bytes.len() >= 8 && bytes[..4] == CLASS_MAGIC
-}
-
-/// 从 class 文件头读取 major version。
-pub fn class_major_version(bytes: &[u8]) -> Option<u16> {
-    if !is_class_file(bytes) {
-        return None;
-    }
-    Some(u16::from_be_bytes([bytes[6], bytes[7]]))
-}
-
-/// 校验 class 字节，避免把源码文本或协议数据送入 ASM。
-pub fn validate_class_bytes(bytes: &[u8], context: &str) -> Result<(), BridgeError> {
-    if is_class_file(bytes) {
-        return Ok(());
-    }
-    let prefix = bytes
-        .iter()
-        .take(16)
-        .map(|b| format!("{b:02X}"))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let ascii = String::from_utf8_lossy(&bytes[..bytes.len().min(32)]);
-    Err(BridgeError::ClassForge(format!(
-        "{context} is not a valid class file (missing CAFEBABE magic; len={}, prefix=[{}], ascii={:?})",
-        bytes.len(),
-        prefix,
-        ascii
-    )))
-}
-
 /// 调用 classforge --patch 模式：替换方法字节码 + 重算帧/max 值
 ///
 /// ASM 接管常量池管理、指令编码、StackMapTable 生成、max_stack/max_locals 计算。
@@ -85,7 +50,6 @@ pub fn patch_methods(
     edits: &[MethodEdit],
     jar_path: Option<&Path>,
 ) -> Result<Vec<u8>, BridgeError> {
-    validate_class_bytes(class_bytes, "classforge patch input")?;
     let classforge = crate::find_jar(
         "classforge",
         |_| true,
@@ -118,7 +82,11 @@ pub fn patch_methods(
         return Err(BridgeError::ClassForge("produced no output".to_string()));
     }
     // 校验输出是合法的 class 文件（防止 stdout 混入日志或 JVM 警告）
-    validate_class_bytes(&output.stdout, "classforge patch output")?;
+    if output.stdout.len() < 4 || output.stdout[..4] != [0xCA, 0xFE, 0xBA, 0xBE] {
+        return Err(BridgeError::ClassForge(
+            "output is not a valid class file (missing CAFEBABE magic)".to_string(),
+        ));
+    }
     log::debug!(
         "classforge patch: {} -> {} bytes ({} methods patched)",
         class_bytes.len(),
@@ -133,7 +101,6 @@ pub fn recompute_frames(
     class_bytes: &[u8],
     jar_path: Option<&Path>,
 ) -> Result<Vec<u8>, BridgeError> {
-    validate_class_bytes(class_bytes, "classforge reframe input")?;
     let classforge = crate::find_jar(
         "classforge",
         |_| true,
@@ -155,7 +122,6 @@ pub fn recompute_frames(
     if output.stdout.is_empty() {
         return Err(BridgeError::ClassForge("produced no output".to_string()));
     }
-    validate_class_bytes(&output.stdout, "classforge reframe output")?;
     log::debug!(
         "classforge reframe: {} -> {} bytes",
         class_bytes.len(),

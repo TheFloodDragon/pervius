@@ -105,7 +105,6 @@ public class ClassForge {
             System.err.println("No input");
             System.exit(1);
         }
-        validateClassData(input);
         ClassReader cr = new ClassReader(input);
         try (JarClassWriter cw = new JarClassWriter(cr, ClassWriter.COMPUTE_FRAMES, classpathJar)) {
             cr.accept(cw, ClassReader.SKIP_FRAMES);
@@ -129,7 +128,6 @@ public class ClassForge {
         int classLen = dis.readInt();
         byte[] classData = new byte[classLen];
         dis.readFully(classData);
-        validateClassData(classData);
         int editCount = dis.readInt();
         Map<String, String> edits = new LinkedHashMap<>();
         for (int i = 0; i < editCount; i++) {
@@ -227,16 +225,6 @@ public class ClassForge {
                 orig.maxStack = tmn.maxStack;
                 orig.maxLocals = tmn.maxLocals;
             }
-        }
-    }
-
-    private static void validateClassData(byte[] classData) {
-        if (classData.length < 8
-                || (classData[0] & 0xFF) != 0xCA
-                || (classData[1] & 0xFF) != 0xFE
-                || (classData[2] & 0xFF) != 0xBA
-                || (classData[3] & 0xFF) != 0xBE) {
-            throw new IllegalArgumentException("input is not a class file (missing CAFEBABE magic)");
         }
     }
 

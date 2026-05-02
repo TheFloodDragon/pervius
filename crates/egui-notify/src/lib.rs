@@ -217,6 +217,7 @@ impl Toasts {
 
         let visuals = ctx.global_style().visuals.widgets.noninteractive;
         let mut update = false;
+        let mut copied_toast = false;
 
         toasts.retain_mut(|toast| {
             // Start disappearing expired toasts
@@ -416,6 +417,7 @@ impl Toasts {
                     ctx.set_cursor_icon(egui::CursorIcon::ContextMenu);
                     if ctx.input(|i| i.pointer.secondary_clicked()) {
                         ctx.copy_text(caption_text);
+                        copied_toast = true;
                     }
                 }
             }
@@ -441,6 +443,10 @@ impl Toasts {
             // Remove disappeared toasts
             !toast.state.disappeared()
         });
+
+        if copied_toast {
+            self.success("Copied").duration(std::time::Duration::from_millis(1200));
+        }
 
         if update {
             ctx.request_repaint();
