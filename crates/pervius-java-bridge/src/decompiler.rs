@@ -45,10 +45,10 @@ pub enum KotlinDecompilerMode {
 }
 
 impl KotlinDecompilerMode {
-    fn cache_dir_name(self) -> Option<&'static str> {
+    fn cache_dir_name(self) -> &'static str {
         match self {
-            Self::Vineflower => None,
-            Self::Java => Some("java"),
+            Self::Vineflower => "kotlin",
+            Self::Java => "java",
         }
     }
 
@@ -177,11 +177,7 @@ fn cache_root() -> Result<PathBuf, BridgeError> {
 }
 
 fn mode_cache_root(mode: KotlinDecompilerMode) -> Result<PathBuf, BridgeError> {
-    let root = cache_root()?;
-    Ok(match mode.cache_dir_name() {
-        Some(dir) => root.join(dir),
-        None => root,
-    })
+    Ok(cache_root()?.join(mode.cache_dir_name()))
 }
 
 /// 获取指定 JAR 哈希的缓存目录
@@ -226,10 +222,11 @@ pub fn list_cache_entries() -> Result<Vec<CacheEntry>, BridgeError> {
         return Ok(Vec::new());
     }
     let mut entries = Vec::new();
-    collect_cache_entries_from_root(&mut entries, &root, KotlinDecompilerMode::Vineflower)?;
-    let java_root = root.join("java");
-    if java_root.exists() {
-        collect_cache_entries_from_root(&mut entries, &java_root, KotlinDecompilerMode::Java)?;
+    for mode in [KotlinDecompilerMode::Vineflower, KotlinDecompilerMode::Java] {
+        let mode_root = root.join(mode.cache_dir_name());
+        if mode_root.exists() {
+            collect_cache_entries_from_root(&mut entries, &mode_root, mode)?;
+        }
     }
     entries.sort_by(|a, b| {
         b.modified_at
@@ -247,7 +244,7 @@ fn collect_cache_entries_from_root(
     for entry in std::fs::read_dir(root)? {
         let entry = entry?;
         let dir = entry.path();
-        if !dir.is_dir() || dir.file_name().and_then(|name| name.to_str()) == Some("java") {
+        if !dir.is_dir() {
             continue;
         }
         let meta = read_cache_meta(&dir).unwrap_or_default();

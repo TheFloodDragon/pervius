@@ -319,15 +319,15 @@ fn is_number(word: &str) -> bool {
 
 /// JVM 类型描述符
 ///
-/// 单字符原始类型（V/Z/B/C/S/I/J/F/D）、对象描述符（`L...;`）、
-/// 数组描述符（`[` 后接有效描述符前缀）。
+/// 这里故意不把单字符原始类型（`I`/`D`/`V` 等）直接当成 Type，
+/// 因为 Recaf 风格字节码里分支标签和 `.var` 范围标签常用单个大写字母，
+/// 否则会把 `A B C D ...` 这类标签误着色成青色。
+///
+/// 仍保留对象描述符（`L...;`）和数组描述符（`[` 后接有效描述符前缀）。
 fn is_descriptor(word: &str) -> bool {
     let b = word.as_bytes();
-    if b.len() == 1 {
-        return matches!(
-            b[0],
-            b'V' | b'Z' | b'B' | b'C' | b'S' | b'I' | b'J' | b'F' | b'D'
-        );
+    if b.is_empty() {
+        return false;
     }
     // L...;  对象类型
     if b[0] == b'L' && *b.last().unwrap() == b';' && b.len() > 2 {
@@ -364,4 +364,45 @@ fn is_internal_name(word: &str) -> bool {
         segments += 1;
     }
     segments >= 2
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_word, collect_spans, TokenKind};
+
+    fn token_kind_in_source(source: &str, token: &str) -> TokenKind {
+        let spans = collect_spans(source);
+        let matches = spans
+            .into_iter()
+            .filter_map(|(start, end, kind)| (source[start..end] == *token).then_some(kind))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected exactly one `{token}` in {source:?}, got {matches:?}"
+        );
+        matches[0]
+    }
+
+    #[test]
+    fn primitive_descriptor_letters_stay_plain() {
+        assert_eq!(classify_word("I"), TokenKind::Plain);
+        assert_eq!(classify_word("D"), TokenKind::Plain);
+        assert_eq!(classify_word("V"), TokenKind::Plain);
+    }
+
+    #[test]
+    fn object_and_array_descriptors_still_use_type_color() {
+        assert_eq!(classify_word("[I"), TokenKind::Type);
+        assert_eq!(classify_word("Ljava/lang/String;"), TokenKind::Type);
+        assert_eq!(classify_word("java/lang/String"), TokenKind::Type);
+    }
+
+    #[test]
+    fn recaf_labels_no_longer_collide_with_descriptor_colors() {
+        let source = ".var 0 this Lcom/example/PlayerManager; A D\nLINE B 42";
+        assert_eq!(token_kind_in_source(source, "A"), TokenKind::Plain);
+        assert_eq!(token_kind_in_source(source, "D"), TokenKind::Plain);
+        assert_eq!(token_kind_in_source(source, "B"), TokenKind::Plain);
+    }
 }
