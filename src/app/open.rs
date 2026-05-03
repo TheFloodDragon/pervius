@@ -12,6 +12,7 @@ use crate::ui::explorer::tree;
 use eframe::egui;
 use egui_shell::components::SettingsFile;
 use pervius_java_bridge::{decompiler, environment};
+use pervius_java_bridge::error::BridgeError;
 use pervius_java_bridge::jar::{JarArchive, LoadProgress};
 use rust_i18n::t;
 use std::path::Path;
@@ -19,6 +20,8 @@ use std::sync::Arc;
 
 /// 自动全量反编译的文件大小阈值（1 MB）
 const FULL_DECOMPILE_THRESHOLD: u64 = 1_000_000;
+
+type PendingDecompileStart = (String, Task<Result<decompiler::DecompileTask, BridgeError>>);
 
 impl App {
     /// 处理 explorer 中点击的文件
@@ -71,7 +74,6 @@ impl App {
             return;
         }
         ctx.data_mut(|d| d.insert_temp(cache_id, frame));
-
         if let Some(path) = dropped.into_iter().find_map(|file| file.path) {
             self.open_dropped_path(&path);
         }
@@ -83,88 +85,35 @@ impl App {
             let Workspace::Loading(loading) = &mut self.workspace else {
                 return;
             };
-            if loading.jar_result.is_none() {
-                match loading.task.poll() {
-                    Poll::Ready(r) => loading.jar_result = Some(r),
-                    Poll::Pending => {}
-                    Poll::Lost => {
-                        loading.jar_result = Some(Err(
-                            pervius_java_bridge::error::BridgeError::Download(
-                                "JAR loading task disconnected".to_string(),
-                            ),
-                        ));
-                    }
-                }
-            }
-            let resource = if loading.resources_ready {
-                Some(Ok(()))
-            } else {
-                match loading.resource_task.poll() {
-                    Poll::Ready(result) => Some(result),
-                    Poll::Pending => None,
-                    Poll::Lost => Some(Err(
-                        pervius_java_bridge::error::BridgeError::Download(
-                            "resource preparation task disconnected".to_string(),
-                        ),
-                    )),
-                }
-            };
-            match resource {
-                Some(Ok(())) => {
-                    loading.resources_ready = true;
-                    loading.jar_result.take()
-                }
-                Some(Err(e)) => Some(Err(e)),
-                None => None,
-            }
+            poll_loading_result(loading)
         };
         let Some(result) = result else {
             return;
         };
         match result {
-            Ok(jar) => {
-                let paths = jar.paths();
-                self.layout.file_panel.roots = tree::build_tree(&jar.name, &paths);
-                self.layout.file_panel.selected = None;
-                self.layout.file_panel.filter.clear();
-                // 小文件或已有缓存时自动反编译，大文件则弹窗确认
-                let cache_hit = decompiler::is_cached(&jar.hash);
-                let auto = cache_hit || jar.file_size <= FULL_DECOMPILE_THRESHOLD;
-                let decompile = if cache_hit {
-                    log::info!("Decompiled cache hit for {}", jar.name);
-                    DecompilePhase::Done
-                } else {
-                    if !auto {
-                        self.pending_confirm = Some(ConfirmAction::DecompileAll);
-                    }
-                    DecompilePhase::Pending
-                };
-                let pending_start = if auto && !cache_hit {
-                    Some(spawn_decompile_start_task(
-                        &jar.path,
-                        &jar.name,
-                        &jar.hash,
-                        jar.class_count(),
-                    ))
-                } else {
-                    None
-                };
-                // 记入最近打开列表
-                self.settings.add_recent(&jar.path, &jar.name);
-                if let Err(e) = self.settings.save() {
-                    log::warn!("保存最近打开记录失败: {e}");
-                }
-                let mut loaded = LoadedState::new(jar, decompile);
-                loaded.pending_re_decompile = pending_start;
-                self.workspace = Workspace::Loaded(loaded);
-                self.layout.explorer_visible = true;
-            }
+            Ok(jar) => self.finish_loading_jar(jar),
             Err(e) => {
                 log::error!("Failed to open JAR: {e}");
                 self.toasts.error(t!("layout.open_jar_failed", error = e));
                 self.workspace = Workspace::Empty;
             }
         }
+    }
+
+    fn finish_loading_jar(&mut self, jar: JarArchive) {
+        let paths = jar.paths();
+        self.layout.file_panel.roots = tree::build_tree(&jar.name, &paths);
+        self.layout.file_panel.selected = None;
+        self.layout.file_panel.filter.clear();
+        let (decompile, pending_start) = initial_decompile_state(&jar, &mut self.pending_confirm);
+        self.settings.add_recent(&jar.path, &jar.name);
+        if let Err(e) = self.settings.save() {
+            log::warn!("保存最近打开记录失败: {e}");
+        }
+        let mut loaded = LoadedState::new(jar, decompile);
+        loaded.pending_re_decompile = pending_start;
+        self.workspace = Workspace::Loaded(loaded);
+        self.layout.explorer_visible = true;
     }
 
     /// 从最近打开列表移除指定路径并持久化
@@ -225,7 +174,6 @@ impl App {
         let p = progress.clone();
         let task = Task::spawn(move || JarArchive::open_with_progress(&path, &p));
         let resource_task = Task::spawn(environment::ensure_project_resources);
-        // 清除旧状态，进入加载中
         self.layout.file_panel.roots = Vec::new();
         self.layout.file_panel.selected = None;
         self.layout.editor = EditorArea::new();
@@ -310,6 +258,45 @@ impl App {
     }
 }
 
+fn poll_loading_result(loading: &mut LoadingState) -> Option<Result<JarArchive, BridgeError>> {
+    poll_loading_jar(loading);
+    match poll_loading_resources(loading) {
+        Some(Ok(())) => loading.jar_result.take(),
+        Some(Err(error)) => Some(Err(error)),
+        None => None,
+    }
+}
+
+fn poll_loading_jar(loading: &mut LoadingState) {
+    if loading.jar_result.is_some() {
+        return;
+    }
+    loading.jar_result = Some(match loading.task.poll() {
+        Poll::Ready(result) => result,
+        Poll::Pending => return,
+        Poll::Lost => Err(loading_task_lost("JAR loading")),
+    });
+}
+
+fn poll_loading_resources(loading: &mut LoadingState) -> Option<Result<(), BridgeError>> {
+    if loading.resources_ready {
+        return Some(Ok(()));
+    }
+    match loading.resource_task.poll() {
+        Poll::Ready(Ok(())) => {
+            loading.resources_ready = true;
+            Some(Ok(()))
+        }
+        Poll::Ready(Err(error)) => Some(Err(error)),
+        Poll::Pending => None,
+        Poll::Lost => Some(Err(loading_task_lost("resource preparation"))),
+    }
+}
+
+fn loading_task_lost(name: &str) -> BridgeError {
+    BridgeError::Download(format!("{name} task disconnected"))
+}
+
 /// 判断路径是否为 JAR 类归档文件
 fn is_jar_file(path: &Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -317,4 +304,28 @@ fn is_jar_file(path: &Path) -> bool {
         ext.to_ascii_lowercase().as_str(),
         "jar" | "zip" | "war" | "ear"
     )
+}
+
+/// 决定 JAR 加载完成后的初始反编译阶段
+fn initial_decompile_state(
+    jar: &JarArchive,
+    pending_confirm: &mut Option<ConfirmAction>,
+) -> (DecompilePhase, Option<PendingDecompileStart>) {
+    if decompiler::is_cached(&jar.hash) {
+        log::info!("Decompiled cache hit for {}", jar.name);
+        return (DecompilePhase::Done, None);
+    }
+    if jar.file_size <= FULL_DECOMPILE_THRESHOLD {
+        return (
+            DecompilePhase::Pending,
+            Some(spawn_decompile_start_task(
+                &jar.path,
+                &jar.name,
+                &jar.hash,
+                jar.class_count(),
+            )),
+        );
+    }
+    *pending_confirm = Some(ConfirmAction::DecompileAll);
+    (DecompilePhase::Pending, None)
 }

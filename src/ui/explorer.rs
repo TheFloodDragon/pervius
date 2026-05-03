@@ -116,8 +116,12 @@ tabookit::class! {
             egui::pos2(rect.left() + 2.0, title_rect.bottom()),
             egui::pos2(rect.right() - 8.0, rect.bottom()),
         );
-        let classpath_rect = self.classpath_rect(body_rect, current_jar, project_classpath, global_classpath);
-        let tree_rect = egui::Rect::from_min_max(body_rect.left_top(), egui::pos2(body_rect.right(), classpath_rect.top()));
+        let classpath_rect =
+            self.classpath_rect(body_rect, current_jar, project_classpath, global_classpath);
+        let tree_rect = egui::Rect::from_min_max(
+            body_rect.left_top(),
+            egui::pos2(body_rect.right(), classpath_rect.top()),
+        );
         self.render_classpath_resize_handle(ui, body_rect, classpath_rect);
         let mut body_ui = ui.new_child(
             egui::UiBuilder::new()
@@ -279,46 +283,57 @@ tabookit::class! {
             .id_salt("classpath_scroll")
             .auto_shrink(false)
             .show(&mut list_ui, |ui| {
-                let mut any = false;
-                if let Some(path) = current_jar {
-                    any = true;
-                    self.render_classpath_row(
-                        ui,
-                        &path.to_string_lossy(),
-                        Some(t!("explorer.classpath_tag_jar").to_string()),
-                        theme::ACCENT_GREEN,
-                        None,
-                    );
-                }
-                for path in project_classpath {
-                    any = true;
-                    self.render_classpath_row(
-                        ui,
-                        &path.to_string_lossy(),
-                        Some(t!("explorer.classpath_tag_project").to_string()),
-                        theme::TEXT_MUTED,
-                        Some(ClasspathAction::RemoveProject(path.clone())),
-                    );
-                }
-                for entry in global_classpath {
-                    any = true;
-                    self.render_classpath_row(
-                        ui,
-                        entry,
-                        Some(t!("explorer.classpath_tag_global").to_string()),
-                        theme::ACCENT_CYAN,
-                        Some(ClasspathAction::RemoveGlobal(entry.clone())),
-                    );
-                }
-                if !any {
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(t!("explorer.classpath_empty").to_string())
-                            .size(11.0)
-                            .color(theme::TEXT_MUTED),
-                    );
-                }
+                self.render_classpath_entries(ui, current_jar, project_classpath, global_classpath);
             });
+    }
+
+    fn render_classpath_entries(
+        &mut self,
+        ui: &mut egui::Ui,
+        current_jar: Option<&Path>,
+        project_classpath: &[PathBuf],
+        global_classpath: &[String],
+    ) {
+        let mut any = false;
+        if let Some(path) = current_jar {
+            any = true;
+            self.render_classpath_row(
+                ui,
+                &path.to_string_lossy(),
+                Some(t!("explorer.classpath_tag_jar").to_string()),
+                theme::ACCENT_GREEN,
+                None,
+            );
+        }
+        for path in project_classpath {
+            any = true;
+            self.render_classpath_row(
+                ui,
+                &path.to_string_lossy(),
+                Some(t!("explorer.classpath_tag_project").to_string()),
+                theme::TEXT_MUTED,
+                Some(ClasspathAction::RemoveProject(path.clone())),
+            );
+        }
+        for entry in global_classpath {
+            any = true;
+            self.render_classpath_row(
+                ui,
+                entry,
+                Some(t!("explorer.classpath_tag_global").to_string()),
+                theme::ACCENT_CYAN,
+                Some(ClasspathAction::RemoveGlobal(entry.clone())),
+            );
+        }
+        if any {
+            return;
+        }
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(t!("explorer.classpath_empty").to_string())
+                .size(11.0)
+                .color(theme::TEXT_MUTED),
+        );
     }
 
     fn render_classpath_row(

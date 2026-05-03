@@ -4,10 +4,18 @@
 //!
 //! @author TheFloodDragon
 
-use std::path::PathBuf;
+use crate::decompiler;
+use crate::error::BridgeError;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// Maven 基础仓库地址。
 pub const MAVEN_BASE: &str = "https://repo.huaweicloud.com/repository/maven";
+
+/// 默认 Vineflower 版本
+pub const DEFAULT_VINEFLOWER_VERSION: &str = "1.12.0";
+/// 默认 Kotlin 版本
+pub const DEFAULT_KOTLIN_VERSION: &str = "2.3.0";
 
 /// 已解析的 Kotlin 依赖路径。
 #[derive(Clone, Debug)]
@@ -30,15 +38,6 @@ pub struct DownloadProgressSnapshot {
     /// 总字节数；服务器未返回 Content-Length 时为 None。
     pub total: Option<u64>,
 }
-
-use crate::decompiler;
-use crate::error::BridgeError;
-use std::sync::Mutex;
-
-/// 默认 Vineflower 版本
-pub const DEFAULT_VINEFLOWER_VERSION: &str = "1.12.0";
-/// 默认 Kotlin 版本
-pub const DEFAULT_KOTLIN_VERSION: &str = "2.3.0";
 
 /// 外部依赖配置（由 UI 设置同步到 bridge 层）。
 #[derive(Clone, Debug)]
@@ -91,18 +90,11 @@ pub fn download_progress() -> Option<DownloadProgressSnapshot> {
     crate::deps::download_progress()
 }
 
-fn resolve_environment_dir(path: Option<PathBuf>, sub_dir: &str) -> Result<PathBuf, BridgeError> {
-    path.map(Ok)
-        .unwrap_or_else(|| Ok(default_environment_root()?.join(sub_dir)))
-}
-
 /// 定位并按需下载 Vineflower。
 pub fn ensure_vineflower() -> Result<PathBuf, BridgeError> {
     let config = environment_config();
-    crate::deps::ensure_vineflower_in_dir(
-        &resolve_environment_dir(config.vineflower_dir, "vineflower")?,
-        &config.vineflower_version,
-    )
+    let dir = resolve_environment_dir(config.vineflower_dir, "vineflower")?;
+    crate::deps::ensure_vineflower_in_dir(&dir, &config.vineflower_version)
 }
 
 /// 准备打开项目后的基础外部资源。
@@ -115,10 +107,8 @@ pub fn ensure_project_resources() -> Result<(), BridgeError> {
 /// 定位并按需下载 Kotlin 编译依赖。
 pub fn ensure_kotlin_dependencies() -> Result<KotlinDependencies, BridgeError> {
     let config = environment_config();
-    crate::deps::ensure_kotlin_dependencies_in_dir(
-        &resolve_environment_dir(config.kotlin_dependencies_dir, "kotlin")?,
-        &config.kotlin_version,
-    )
+    let dir = resolve_environment_dir(config.kotlin_dependencies_dir, "kotlin")?;
+    crate::deps::ensure_kotlin_dependencies_in_dir(&dir, &config.kotlin_version)
 }
 
 fn normalize_config(mut config: EnvironmentConfig) -> EnvironmentConfig {
@@ -142,11 +132,19 @@ fn normalize_dir(path: Option<PathBuf>) -> Option<PathBuf> {
     path.filter(|p| !p.as_os_str().is_empty())
 }
 
-fn default_environment_root() -> Result<PathBuf, BridgeError> {
-    Ok(dependencies_root_from_cache_root(&decompiler::current_cache_root()?))
+fn resolve_environment_dir(path: Option<PathBuf>, sub_dir: &str) -> Result<PathBuf, BridgeError> {
+    if let Some(path) = normalize_dir(path) {
+        return Ok(path);
+    }
+    Ok(default_environment_root()?.join(sub_dir))
 }
 
-fn dependencies_root_from_cache_root(cache_root: &std::path::Path) -> PathBuf {
+fn default_environment_root() -> Result<PathBuf, BridgeError> {
+    let cache_root = decompiler::current_cache_root()?;
+    Ok(dependencies_root_from_cache_root(&cache_root))
+}
+
+fn dependencies_root_from_cache_root(cache_root: &Path) -> PathBuf {
     cache_root
         .parent()
         .map(|parent| parent.join("dependencies"))

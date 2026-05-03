@@ -70,18 +70,11 @@ pub struct App {
 impl App {
     pub fn new() -> Self {
         let settings = Settings::load();
-        // 传递用户配置给 bridge 层
-        pervius_java_bridge::process::set_java_home(&settings.java.java_home);
-        pervius_java_bridge::decompiler::set_cache_root(settings.cache.root_path());
-        pervius_java_bridge::decompiler::set_kotlin_decompiler_mode(
-            settings.compile.kotlin_decompiler.to_bridge(),
-        );
-        pervius_java_bridge::environment::set_environment_config(settings.java.environment_config());
-        let toasts = Toasts::default();
+        apply_bridge_settings(&settings);
         Self {
             layout: Layout::new(&settings),
             settings,
-            toasts,
+            toasts: Toasts::default(),
             pending_confirm: None,
             workspace: Workspace::Empty,
             pending_decompiles: Vec::new(),
@@ -97,4 +90,14 @@ impl App {
         crate::settings::refresh_cache_state(&mut self.layout.settings_state);
         self.layout.settings_panel.open(&self.settings);
     }
+}
+
+fn apply_bridge_settings(settings: &Settings) {
+    // 传递用户配置给 bridge 层
+    pervius_java_bridge::process::set_java_home(&settings.java.java_home);
+    pervius_java_bridge::decompiler::set_cache_root(settings.cache.root_path());
+    pervius_java_bridge::decompiler::set_kotlin_decompiler_mode(
+        settings.compile.kotlin_decompiler.to_bridge(),
+    );
+    pervius_java_bridge::environment::set_environment_config(settings.java.environment_config());
 }

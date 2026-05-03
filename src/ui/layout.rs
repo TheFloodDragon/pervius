@@ -101,17 +101,17 @@ impl App {
     fn poll_tasks(&mut self) {
         self.poll_vineflower_prepare();
         self.check_loading();
-        if matches!(self.workspace, Workspace::Loading(_)) {
-            return;
+        let loading = matches!(self.workspace, Workspace::Loading(_));
+        if !loading {
+            self.poll_jar_decompile();
+            self.poll_redecompile();
+            self.poll_class_decompiles();
+            self.poll_class_compiles();
+            self.poll_cache_delete();
+            self.poll_export_jar();
+            self.poll_search_index();
+            self.rebuild_search_index();
         }
-        self.poll_jar_decompile();
-        self.poll_redecompile();
-        self.poll_class_decompiles();
-        self.poll_class_compiles();
-        self.poll_cache_delete();
-        self.poll_export_jar();
-        self.poll_search_index();
-        self.rebuild_search_index();
     }
 
     /// 分发快捷键（录制中跳过）
@@ -204,31 +204,19 @@ impl App {
         if new_settings.java.java_home != self.settings.java.java_home {
             process::set_java_home(&new_settings.java.java_home);
         }
-        let vineflower_changed = new_settings.java.vineflower_version
-            != self.settings.java.vineflower_version
-            || new_settings.java.vineflower_dir != self.settings.java.vineflower_dir;
-        let kotlin_changed = new_settings.java.kotlin_version != self.settings.java.kotlin_version
-            || new_settings.java.kotlin_dependencies_dir
-                != self.settings.java.kotlin_dependencies_dir;
+        let cache_changed = new_settings.cache.decompiled_dir != self.settings.cache.decompiled_dir;
+        let vineflower_changed = self.vineflower_settings_changed(&new_settings);
+        let environment_changed = vineflower_changed || self.kotlin_settings_changed(&new_settings);
         let kotlin_decompiler_changed =
             new_settings.compile.kotlin_decompiler != self.settings.compile.kotlin_decompiler;
-        let environment_changed = vineflower_changed || kotlin_changed;
-        let cache_changed = new_settings.cache.decompiled_dir != self.settings.cache.decompiled_dir;
         let refresh_cache_settings = cache_changed || kotlin_decompiler_changed;
-        let use_default_vineflower_dir = new_settings.java.vineflower_dir.trim().is_empty();
-        let should_prepare_vineflower = vineflower_changed || (cache_changed && use_default_vineflower_dir);
+        let should_prepare_vineflower =
+            self.should_prepare_vineflower(&new_settings, cache_changed, vineflower_changed);
         if cache_changed {
             decompiler::set_cache_root(new_settings.cache.root_path());
         }
         if kotlin_decompiler_changed {
-            decompiler::set_kotlin_decompiler_mode(new_settings.compile.kotlin_decompiler.to_bridge());
-            self.pending_decompiles.clear();
-            if let Some(loaded) = self.workspace.loaded_mut() {
-                loaded.pending_re_decompile = None;
-                if matches!(loaded.decompile, DecompilePhase::Running { .. }) {
-                    loaded.decompile = DecompilePhase::Pending;
-                }
-            }
+            self.apply_kotlin_decompiler_settings(&new_settings);
         }
         if environment_changed || cache_changed {
             environment::set_environment_config(new_settings.java.environment_config());
@@ -242,12 +230,45 @@ impl App {
         }
         if refresh_cache_settings {
             settings::refresh_cache_state(&mut self.layout.settings_state);
+            self.sync_cache_state();
         }
         if should_prepare_vineflower {
             self.start_vineflower_prepare();
         }
-        if refresh_cache_settings {
-            self.sync_cache_state();
+    }
+
+    fn vineflower_settings_changed(&self, new_settings: &Settings) -> bool {
+        new_settings.java.vineflower_version != self.settings.java.vineflower_version
+            || new_settings.java.vineflower_dir != self.settings.java.vineflower_dir
+    }
+
+    fn kotlin_settings_changed(&self, new_settings: &Settings) -> bool {
+        new_settings.java.kotlin_version != self.settings.java.kotlin_version
+            || new_settings.java.kotlin_dependencies_dir
+                != self.settings.java.kotlin_dependencies_dir
+    }
+
+    fn should_prepare_vineflower(
+        &self,
+        new_settings: &Settings,
+        cache_changed: bool,
+        vineflower_changed: bool,
+    ) -> bool {
+        if vineflower_changed {
+            return true;
+        }
+        cache_changed && new_settings.java.vineflower_dir.trim().is_empty()
+    }
+
+    fn apply_kotlin_decompiler_settings(&mut self, new_settings: &Settings) {
+        decompiler::set_kotlin_decompiler_mode(new_settings.compile.kotlin_decompiler.to_bridge());
+        self.pending_decompiles.clear();
+        let Some(loaded) = self.workspace.loaded_mut() else {
+            return;
+        };
+        loaded.pending_re_decompile = None;
+        if matches!(loaded.decompile, DecompilePhase::Running { .. }) {
+            loaded.decompile = DecompilePhase::Pending;
         }
     }
 

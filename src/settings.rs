@@ -459,7 +459,7 @@ fn render_section(
 ) -> bool {
     match active {
         0 => render_general(draft, ui, st),
-        1 => render_environment(draft, ui, st),
+        1 => render_java(draft, ui, st),
         2 => render_compile(draft, ui, st),
         3 => render_cache(draft, ui, st, state),
         _ => render_keymap(&mut draft.keymap, ui, st),
@@ -521,7 +521,7 @@ fn render_general(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -
     changed
 }
 
-fn render_environment(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> bool {
+fn render_java(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> bool {
     let mut changed = false;
     section_header(ui, st, &t!("settings.environment"));
     changed |= path_picker_with(
@@ -536,7 +536,7 @@ fn render_environment(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsThem
     paint_java_path_hint(ui, st, &draft.java.java_home);
     ui.add_space(10.0);
     section_header(ui, st, &t!("settings.vineflower_tools"));
-    changed |= text_field_row(
+    changed |= render_text_field_row(
         ui,
         st,
         &t!("settings.vineflower_version"),
@@ -555,7 +555,7 @@ fn render_environment(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsThem
     paint_tool_dir_hint(ui, st, effective_vineflower_dir(draft));
     ui.add_space(10.0);
     section_header(ui, st, &t!("settings.kotlin_tools"));
-    changed |= text_field_row(
+    changed |= render_text_field_row(
         ui,
         st,
         &t!("settings.kotlin_version"),
@@ -617,7 +617,7 @@ fn effective_cache_root(
     Ok(base.join("pervius").join("decompiled"))
 }
 
-fn text_field_row(
+fn render_text_field_row(
     ui: &mut egui::Ui,
     st: &SettingsTheme,
     label: &str,
@@ -649,7 +649,7 @@ fn paint_java_path_hint(ui: &mut egui::Ui, st: &SettingsTheme, configured: &str)
         Ok(path) => t!("settings.java_current_path", path = path.display()).to_string(),
         Err(error) => t!("settings.java_current_path_failed", error = error.to_string()).to_string(),
     };
-    paint_hint_line(ui, st, text);
+    paint_path_hint_line(ui, st, text);
 }
 
 fn paint_tool_dir_hint(
@@ -661,10 +661,10 @@ fn paint_tool_dir_hint(
         Ok(path) => t!("settings.tool_current_dir", path = path.display()).to_string(),
         Err(error) => t!("settings.tool_current_dir_failed", error = error.to_string()).to_string(),
     };
-    paint_hint_line(ui, st, text);
+    paint_path_hint_line(ui, st, text);
 }
 
-fn paint_secondary_hint_line(ui: &mut egui::Ui, st: &SettingsTheme, text: String) {
+fn paint_section_hint(ui: &mut egui::Ui, st: &SettingsTheme, text: String) {
     ui.horizontal(|ui| {
         ui.add_space(16.0);
         ui.label(
@@ -675,7 +675,7 @@ fn paint_secondary_hint_line(ui: &mut egui::Ui, st: &SettingsTheme, text: String
     });
 }
 
-fn paint_hint_line(ui: &mut egui::Ui, st: &SettingsTheme, text: String) {
+fn paint_path_hint_line(ui: &mut egui::Ui, st: &SettingsTheme, text: String) {
     ui.horizontal(|ui| {
         ui.add_space(16.0);
         ui.label(
@@ -712,7 +712,7 @@ fn render_compile(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -
                 }
             });
     });
-    paint_secondary_hint_line(
+    paint_section_hint(
         ui,
         st,
         t!("settings.kotlin_decompiler_hint").to_string(),
@@ -724,24 +724,24 @@ fn render_compile(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -
         &t!("settings.kotlin_skip_metadata_version_check"),
         &mut draft.compile.kotlin_skip_metadata_version_check,
     );
-    paint_secondary_hint_line(
+    paint_section_hint(
         ui,
         st,
         t!("settings.kotlin_skip_metadata_version_check_hint").to_string(),
     );
     ui.add_space(10.0);
     section_header(ui, st, &t!("settings.compile_classpath"));
-    paint_classpath_hint(ui, st);
-    changed |= paint_classpath_actions(ui, st, &mut draft.compile.classpath_entries);
-    changed |= paint_classpath_entries(ui, st, &mut draft.compile.classpath_entries);
+    paint_compile_classpath_hint(ui, st);
+    changed |= render_classpath_actions(ui, st, &mut draft.compile.classpath_entries);
+    changed |= render_classpath_entries(ui, st, &mut draft.compile.classpath_entries);
     changed
 }
 
-fn paint_classpath_hint(ui: &mut egui::Ui, st: &SettingsTheme) {
-    paint_secondary_hint_line(ui, st, t!("settings.compile_classpath_hint").to_string());
+fn paint_compile_classpath_hint(ui: &mut egui::Ui, st: &SettingsTheme) {
+    paint_section_hint(ui, st, t!("settings.compile_classpath_hint").to_string());
 }
 
-fn paint_classpath_actions(
+fn render_classpath_actions(
     ui: &mut egui::Ui,
     st: &SettingsTheme,
     entries: &mut Vec<String>,
@@ -834,7 +834,7 @@ fn elide_middle(ui: &egui::Ui, text: &str, font: egui::FontId, max_width: f32) -
     "…".to_owned()
 }
 
-fn paint_classpath_entries(
+fn render_classpath_entries(
     ui: &mut egui::Ui,
     st: &SettingsTheme,
     entries: &mut Vec<String>,
@@ -1005,7 +1005,7 @@ fn paint_cache_root_hint(ui: &mut egui::Ui, st: &SettingsTheme) {
         Ok(path) => t!("settings.cache_current_root", path = path.display()).to_string(),
         Err(error) => t!("settings.cache_list_failed", error = error.to_string()).to_string(),
     };
-    paint_hint_line(ui, st, text);
+    paint_path_hint_line(ui, st, text);
 }
 
 fn paint_cache_actions(ui: &mut egui::Ui, st: &SettingsTheme, state: &SettingsPanelState) {

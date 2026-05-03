@@ -6,7 +6,8 @@ use super::App;
 use crate::task::{Poll, Pollable, Task};
 use egui_editor::highlight::Language;
 use pervius_java_bridge::compiler::{
-    self, CompileClasspath, CompileOutcome, DiagSeverity, KotlinSource,
+    self, CompileClasspath, CompileDiagnostic, CompileOutcome, CompiledClass, DiagSeverity,
+    KotlinSource,
 };
 use pervius_java_bridge::error::BridgeError;
 use rust_i18n::t;
@@ -17,6 +18,14 @@ pub(crate) struct PendingCompile {
     /// 编译开始时的源码快照，用于避免异步完成后覆盖用户的新编辑。
     pub source_snapshot: String,
     pub task: Task<Result<CompileOutcome, BridgeError>>,
+}
+
+struct CompileRequest {
+    entry_path: String,
+    source: String,
+    language: Language,
+    target: u8,
+    snapshot: String,
 }
 
 fn class_info_release(version: Option<&str>) -> Option<u8> {
@@ -65,56 +74,77 @@ impl App {
 
     /// 启动指定 class tab 的源码编译
     pub(crate) fn compile_source_tab(&mut self, entry_path: &str) {
-        let mut source = None;
-        let mut language = Language::Java;
-        let mut target = None;
-        for (_, tab) in self.layout.editor.dock_state.iter_all_tabs_mut() {
-            if tab.entry_path.as_deref() == Some(entry_path) {
-                if !tab.is_class || !tab.is_source_unlocked() {
-                    return;
-                }
-                if tab.is_modified {
-                    self.toasts
-                        .warning(t!("editor.source_vs_struct_conflict"));
-                    return;
-                }
-                tab.compile_diagnostics.clear();
-                source = Some(tab.decompiled.clone());
-                language = tab.language;
-                target = class_info_release(tab.class_info.as_deref());
-                break;
-            }
-        }
-        let Some(source) = source else {
-            return;
-        };
-        let Some(binary_name) = entry_path.strip_suffix(".class").map(str::to_string) else {
+        let Some(request) = self.take_compile_request(entry_path) else {
             return;
         };
         if !compiler::is_jdk_available() {
             self.toasts.error(t!("editor.jdk_required"));
             return;
         }
-        let Some(target) = target else {
-            self.toasts.error(t!(
-                "editor.recompile_failed",
-                error = "Cannot determine original class version"
-            ));
-            return;
-        };
+        let task = self.spawn_compile_task(&request);
+        self.pending_compiles.push(PendingCompile {
+            entry_path: request.entry_path,
+            source_snapshot: request.snapshot,
+            task,
+        });
+        log::info!("Compiling source: {entry_path}");
+    }
+
+    fn take_compile_request(&mut self, entry_path: &str) -> Option<CompileRequest> {
+        for (_, tab) in self.layout.editor.dock_state.iter_all_tabs_mut() {
+            if tab.entry_path.as_deref() != Some(entry_path) {
+                continue;
+            }
+            if !tab.is_class || !tab.is_source_unlocked() {
+                return None;
+            }
+            if tab.is_modified {
+                self.toasts
+                    .warning(t!("editor.source_vs_struct_conflict"));
+                return None;
+            }
+            let Some(target) = class_info_release(tab.class_info.as_deref()) else {
+                self.toasts.error(t!(
+                    "editor.recompile_failed",
+                    error = "Cannot determine original class version"
+                ));
+                return None;
+            };
+            tab.compile_diagnostics.clear();
+            let source = tab.decompiled.clone();
+            return Some(CompileRequest {
+                entry_path: entry_path.to_string(),
+                source: source.clone(),
+                language: tab.language,
+                target,
+                snapshot: source,
+            });
+        }
+        None
+    }
+
+    fn spawn_compile_task(
+        &self,
+        request: &CompileRequest,
+    ) -> Task<Result<CompileOutcome, BridgeError>> {
         let classpath = self.compile_classpath();
-        let target = Some(target);
-        let kotlin_skip_metadata_version_check = self
+        let skip_metadata_version_check = self
             .settings
             .compile
             .kotlin_skip_metadata_version_check;
-        let source_entry = entry_path.to_string();
-        let source_snapshot = source.clone();
-        let task = Task::spawn(move || {
+        let entry_path = request.entry_path.clone();
+        let binary_name = request
+            .entry_path
+            .strip_suffix(".class")
+            .unwrap_or(&request.entry_path)
+            .to_string();
+        let source = request.source.clone();
+        let language = request.language;
+        let target = Some(request.target);
+        Task::spawn(move || {
             if language == Language::Kotlin {
-                let kt_path = kotlin_source_path(&source_entry);
                 let sources = [KotlinSource {
-                    path: kt_path,
+                    path: kotlin_source_path(&entry_path),
                     source,
                 }];
                 compiler::compile_kotlin_sources_with_options(
@@ -122,24 +152,12 @@ impl App {
                     &classpath,
                     target,
                     None,
-                    kotlin_skip_metadata_version_check,
+                    skip_metadata_version_check,
                 )
             } else {
-                compiler::compile_source(
-                    &source,
-                    &binary_name,
-                    &classpath,
-                    target,
-                    true,
-                )
+                compiler::compile_source(&source, &binary_name, &classpath, target, true)
             }
-        });
-        self.pending_compiles.push(PendingCompile {
-            entry_path: entry_path.to_string(),
-            source_snapshot,
-            task,
-        });
-        log::info!("Compiling source: {entry_path}");
+        })
     }
 
     fn compile_source_snapshot_is_current(&self, entry_path: &str, source_snapshot: &str) -> bool {
@@ -171,83 +189,99 @@ impl App {
                 }
             };
             let pending = self.pending_compiles.swap_remove(i);
-            let entry_path = pending.entry_path;
-            let source_snapshot = pending.source_snapshot;
             match result {
                 Ok(CompileOutcome::Success(classes)) => {
-                    if !self.compile_source_snapshot_is_current(&entry_path, &source_snapshot) {
-                        log::warn!("Discarding stale compile result: {entry_path}");
-                        continue;
-                    }
-                    let mut main_bytes = None;
-                    let main_binary = entry_path.trim_end_matches(".class");
-                    let count = classes.len();
-                    for class in classes {
-                        let class_path = format!("{}.class", class.binary_name);
-                        if class.binary_name == main_binary {
-                            main_bytes = Some(class.bytes.clone());
-                        }
-                        if let Some(jar) = self.workspace.jar_mut() {
-                            jar.put(&class_path, class.bytes.clone());
-                        }
-                        for (_, tab) in self.layout.editor.dock_state.iter_all_tabs_mut() {
-                            if tab.entry_path.as_deref() == Some(&class_path) {
-                                tab.commit_save(class.bytes.clone());
-                                tab.source_modified = false;
-                                if class_path == entry_path {
-                                    tab.decompiled = source_snapshot.clone();
-                                    tab.original_source = source_snapshot.clone();
-                                    tab.refresh_decompiled_data();
-                                    tab.compile_diagnostics.clear();
-                                }
-                            }
-                        }
-                    }
-                    if let Some(bytes) = main_bytes {
-                        self.decompile_class(&entry_path, bytes, false);
-                    }
-                    self.toasts
-                        .success(t!("editor.recompile_success", n = count));
-                    log::info!("Compiled source: {entry_path} ({count} classes)");
+                    self.handle_compile_success(&pending.entry_path, &pending.source_snapshot, classes);
                 }
                 Ok(CompileOutcome::Errors(diagnostics)) => {
-                    let first = diagnostics
-                        .iter()
-                        .find(|d| d.severity == DiagSeverity::Error)
-                        .or_else(|| diagnostics.first());
-                    for (_, tab) in self.layout.editor.dock_state.iter_all_tabs_mut() {
-                        if tab.entry_path.as_deref() == Some(&entry_path) {
-                            tab.compile_diagnostics = diagnostics.clone();
-                            if let Some(diag) = first {
-                                if diag.line > 0 {
-                                    tab.pending_scroll_to_line = Some(diag.line.saturating_sub(1) as usize);
-                                }
-                            }
-                            break;
-                        }
-                    }
-                    let message = first
-                        .map(|d| {
-                            if d.line > 0 {
-                                format!("{}:{} {}", d.line, d.column, d.message)
-                            } else {
-                                d.message.clone()
-                            }
-                        })
-                        .unwrap_or_else(|| "javac reported errors".to_string());
-                    self.toasts
-                        .error(t!("editor.recompile_failed", error = message));
-                    log::warn!("Compile failed: {entry_path}");
+                    self.handle_compile_errors(&pending.entry_path, diagnostics);
                 }
                 Ok(CompileOutcome::JdkMissing) => {
                     self.toasts.error(t!("editor.jdk_required"));
                 }
                 Err(e) => {
-                    log::error!("Compile task failed: {entry_path}: {e}");
+                    log::error!("Compile task failed: {}: {e}", pending.entry_path);
                     self.toasts
                         .error(t!("editor.recompile_failed", error = e.to_string()));
                 }
             }
         }
+    }
+
+    fn handle_compile_success(
+        &mut self,
+        entry_path: &str,
+        source_snapshot: &str,
+        classes: Vec<CompiledClass>,
+    ) {
+        if !self.compile_source_snapshot_is_current(entry_path, source_snapshot) {
+            log::warn!("Discarding stale compile result: {entry_path}");
+            return;
+        }
+        let mut main_bytes = None;
+        let main_binary = entry_path.trim_end_matches(".class");
+        let snapshot = source_snapshot.to_string();
+        let count = classes.len();
+        for class in classes {
+            let class_path = format!("{}.class", class.binary_name);
+            if class.binary_name == main_binary {
+                main_bytes = Some(class.bytes.clone());
+            }
+            if let Some(jar) = self.workspace.jar_mut() {
+                jar.put(&class_path, class.bytes.clone());
+            }
+            for (_, tab) in self.layout.editor.dock_state.iter_all_tabs_mut() {
+                if tab.entry_path.as_deref() == Some(&class_path) {
+                    tab.commit_save(class.bytes.clone());
+                    tab.source_modified = false;
+                    if class_path == entry_path {
+                        tab.decompiled = snapshot.clone();
+                        tab.original_source = snapshot.clone();
+                        tab.refresh_decompiled_data();
+                        tab.compile_diagnostics.clear();
+                    }
+                }
+            }
+        }
+        if let Some(bytes) = main_bytes {
+            self.decompile_class(entry_path, bytes, false);
+        }
+        self.toasts
+            .success(t!("editor.recompile_success", n = count));
+        log::info!("Compiled source: {entry_path} ({count} classes)");
+    }
+
+    fn handle_compile_errors(
+        &mut self,
+        entry_path: &str,
+        diagnostics: Vec<CompileDiagnostic>,
+    ) {
+        let first = diagnostics
+            .iter()
+            .find(|d| d.severity == DiagSeverity::Error)
+            .or_else(|| diagnostics.first());
+        for (_, tab) in self.layout.editor.dock_state.iter_all_tabs_mut() {
+            if tab.entry_path.as_deref() == Some(entry_path) {
+                tab.compile_diagnostics = diagnostics.clone();
+                if let Some(diag) = first {
+                    if diag.line > 0 {
+                        tab.pending_scroll_to_line = Some(diag.line.saturating_sub(1) as usize);
+                    }
+                }
+                break;
+            }
+        }
+        let message = first
+            .map(|d| {
+                if d.line > 0 {
+                    format!("{}:{} {}", d.line, d.column, d.message)
+                } else {
+                    d.message.clone()
+                }
+            })
+            .unwrap_or_else(|| "javac reported errors".to_string());
+        self.toasts
+            .error(t!("editor.recompile_failed", error = message));
+        log::warn!("Compile failed: {entry_path}");
     }
 }
