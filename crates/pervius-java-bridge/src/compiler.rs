@@ -6,6 +6,7 @@ use crate::error::BridgeError;
 use crate::process;
 use std::io::{Cursor, Read, Write};
 use std::path::PathBuf;
+use std::process::Child;
 
 /// Kotlin 源文件输入
 #[derive(Clone, Debug)]
@@ -99,6 +100,26 @@ pub fn is_jdk_available() -> bool {
     javac.exists()
 }
 
+fn classforge_jar() -> Result<PathBuf, BridgeError> {
+    crate::find_jar(
+        "classforge",
+        |_| true,
+        Some((crate::BUNDLED_CLASSFORGE, crate::BUNDLED_CLASSFORGE_NAME)),
+    )
+}
+
+fn wait_compile_output(child: Child) -> Result<CompileOutcome, BridgeError> {
+    let output = child.wait_with_output()?;
+    if output.stdout.first() == Some(&2) {
+        return Ok(CompileOutcome::JdkMissing);
+    }
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(BridgeError::Compile(stderr.into_owned()));
+    }
+    parse_compile_output(&output.stdout)
+}
+
 /// 调用 classforge --compile 编译 Java 源码
 pub fn compile_source(
     source: &str,
@@ -107,11 +128,7 @@ pub fn compile_source(
     target: Option<u8>,
     debug: bool,
 ) -> Result<CompileOutcome, BridgeError> {
-    let classforge = crate::find_jar(
-        "classforge",
-        |_| true,
-        Some((crate::BUNDLED_CLASSFORGE, crate::BUNDLED_CLASSFORGE_NAME)),
-    )?;
+    let classforge = classforge_jar()?;
     let mut cmd = process::JavaCommand::new(&classforge)?;
     cmd.arg("--compile");
     if let Some(classpath) = classpath.joined() {
@@ -128,15 +145,7 @@ pub fn compile_source(
         write_prefixed_string(&mut stdin, binary_name)?;
         write_prefixed_string_u32(&mut stdin, source)?;
     }
-    let output = child.wait_with_output()?;
-    if output.stdout.first() == Some(&2) {
-        return Ok(CompileOutcome::JdkMissing);
-    }
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(BridgeError::Compile(stderr.into_owned()));
-    }
-    parse_compile_output(&output.stdout)
+    wait_compile_output(child)
 }
 
 /// 调用 classforge --compile-kt 编译 Kotlin 源码（可配置 Kotlin 编译器兼容选项）
@@ -147,11 +156,7 @@ pub fn compile_kotlin_sources_with_options(
     module_name: Option<&str>,
     skip_metadata_version_check: bool,
 ) -> Result<CompileOutcome, BridgeError> {
-    let classforge = crate::find_jar(
-        "classforge",
-        |_| true,
-        Some((crate::BUNDLED_CLASSFORGE, crate::BUNDLED_CLASSFORGE_NAME)),
-    )?;
+    let classforge = classforge_jar()?;
     let kotlin_dependencies = crate::environment::ensure_kotlin_dependencies()?;
     let mut runtime_classpath = Vec::with_capacity(2 + kotlin_dependencies.runtime_dependencies.len());
     runtime_classpath.push(classforge.clone());
@@ -178,12 +183,7 @@ pub fn compile_kotlin_sources_with_options(
     if let Some(mut stdin) = child.stdin.take() {
         write_kotlin_sources_protocol(&mut stdin, sources)?;
     }
-    let output = child.wait_with_output()?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(BridgeError::Compile(stderr.into_owned()));
-    }
-    parse_compile_output(&output.stdout)
+    wait_compile_output(child)
 }
 
 fn parse_compile_output(stdout: &[u8]) -> Result<CompileOutcome, BridgeError> {

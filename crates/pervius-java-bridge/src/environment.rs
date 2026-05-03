@@ -91,13 +91,18 @@ pub fn download_progress() -> Option<DownloadProgressSnapshot> {
     crate::deps::download_progress()
 }
 
+fn resolve_environment_dir(path: Option<PathBuf>, sub_dir: &str) -> Result<PathBuf, BridgeError> {
+    path.map(Ok)
+        .unwrap_or_else(|| Ok(default_environment_root()?.join(sub_dir)))
+}
+
 /// 定位并按需下载 Vineflower。
 pub fn ensure_vineflower() -> Result<PathBuf, BridgeError> {
     let config = environment_config();
-    let dir = config
-        .vineflower_dir
-        .unwrap_or(default_environment_root()?.join("vineflower"));
-    crate::deps::ensure_vineflower_in_dir(&dir, &config.vineflower_version)
+    crate::deps::ensure_vineflower_in_dir(
+        &resolve_environment_dir(config.vineflower_dir, "vineflower")?,
+        &config.vineflower_version,
+    )
 }
 
 /// 准备打开项目后的基础外部资源。
@@ -110,10 +115,10 @@ pub fn ensure_project_resources() -> Result<(), BridgeError> {
 /// 定位并按需下载 Kotlin 编译依赖。
 pub fn ensure_kotlin_dependencies() -> Result<KotlinDependencies, BridgeError> {
     let config = environment_config();
-    let dir = config
-        .kotlin_dependencies_dir
-        .unwrap_or(default_environment_root()?.join("kotlin"));
-    crate::deps::ensure_kotlin_dependencies_in_dir(&dir, &config.kotlin_version)
+    crate::deps::ensure_kotlin_dependencies_in_dir(
+        &resolve_environment_dir(config.kotlin_dependencies_dir, "kotlin")?,
+        &config.kotlin_version,
+    )
 }
 
 fn normalize_config(mut config: EnvironmentConfig) -> EnvironmentConfig {

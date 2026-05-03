@@ -33,6 +33,28 @@ pub(crate) struct ExportingState {
 }
 
 impl App {
+    fn start_jar_write(
+        &mut self,
+        dest: PathBuf,
+        modified_count: usize,
+        snapshot: Vec<(String, Vec<u8>)>,
+        mode: JarWriteMode,
+    ) {
+        let progress = Arc::new(LoadProgress::new());
+        let p = progress.clone();
+        let out = dest.clone();
+        let task = Task::spawn(move || {
+            pervius_java_bridge::jar::write_jar(&snapshot, &out, &p).map_err(|e| e.to_string())
+        });
+        self.exporting = Some(ExportingState {
+            dest,
+            modified_count,
+            mode,
+            progress,
+            task,
+        });
+    }
+
     /// 导出修改后的 JAR 到用户选择的路径
     ///
     /// 在主线程快照条目数据，然后在后台线程写出 ZIP，
@@ -66,19 +88,7 @@ impl App {
         };
         let snapshot = jar.snapshot_entries();
         let modified_count = jar.modified_count();
-        let progress = Arc::new(LoadProgress::new());
-        let p = progress.clone();
-        let out = dest.clone();
-        let task = Task::spawn(move || {
-            pervius_java_bridge::jar::write_jar(&snapshot, &out, &p).map_err(|e| e.to_string())
-        });
-        self.exporting = Some(ExportingState {
-            dest,
-            modified_count,
-            mode: JarWriteMode::ExportCopy,
-            progress,
-            task,
-        });
+        self.start_jar_write(dest, modified_count, snapshot, JarWriteMode::ExportCopy);
     }
 
     /// 保存并覆盖当前打开的源 JAR 文件
@@ -102,21 +112,9 @@ impl App {
             self.toasts.info(t!("layout.save_source_no_changes"));
             return;
         }
-        let snapshot = jar.snapshot_entries();
         let dest = jar.path.clone();
-        let progress = Arc::new(LoadProgress::new());
-        let p = progress.clone();
-        let out = dest.clone();
-        let task = Task::spawn(move || {
-            pervius_java_bridge::jar::write_jar(&snapshot, &out, &p).map_err(|e| e.to_string())
-        });
-        self.exporting = Some(ExportingState {
-            dest,
-            modified_count,
-            mode: JarWriteMode::OverwriteSource,
-            progress,
-            task,
-        });
+        let snapshot = jar.snapshot_entries();
+        self.start_jar_write(dest, modified_count, snapshot, JarWriteMode::OverwriteSource);
     }
 
     /// 轮询后台 JAR 导出是否完成

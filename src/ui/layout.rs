@@ -214,15 +214,14 @@ impl App {
             new_settings.compile.kotlin_decompiler != self.settings.compile.kotlin_decompiler;
         let environment_changed = vineflower_changed || kotlin_changed;
         let cache_changed = new_settings.cache.decompiled_dir != self.settings.cache.decompiled_dir;
+        let refresh_cache_settings = cache_changed || kotlin_decompiler_changed;
         let use_default_vineflower_dir = new_settings.java.vineflower_dir.trim().is_empty();
         let should_prepare_vineflower = vineflower_changed || (cache_changed && use_default_vineflower_dir);
         if cache_changed {
             decompiler::set_cache_root(new_settings.cache.root_path());
-            settings::refresh_cache_state(&mut self.layout.settings_state);
         }
         if kotlin_decompiler_changed {
             decompiler::set_kotlin_decompiler_mode(new_settings.compile.kotlin_decompiler.to_bridge());
-            settings::refresh_cache_state(&mut self.layout.settings_state);
             self.pending_decompiles.clear();
             if let Some(loaded) = self.workspace.loaded_mut() {
                 loaded.pending_re_decompile = None;
@@ -241,10 +240,13 @@ impl App {
         if let Err(e) = self.settings.save() {
             log::warn!("配置保存失败: {e}");
         }
+        if refresh_cache_settings {
+            settings::refresh_cache_state(&mut self.layout.settings_state);
+        }
         if should_prepare_vineflower {
             self.start_vineflower_prepare();
         }
-        if cache_changed || kotlin_decompiler_changed {
+        if refresh_cache_settings {
             self.sync_cache_state();
         }
     }

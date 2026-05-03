@@ -345,29 +345,25 @@ fn verify_sha256_file(path: &Path, expected: &str, file_name: &str) -> Result<()
 fn fetch_sha256(dir: &Path, file_name: &str, url: &str) -> Result<String, BridgeError> {
     let path = dir.join(file_name);
     let text = load_cached_text_file(dir, file_name, url)?;
-    let checksum = text
-        .split_whitespace()
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase();
-    if checksum.len() == 64 && checksum.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if let Some(checksum) = parse_sha256_text(&text) {
         return Ok(checksum);
     }
     cleanup_file(&path);
     let text = load_cached_text_file(dir, file_name, url)?;
+    parse_sha256_text(&text).ok_or_else(|| {
+        BridgeError::Download(format!("invalid sha256 response from {url}: {text}"))
+    })
+}
+
+fn parse_sha256_text(text: &str) -> Option<String> {
     let checksum = text
         .split_whitespace()
         .next()
         .unwrap_or_default()
         .trim()
         .to_ascii_lowercase();
-    if checksum.len() != 64 || !checksum.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(BridgeError::Download(format!(
-            "invalid sha256 response from {url}: {text}"
-        )));
-    }
-    Ok(checksum)
+    (checksum.len() == 64 && checksum.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then_some(checksum)
 }
 
 fn load_cached_text_file(dir: &Path, file_name: &str, url: &str) -> Result<String, BridgeError> {

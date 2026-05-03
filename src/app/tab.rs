@@ -2,7 +2,7 @@
 //!
 //! @author sky
 
-use super::App;
+use super::{editor_source_language, App};
 use crate::ui::editor::view_toggle::ActiveView;
 use crate::ui::editor::EditorTab;
 use egui_editor::highlight::Language;
@@ -138,13 +138,10 @@ impl App {
             let cached = mem_cached
                 .cloned()
                 .or_else(|| jar_hash.and_then(|h| decompiler::cached_source(h, entry_path)));
-            let lang = match &cached {
-                Some(c) => match c.language {
-                    pervius_java_bridge::decompiler::DecompiledSourceLanguage::Kotlin => Language::Kotlin,
-                    pervius_java_bridge::decompiler::DecompiledSourceLanguage::Java => Language::Java,
-                },
-                None => Language::Java,
-            };
+            let lang = cached
+                .as_ref()
+                .map(|cached| editor_source_language(cached.language))
+                .unwrap_or(Language::Java);
             let mut tab = EditorTab::new_class(title, entry_path, bytes.to_vec(), lang);
             if let Some(c) = cached {
                 tab.set_decompiled(c.source, lang, c.line_mapping);

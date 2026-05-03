@@ -2,6 +2,7 @@
 //!
 //! @author sky
 
+use super::decompile::spawn_decompile_start_task;
 use super::workspace::{DecompilePhase, LoadedState, LoadingState, Workspace};
 use super::App;
 use crate::app::ConfirmAction;
@@ -71,25 +72,14 @@ impl App {
         }
         ctx.data_mut(|d| d.insert_temp(cache_id, frame));
 
-        let paths = dropped
-            .into_iter()
-            .filter_map(|file| file.path)
-            .collect::<Vec<_>>();
-        if paths.is_empty() {
-            return;
+        if let Some(path) = dropped.into_iter().find_map(|file| file.path) {
+            self.open_dropped_path(&path);
         }
-        self.open_first_dropped_path(&paths);
     }
 
     /// 检查后台 JAR 加载和基础资源准备是否完成
     pub(crate) fn check_loading(&mut self) {
-        enum LoadingOutcome {
-            Pending,
-            Ready(Result<JarArchive, pervius_java_bridge::error::BridgeError>),
-            Failed(pervius_java_bridge::error::BridgeError),
-        }
-
-        let outcome = {
+        let result = {
             let Workspace::Loading(loading) = &mut self.workspace else {
                 return;
             };
@@ -106,43 +96,30 @@ impl App {
                     }
                 }
             }
-            let resource_error = if !loading.resources_ready {
+            let resource = if loading.resources_ready {
+                Some(Ok(()))
+            } else {
                 match loading.resource_task.poll() {
-                    Poll::Ready(Ok(())) => {
-                        loading.resources_ready = true;
-                        None
-                    }
-                    Poll::Ready(Err(e)) => Some(e),
+                    Poll::Ready(result) => Some(result),
                     Poll::Pending => None,
-                    Poll::Lost => Some(pervius_java_bridge::error::BridgeError::Download(
-                        "resource preparation task disconnected".to_string(),
+                    Poll::Lost => Some(Err(
+                        pervius_java_bridge::error::BridgeError::Download(
+                            "resource preparation task disconnected".to_string(),
+                        ),
                     )),
                 }
-            } else {
-                None
             };
-            if let Some(error) = resource_error {
-                LoadingOutcome::Failed(error)
-            } else if loading.resources_ready {
-                if let Some(result) = loading.jar_result.take() {
-                    LoadingOutcome::Ready(result)
-                } else {
-                    LoadingOutcome::Pending
+            match resource {
+                Some(Ok(())) => {
+                    loading.resources_ready = true;
+                    loading.jar_result.take()
                 }
-            } else {
-                LoadingOutcome::Pending
+                Some(Err(e)) => Some(Err(e)),
+                None => None,
             }
         };
-
-        let result = match outcome {
-            LoadingOutcome::Pending => return,
-            LoadingOutcome::Ready(result) => result,
-            LoadingOutcome::Failed(e) => {
-                log::error!("Failed to prepare project resources: {e}");
-                self.toasts.error(t!("layout.open_jar_failed", error = e));
-                self.workspace = Workspace::Empty;
-                return;
-            }
+        let Some(result) = result else {
+            return;
         };
         match result {
             Ok(jar) => {
@@ -163,7 +140,12 @@ impl App {
                     DecompilePhase::Pending
                 };
                 let pending_start = if auto && !cache_hit {
-                    Some(spawn_decompile_start(&jar))
+                    Some(spawn_decompile_start_task(
+                        &jar.path,
+                        &jar.name,
+                        &jar.hash,
+                        jar.class_count(),
+                    ))
                 } else {
                     None
                 };
@@ -190,12 +172,6 @@ impl App {
         self.settings.remove_recent(path);
         if let Err(e) = self.settings.save() {
             log::warn!("保存最近打开记录失败: {e}");
-        }
-    }
-
-    fn open_first_dropped_path(&mut self, paths: &[std::path::PathBuf]) {
-        if let Some(path) = paths.first() {
-            self.open_dropped_path(path);
         }
     }
 
@@ -341,21 +317,4 @@ fn is_jar_file(path: &Path) -> bool {
         ext.to_ascii_lowercase().as_str(),
         "jar" | "zip" | "war" | "ear"
     )
-}
-
-/// 在后台启动全量反编译，避免工具下载阻塞 UI 线程。
-fn spawn_decompile_start(
-    jar: &JarArchive,
-) -> (
-    String,
-    Task<Result<pervius_java_bridge::decompiler::DecompileTask, pervius_java_bridge::error::BridgeError>>,
-) {
-    let path = jar.path.clone();
-    let name = jar.name.clone();
-    let hash = jar.hash.clone();
-    let class_count = jar.class_count();
-    let thread_name = name.clone();
-    let task = Task::spawn(move || decompiler::start(&path, &thread_name, &hash, class_count));
-    log::info!("Preparing decompilation: {name} ({class_count} classes)");
-    (name, task)
 }

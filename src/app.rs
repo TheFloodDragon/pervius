@@ -17,13 +17,21 @@ pub use crate::ui::confirm::ConfirmAction;
 use crate::settings::Settings;
 use crate::task::Task;
 use crate::ui::layout::Layout;
+use egui_editor::highlight::Language;
 use egui_notify::Toasts;
 use egui_shell::components::SettingsFile;
-use pervius_java_bridge::decompiler::CachedSource;
+use pervius_java_bridge::decompiler::{CachedSource, DecompiledSourceLanguage};
 use pervius_java_bridge::error::BridgeError;
 use workspace::Workspace;
 
 pub(crate) use export::ExportingState;
+
+pub(crate) fn editor_source_language(language: DecompiledSourceLanguage) -> Language {
+    match language {
+        DecompiledSourceLanguage::Java => Language::Java,
+        DecompiledSourceLanguage::Kotlin => Language::Kotlin,
+    }
+}
 
 pub(crate) enum CacheDeleteResult {
     Single {
